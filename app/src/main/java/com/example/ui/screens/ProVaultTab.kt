@@ -77,9 +77,17 @@ import com.example.ui.theme.HairlinePlatinum
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalAppFontFamily
 import com.example.ui.theme.LocalHudTheme
+import com.example.ui.theme.MetallicSilver
 import com.example.ui.theme.MutedIvory
 import com.example.ui.theme.MutedPlatinum
 import com.example.ui.theme.ObsidianBlack
+import com.example.ui.theme.ObsidianDarkBackground
+import com.example.ui.theme.ObsidianDarkBorder
+import com.example.ui.theme.ObsidianDarkEmeraldAccent
+import com.example.ui.theme.ObsidianDarkPrimarySurface
+import com.example.ui.theme.ObsidianDarkPrimaryText
+import com.example.ui.theme.ObsidianDarkSecondarySurface
+import com.example.ui.theme.ObsidianDarkSilver
 import com.example.ui.theme.RichGraphite
 import com.example.ui.theme.SophisticatedEmerald
 import com.example.ui.theme.WarmIvory
@@ -105,36 +113,34 @@ private data class ProTierPlan(
 private val PRO_TIER_PLANS = listOf(
     ProTierPlan(
         id = "gold_monthly",
-        title = "PRO Gold Edition",
+        title = "PRO Silver Edition",
         priceDisplay = "₹30/month",
         amountInr = 30,
         cycleLabel = "Billed monthly · Cancel anytime",
-        badgeText = "CHAMPAGNE GOLD TIER",
-        tagline = "Full J.A.R.V.I.S. Voice Copilot + Sovereign Themes",
-        accentColor = ChampagneGold,
+        badgeText = "OBSIDIAN SILVER TIER",
+        tagline = "Full J.A.R.V.I.S. Voice Copilot + Obsidian Themes",
+        accentColor = ObsidianDarkSilver,
         rimColors = listOf(
-            ChampagneGoldSoft,
-            ChampagneGold,
-            Color(0xFF8C7143),
-            ChampagneGold
+            ObsidianDarkSilver,
+            ObsidianDarkBorder,
+            ObsidianDarkSilver
         ),
         tierKey = "gold",
         durationDays = 30
     ),
     ProTierPlan(
         id = "platinum_quarterly",
-        title = "PRO Platinum Elite",
+        title = "PRO Obsidian Elite",
         priceDisplay = "₹99/3 months",
         amountInr = 99,
         cycleLabel = "Quarterly Private Banking Pass · Priority AI Core",
-        badgeText = "PLATINUM ELITE · PREFERRED",
-        tagline = "Sovereign Titanium Reserve + Unlimited Split Khata",
-        accentColor = MutedPlatinum,
+        badgeText = "OBSIDIAN ELITE · PREFERRED",
+        tagline = "Obsidian Titanium Reserve + Unlimited Split Khata",
+        accentColor = ObsidianDarkEmeraldAccent,
         rimColors = listOf(
-            WarmIvory,
-            MutedPlatinum,
-            Color(0xFF52565E),
-            ChampagneGold
+            ObsidianDarkEmeraldAccent,
+            ObsidianDarkSilver,
+            ObsidianDarkEmeraldAccent
         ),
         tierKey = "platinum",
         durationDays = 90
@@ -151,27 +157,27 @@ private data class ProFeatureHighlight(
 private val PRO_FEATURE_HIGHLIGHTS = listOf(
     ProFeatureHighlight(
         title = "J.A.R.V.I.S. Uncapped Voice Analytics",
-        subtitle = "Unlimited Hindi, Hinglish & English spoken coaching and real-time spend roasts",
+        subtitle = "Unlimited Hindi, Hinglish & English spoken coaching and real-time spend insights",
         icon = Icons.Default.AutoAwesome,
-        tint = ChampagneGold
+        tint = ObsidianDarkEmeraldAccent
     ),
     ProFeatureHighlight(
-        title = "Custom Metallic HUD Themes",
-        subtitle = "Unlock Sovereign Champagne, Platinum Reserve, Geneva Emerald & Imperial Rose Gold",
+        title = "Obsidian Luxury HUD Themes",
+        subtitle = "Switch seamlessly between Obsidian Dark, Obsidian Light, Metallic Silver & Carbon Slate",
         icon = Icons.Default.Palette,
-        tint = MutedPlatinum
+        tint = ObsidianDarkSilver
     ),
     ProFeatureHighlight(
         title = "Unlimited Split Khata Ledgers",
         subtitle = "Track unlimited friend group splits, 1-tap UPI settlements & WhatsApp reminders",
         icon = Icons.Default.Groups,
-        tint = SophisticatedEmerald
+        tint = ObsidianDarkEmeraldAccent
     ),
     ProFeatureHighlight(
         title = "Zero Ads",
-        subtitle = "100% distraction-free sovereign black titanium private banking experience",
+        subtitle = "100% distraction-free matte-black and metallic-silver private banking experience",
         icon = Icons.Default.Verified,
-        tint = WarmIvory
+        tint = ObsidianDarkPrimaryText
     )
 )
 
@@ -223,7 +229,7 @@ fun ProVaultTab(
 
     val dateFormat = remember { SimpleDateFormat("dd MMM yyyy", Locale.US) }
     val expiryFormatted = remember(settings.proExpiryMillis) {
-        if (settings.proExpiryMillis > 0L) dateFormat.format(Date(settings.proExpiryMillis)) else "Active Sovereign Tier"
+        if (settings.proExpiryMillis > 0L) dateFormat.format(Date(settings.proExpiryMillis)) else "Active Obsidian Tier"
     }
 
     LazyColumn(
@@ -234,33 +240,33 @@ fun ProVaultTab(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Sovereign Obsidian VIP Discipline Card
+        // Obsidian Luxury Matte-Black & Metallic-Silver Discipline Card
         item {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .shadow(20.dp, RoundedCornerShape(24.dp))
-                    .clip(RoundedCornerShape(24.dp))
+                    .shadow(18.dp, RoundedCornerShape(20.dp))
+                    .clip(RoundedCornerShape(20.dp))
                     .background(
                         Brush.linearGradient(
                             colors = listOf(
-                                ObsidianBlack,
-                                RichGraphite,
-                                ElevatedGraphite,
-                                ObsidianBlack
+                                ObsidianDarkBackground,
+                                ObsidianDarkPrimarySurface,
+                                ObsidianDarkSecondarySurface,
+                                ObsidianDarkBackground
                             )
                         )
                     )
                     .border(
-                        width = 1.2.dp,
+                        width = 1.dp,
                         brush = Brush.linearGradient(
                             colors = listOf(
-                                ChampagneGold,
-                                MutedPlatinum.copy(alpha = 0.55f),
-                                ChampagneGold.copy(alpha = 0.7f)
+                                ObsidianDarkSilver.copy(alpha = 0.6f),
+                                ObsidianDarkBorder,
+                                ObsidianDarkEmeraldAccent.copy(alpha = 0.45f)
                             )
                         ),
-                        shape = RoundedCornerShape(24.dp)
+                        shape = RoundedCornerShape(20.dp)
                     )
                     .padding(22.dp)
             ) {
@@ -271,28 +277,28 @@ fun ProVaultTab(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Surface(
-                            color = ChampagneGold.copy(alpha = 0.14f),
+                            color = ObsidianDarkSecondarySurface,
                             shape = RoundedCornerShape(50),
-                            modifier = Modifier.border(0.8.dp, HairlineGold, RoundedCornerShape(50))
+                            modifier = Modifier.border(0.8.dp, ObsidianDarkBorder, RoundedCornerShape(50))
                         ) {
                             Text(
                                 text = if (settings.isPro) {
-                                    "👑 ACTIVE: ${if (settings.proTier == "platinum") "PRO PLATINUM ELITE" else "PRO GOLD"} · VALID UNTIL $expiryFormatted"
+                                    "ACTIVE: ${if (settings.proTier == "platinum") "PRO OBSIDIAN ELITE" else "PRO SILVER"} · VALID UNTIL $expiryFormatted"
                                 } else {
-                                    "★ SOVEREIGN PRIVATE CLUB PASS (STANDARD)"
+                                    "OBSIDIAN PRIVATE CLUB PASS (STANDARD)"
                                 },
                                 fontFamily = JetBrainsMonoFontFamily,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 letterSpacing = 1.sp,
-                                color = ChampagneGold,
+                                color = ObsidianDarkSilver,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
                             )
                         }
                         Text(
                             text = hud.symbol,
-                            fontSize = 20.sp,
-                            color = ChampagneGold
+                            fontSize = 18.sp,
+                            color = ObsidianDarkSilver
                         )
                     }
 
@@ -304,7 +310,7 @@ fun ProVaultTab(
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Medium,
                         letterSpacing = 1.2.sp,
-                        color = MutedPlatinum
+                        color = ObsidianDarkSilver
                     )
                     Row(
                         verticalAlignment = Alignment.Bottom,
@@ -314,7 +320,7 @@ fun ProVaultTab(
                             text = "$disciplineScore",
                             fontFamily = headingFont,
                             style = MaterialTheme.typography.displayLarge,
-                            color = WarmIvory,
+                            color = ObsidianDarkPrimaryText,
                             fontWeight = FontWeight.ExtraBold
                         )
                         Text(
@@ -322,7 +328,7 @@ fun ProVaultTab(
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
-                            color = SophisticatedEmerald,
+                            color = ObsidianDarkEmeraldAccent,
                             modifier = Modifier.padding(bottom = 6.dp)
                         )
                     }
@@ -341,14 +347,14 @@ fun ProVaultTab(
                                 fontSize = 8.sp,
                                 fontWeight = FontWeight.Medium,
                                 letterSpacing = 1.sp,
-                                color = MutedIvory
+                                color = ObsidianDarkSilver.copy(alpha = 0.75f)
                             )
                             Text(
                                 text = userDisplayName.uppercase(),
                                 fontFamily = JetBrainsMonoFontFamily,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 13.sp,
-                                color = WarmIvory
+                                color = ObsidianDarkPrimaryText
                             )
                         }
                         Column(horizontalAlignment = Alignment.End) {
@@ -358,14 +364,14 @@ fun ProVaultTab(
                                 fontSize = 8.sp,
                                 fontWeight = FontWeight.Medium,
                                 letterSpacing = 1.sp,
-                                color = MutedIvory
+                                color = ObsidianDarkSilver.copy(alpha = 0.75f)
                             )
                             Text(
                                 text = hud.name.uppercase(),
                                 fontFamily = JetBrainsMonoFontFamily,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 12.sp,
-                                color = ChampagneGold
+                                color = ObsidianDarkSilver
                             )
                         }
                     }

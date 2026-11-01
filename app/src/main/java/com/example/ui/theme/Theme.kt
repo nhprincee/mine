@@ -4,13 +4,14 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
@@ -27,6 +28,13 @@ fun KharcheeTheme(
         FontPreferenceManager.ensureInitialized(context)
     }
 
+    val hudTheme = getHudThemeById(themeId)
+    val isLight = hudTheme.isLight
+    ObsidianThemeState.isLightMode = isLight
+    SideEffect {
+        ObsidianThemeState.isLightMode = isLight
+    }
+
     val savedFontId by FontPreferenceManager.selectedFontId.collectAsStateWithLifecycle()
     val effectiveFontId = fontIdOverride ?: savedFontId
     val fontOption = remember(effectiveFontId) { getAppFontOptionById(effectiveFontId) }
@@ -37,22 +45,41 @@ fun KharcheeTheme(
         )
     }
 
-    val hudTheme = getHudThemeById(themeId)
-    val colorScheme = darkColorScheme(
-        primary = hudTheme.accent,
-        onPrimary = ObsidianBlack,
-        secondary = hudTheme.secondaryAccent,
-        onSecondary = ObsidianBlack,
-        tertiary = SophisticatedEmerald,
-        background = hudTheme.background,
-        onBackground = WarmIvory,
-        surface = hudTheme.surface,
-        onSurface = WarmIvory,
-        surfaceVariant = hudTheme.surfaceElevated,
-        onSurfaceVariant = MutedPlatinum,
-        error = CrimsonRuby,
-        onError = WarmIvory
-    )
+    val colorScheme = if (isLight) {
+        lightColorScheme(
+            primary = ObsidianLightEmeraldAccent,
+            onPrimary = ObsidianLightPrimarySurface,
+            secondary = ObsidianLightPositive,
+            onSecondary = ObsidianLightPrimarySurface,
+            tertiary = ObsidianLightSilver,
+            background = ObsidianLightBackground,
+            onBackground = ObsidianLightPrimaryText,
+            surface = ObsidianLightPrimarySurface,
+            onSurface = ObsidianLightPrimaryText,
+            surfaceVariant = ObsidianLightSecondarySurface,
+            onSurfaceVariant = ObsidianLightSecondaryText,
+            outline = ObsidianLightBorder,
+            error = ObsidianLightNegative,
+            onError = ObsidianLightPrimarySurface
+        )
+    } else {
+        darkColorScheme(
+            primary = hudTheme.accent,
+            onPrimary = ObsidianDarkBackground,
+            secondary = hudTheme.secondaryAccent,
+            onSecondary = ObsidianDarkBackground,
+            tertiary = ObsidianDarkPositive,
+            background = hudTheme.background,
+            onBackground = ObsidianDarkPrimaryText,
+            surface = hudTheme.surface,
+            onSurface = ObsidianDarkPrimaryText,
+            surfaceVariant = hudTheme.surfaceElevated,
+            onSurfaceVariant = ObsidianDarkSecondaryText,
+            outline = ObsidianDarkBorder,
+            error = ObsidianDarkNegative,
+            onError = ObsidianDarkPrimaryText
+        )
+    }
 
     CompositionLocalProvider(
         LocalHudTheme provides hudTheme,

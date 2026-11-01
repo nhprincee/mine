@@ -13,20 +13,14 @@ import android.speech.tts.UtteranceProgressListener
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -52,7 +46,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.GraphicEq
@@ -84,39 +77,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.example.R
 import com.example.data.model.JarvisChatMessage
 import com.example.data.model.ProactiveFinancialInsight
-import com.example.ui.theme.ChampagneGold
-import com.example.ui.theme.CrimsonRuby
-import com.example.ui.theme.ElevatedGraphite
-import com.example.ui.theme.HairlineGold
-import com.example.ui.theme.HairlinePlatinum
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalAppFontFamily
-import com.example.ui.theme.MutedIvory
-import com.example.ui.theme.MutedPlatinum
-import com.example.ui.theme.ObsidianBlack
-import com.example.ui.theme.RichGraphite
-import com.example.ui.theme.SophisticatedEmerald
-import com.example.ui.theme.WarmIvory
 import com.example.ui.viewmodel.JarvisErrorState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.math.abs
-import kotlin.math.sin
 
 private data class JarvisQuickPrompt(
     val id: String,
@@ -202,17 +181,6 @@ fun JarvisAssistantOverlay(
             inputText = initialPrompt
         }
     }
-
-    val infiniteTransition = rememberInfiniteTransition(label = "jarvisCorePulse")
-    val pulsePhase by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1600, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulsePhase"
-    )
 
     BackHandler(onBack = onClose)
 
@@ -472,48 +440,56 @@ fun JarvisAssistantOverlay(
         }
     }
 
-    val activeStateColor = when {
-        isListening -> CrimsonRuby
-        isSpeaking -> ChampagneGold
-        isGenerating -> SophisticatedEmerald
-        else -> ChampagneGold
-    }
+    val coreStatus = resolveJarvisCoreStatus(
+        isListening = isListening,
+        isThinking = isGenerating,
+        isSpeaking = isSpeaking
+    )
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(ObsidianBlack.copy(alpha = 0.94f))
+            .background(JarvisAbyssBlack.copy(alpha = 0.96f))
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .imePadding()
             .testTag("jarvis_assistant_overlay"),
         contentAlignment = Alignment.Center
     ) {
+        val availableHeight = maxHeight
+        val isWideScreen = maxWidth >= 640.dp
+        val reactorVisualSize = when {
+            availableHeight < 560.dp -> 124.dp
+            availableHeight < 720.dp -> 156.dp
+            isWideScreen -> 200.dp
+            else -> 178.dp
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .widthIn(max = 680.dp)
-                .padding(horizontal = 10.dp, vertical = 8.dp)
-                .shadow(28.dp, RoundedCornerShape(26.dp))
+                .widthIn(max = 760.dp)
+                .padding(horizontal = if (isWideScreen) 18.dp else 8.dp, vertical = 6.dp)
+                .shadow(32.dp, RoundedCornerShape(26.dp))
                 .clip(RoundedCornerShape(26.dp))
-                .background(ObsidianBlack)
+                .background(JarvisAbyssBlack)
                 .border(
                     width = 1.dp,
                     brush = Brush.linearGradient(
                         listOf(
-                            ChampagneGold.copy(alpha = 0.65f),
-                            MutedPlatinum.copy(alpha = 0.3f),
-                            ChampagneGold.copy(alpha = 0.55f)
+                            JarvisCyanPrimary.copy(alpha = 0.65f),
+                            JarvisHairlineCyan,
+                            JarvisCyanAccent.copy(alpha = 0.55f)
                         )
                     ),
                     shape = RoundedCornerShape(26.dp)
                 )
         ) {
-            // --- LUXURY AI CONCIERGE HEADER ---
+            // --- FUTURISTIC BLACK & CYAN-BLUE JARVIS HEADER ---
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(RichGraphite)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .background(JarvisPanelBlack)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -521,40 +497,22 @@ fun JarvisAssistantOverlay(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
-                    // Animated Acoustic Neural Orb
                     Box(
-                        modifier = Modifier.size(46.dp),
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(JarvisReactorBlack)
+                            .border(1.dp, JarvisCyanPrimary.copy(alpha = 0.8f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val radius = (size.minDimension / 2f) * (0.75f + 0.22f * pulsePhase)
-                            drawCircle(
-                                color = activeStateColor.copy(alpha = 0.18f),
-                                radius = radius
-                            )
-                            drawCircle(
-                                color = activeStateColor.copy(alpha = 0.5f),
-                                radius = size.minDimension * 0.42f,
-                                style = Stroke(width = 1.2.dp.toPx())
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(ElevatedGraphite)
-                                .border(0.8.dp, activeStateColor, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = "J.A.R.V.I.S. AI Core",
-                                tint = activeStateColor,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
+                        Image(
+                            painter = painterResource(id = R.drawable.jarvis_reactor_core),
+                            contentDescription = "J.A.R.V.I.S. Reactor Emblem",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -562,42 +520,41 @@ fun JarvisAssistantOverlay(
                                 fontFamily = headingFont,
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = WarmIvory,
-                                letterSpacing = 1.5.sp,
-                                fontSize = 18.sp
+                                color = JarvisTextWhite,
+                                letterSpacing = 1.8.sp,
+                                fontSize = 17.sp
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Surface(
-                                color = activeStateColor.copy(alpha = 0.14f),
+                                color = JarvisCyanPrimary.copy(alpha = 0.14f),
                                 shape = RoundedCornerShape(50),
-                                modifier = Modifier.border(0.8.dp, activeStateColor.copy(alpha = 0.45f), RoundedCornerShape(50))
+                                modifier = Modifier.border(
+                                    0.8.dp,
+                                    JarvisCyanPrimary.copy(alpha = 0.55f),
+                                    RoundedCornerShape(50)
+                                )
                             ) {
                                 Text(
-                                    text = when {
-                                        isSpeaking -> "🔊 SPEAKING"
-                                        isListening -> "🎙️ LISTENING"
-                                        isGenerating -> "◆ ANALYZING"
-                                        else -> "CONCIERGE ONLINE"
-                                    },
+                                    text = coreStatus.label,
                                     fontFamily = JetBrainsMonoFontFamily,
                                     fontSize = 9.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    letterSpacing = 0.8.sp,
-                                    color = activeStateColor,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.2.sp,
+                                    color = JarvisCyanBright,
                                     modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
                                 )
                             }
                         }
                         Text(
-                            text = "Private Wealth Intelligence · Hindi · Hinglish · English",
+                            text = "Stark Neural Wealth Core · Hindi · Hinglish · English",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MutedIvory,
+                            color = JarvisTextSecondary,
                             fontSize = 11.sp
                         )
                     }
                 }
 
-                // Voice Controls: Mute/Unmute, Replay, Stop Speaking, Clear, Close
+                // Voice & Session Controls
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
@@ -615,7 +572,7 @@ fun JarvisAssistantOverlay(
                         Icon(
                             imageVector = if (isVoiceMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
                             contentDescription = if (isVoiceMuted) "Unmute Spoken Voice" else "Mute Spoken Voice",
-                            tint = if (isVoiceMuted) CrimsonRuby else ChampagneGold,
+                            tint = if (isVoiceMuted) JarvisAlertCrimson else JarvisCyanPrimary,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -635,7 +592,7 @@ fun JarvisAssistantOverlay(
                         Icon(
                             imageVector = Icons.Default.Replay,
                             contentDescription = "Replay Last Spoken Response",
-                            tint = if (lastSpokenMessage.isNotBlank()) MutedPlatinum else MutedIvory.copy(alpha = 0.4f),
+                            tint = if (lastSpokenMessage.isNotBlank()) JarvisCyanBright else JarvisTextSecondary.copy(alpha = 0.35f),
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -650,7 +607,7 @@ fun JarvisAssistantOverlay(
                             Icon(
                                 imageVector = Icons.Default.StopCircle,
                                 contentDescription = "Stop Speaking",
-                                tint = CrimsonRuby,
+                                tint = JarvisAlertCrimson,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
@@ -669,7 +626,7 @@ fun JarvisAssistantOverlay(
                             Icon(
                                 imageVector = Icons.Default.DeleteSweep,
                                 contentDescription = "Clear Conversation History",
-                                tint = MutedIvory,
+                                tint = JarvisTextSecondary,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -687,68 +644,31 @@ fun JarvisAssistantOverlay(
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close J.A.R.V.I.S.",
-                            tint = WarmIvory,
+                            tint = JarvisTextWhite,
                             modifier = Modifier.size(22.dp)
                         )
                     }
                 }
             }
 
-            HorizontalDivider(color = HairlinePlatinum, thickness = 0.6.dp)
+            HorizontalDivider(color = JarvisHairlineCyan, thickness = 0.8.dp)
 
-            // Animated Acoustic Waveform Visualizer when Listening or Speaking
-            AnimatedVisibility(visible = isListening || isSpeaking) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(ElevatedGraphite)
-                        .padding(horizontal = 18.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = if (isListening) "🎙️ LISTENING TO VOICE COMMAND..." else "🔊 J.A.R.V.I.S. VOICE SYNTHESIS ACTIVE",
-                        fontFamily = JetBrainsMonoFontFamily,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 0.8.sp,
-                        color = activeStateColor
-                    )
-                    Canvas(modifier = Modifier.width(88.dp).height(18.dp)) {
-                        val barCount = 12
-                        val barWidth = 4.dp.toPx()
-                        val gap = (size.width - barCount * barWidth) / (barCount - 1)
-                        for (i in 0 until barCount) {
-                            val wave = abs(sin((pulsePhase * 6.28f) + i * 0.55f)).toFloat()
-                            val barH = (size.height * (0.25f + 0.75f * wave)).coerceAtLeast(4f)
-                            val topY = (size.height - barH) / 2f
-                            drawRoundRect(
-                                color = activeStateColor,
-                                topLeft = Offset(i * (barWidth + gap), topY),
-                                size = Size(barWidth, barH),
-                                cornerRadius = CornerRadius(4f, 4f)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // --- PERSONA MODE + LANGUAGE + LIVE TELEMETRY STRIP ---
+            // --- TELEMETRY + PERSONA MODE + LANGUAGE BAR ---
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(RichGraphite.copy(alpha = 0.65f))
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .background(JarvisPanelBlack.copy(alpha = 0.85f))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TelemetryMiniBadge(label = "TODAY", value = "₹$todaySpent / ₹$dailyLimit", color = WarmIvory)
-                    TelemetryMiniBadge(label = "MONTH", value = "₹$monthSpent", color = ChampagneGold)
-                    TelemetryMiniBadge(label = "DISCIPLINE", value = "$disciplineScore", color = SophisticatedEmerald)
+                    TelemetryMiniBadge(label = "TODAY", value = "₹$todaySpent / ₹$dailyLimit", color = JarvisTextWhite)
+                    TelemetryMiniBadge(label = "MONTH", value = "₹$monthSpent", color = JarvisCyanPrimary)
+                    TelemetryMiniBadge(label = "DISCIPLINE", value = "$disciplineScore", color = JarvisCyanBright)
                 }
 
                 Row(
@@ -764,12 +684,12 @@ fun JarvisAssistantOverlay(
                     ).forEach { (modeKey, modeLabel) ->
                         val selected = activeMode == modeKey
                         Surface(
-                            color = if (selected) ChampagneGold.copy(alpha = 0.16f) else ElevatedGraphite,
+                            color = if (selected) JarvisCyanPrimary.copy(alpha = 0.16f) else JarvisElevatedSurface,
                             shape = RoundedCornerShape(50),
                             modifier = Modifier
                                 .border(
                                     0.8.dp,
-                                    if (selected) ChampagneGold else HairlinePlatinum,
+                                    if (selected) JarvisCyanPrimary else JarvisHairlineCyan,
                                     RoundedCornerShape(50)
                                 )
                                 .clickable { onSelectMode(modeKey) }
@@ -779,8 +699,8 @@ fun JarvisAssistantOverlay(
                                 text = modeLabel,
                                 fontSize = 11.sp,
                                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                                color = if (selected) ChampagneGold else MutedPlatinum,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                color = if (selected) JarvisCyanBright else JarvisTextSecondary,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
                             )
                         }
                     }
@@ -792,12 +712,12 @@ fun JarvisAssistantOverlay(
                     ).forEach { (langKey, langLabel) ->
                         val selected = activeLanguage == langKey
                         Surface(
-                            color = if (selected) MutedPlatinum.copy(alpha = 0.18f) else ElevatedGraphite,
+                            color = if (selected) JarvisCyanAccent.copy(alpha = 0.18f) else JarvisElevatedSurface,
                             shape = RoundedCornerShape(50),
                             modifier = Modifier
                                 .border(
                                     0.8.dp,
-                                    if (selected) MutedPlatinum else HairlinePlatinum,
+                                    if (selected) JarvisCyanBright else JarvisHairlineCyan,
                                     RoundedCornerShape(50)
                                 )
                                 .clickable { onSelectLanguage(langKey) }
@@ -807,22 +727,20 @@ fun JarvisAssistantOverlay(
                                 text = langLabel,
                                 fontSize = 11.sp,
                                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                                color = if (selected) WarmIvory else MutedIvory,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                color = if (selected) JarvisTextWhite else JarvisTextSecondary,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
                             )
                         }
                     }
                 }
             }
 
-            HorizontalDivider(color = HairlinePlatinum, thickness = 0.6.dp)
-
             if (voiceStatusBanner != null) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(ElevatedGraphite)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .background(JarvisElevatedSurface)
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -833,20 +751,20 @@ fun JarvisAssistantOverlay(
                         Icon(
                             imageVector = Icons.Default.GraphicEq,
                             contentDescription = "Voice Status",
-                            tint = ChampagneGold,
+                            tint = JarvisCyanPrimary,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = voiceStatusBanner!!,
                             style = MaterialTheme.typography.bodySmall,
-                            color = WarmIvory,
+                            color = JarvisTextWhite,
                             fontSize = 11.sp
                         )
                     }
                     Text(
                         text = "Dismiss",
-                        color = ChampagneGold,
+                        color = JarvisCyanPrimary,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier
@@ -856,30 +774,40 @@ fun JarvisAssistantOverlay(
                 }
             }
 
-            // --- CONVERSATION MESSAGES AREA ---
+            // --- PROMINENT CENTRAL JARVIS AI CORE REACTOR VISUAL ---
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(JarvisAbyssBlack)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                JarvisHolographicOrbVisualizer(
+                    isListening = isListening,
+                    isThinking = isGenerating,
+                    isSpeaking = isSpeaking,
+                    activeMode = activeMode,
+                    activeLanguage = activeLanguage,
+                    lastSpokenPreview = lastSpokenMessage,
+                    onToggleMic = { handleMicButtonClick() },
+                    onStopSpeaking = { stopSpeaking() },
+                    reactorSize = reactorVisualSize
+                )
+            }
+
+            HorizontalDivider(color = JarvisHairlineCyan, thickness = 0.8.dp)
+
+            // --- ACCESSIBLE CHAT HISTORY BELOW THE REACTOR VISUAL ---
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .background(ObsidianBlack)
+                    .background(JarvisAbyssBlack)
                     .testTag("jarvis_message_list"),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                item {
-                    JarvisHolographicOrbVisualizer(
-                        isListening = isListening,
-                        isThinking = isGenerating,
-                        isSpeaking = isSpeaking,
-                        activeMode = activeMode,
-                        activeLanguage = activeLanguage,
-                        lastSpokenPreview = lastSpokenMessage,
-                        onToggleMic = { handleMicButtonClick() },
-                        onStopSpeaking = { stopSpeaking() }
-                    )
-                }
-
                 if (pendingProposedAction != null) {
                     item {
                         JarvisActionConfirmationCard(
@@ -939,24 +867,23 @@ fun JarvisAssistantOverlay(
                 }
             }
 
-            HorizontalDivider(color = HairlinePlatinum, thickness = 0.6.dp)
+            HorizontalDivider(color = JarvisHairlineCyan, thickness = 0.8.dp)
 
             // --- QUICK SUGGESTION & PROACTIVE CHIPS ---
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(RichGraphite)
+                    .background(JarvisPanelBlack)
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Dynamic Proactive Insights
                 proactiveInsights.forEach { insight ->
                     Surface(
-                        color = ElevatedGraphite,
+                        color = JarvisElevatedSurface,
                         shape = RoundedCornerShape(50),
                         modifier = Modifier
-                            .border(1.dp, ChampagneGold, RoundedCornerShape(50))
+                            .border(1.dp, JarvisCyanPrimary, RoundedCornerShape(50))
                             .clickable(enabled = !isGenerating) {
                                 onSendMessage(insight.suggestedPrompt)
                             }
@@ -971,7 +898,7 @@ fun JarvisAssistantOverlay(
                             Text(
                                 text = insight.title,
                                 style = MaterialTheme.typography.labelMedium,
-                                color = ChampagneGold,
+                                color = JarvisCyanBright,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 11.sp
                             )
@@ -981,10 +908,10 @@ fun JarvisAssistantOverlay(
 
                 JARVIS_QUICK_PROMPTS.forEach { item ->
                     Surface(
-                        color = ElevatedGraphite,
+                        color = JarvisElevatedSurface,
                         shape = RoundedCornerShape(50),
                         modifier = Modifier
-                            .border(0.8.dp, HairlineGold, RoundedCornerShape(50))
+                            .border(0.8.dp, JarvisHairlineCyan, RoundedCornerShape(50))
                             .clickable(enabled = !isGenerating) {
                                 onSendMessage(item.prompt)
                             }
@@ -993,7 +920,7 @@ fun JarvisAssistantOverlay(
                         Text(
                             text = item.label,
                             style = MaterialTheme.typography.labelMedium,
-                            color = WarmIvory,
+                            color = JarvisTextWhite,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 11.sp,
                             modifier = Modifier.padding(horizontal = 13.dp, vertical = 6.dp)
@@ -1002,11 +929,11 @@ fun JarvisAssistantOverlay(
                 }
             }
 
-            // --- BOTTOM COMPOSER BAR (VOICE + TEXT INPUT + SEND) ---
+            // --- BOTTOM COMPOSER BAR (CLEAR MICROPHONE BUTTON + TEXT INPUT + SEND) ---
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(RichGraphite)
+                    .background(JarvisPanelBlack)
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1017,12 +944,12 @@ fun JarvisAssistantOverlay(
                         .size(48.dp)
                         .clip(CircleShape)
                         .background(
-                            if (isListening) CrimsonRuby.copy(alpha = 0.22f)
-                            else ElevatedGraphite
+                            if (isListening) JarvisCyanPrimary.copy(alpha = 0.24f)
+                            else JarvisElevatedSurface
                         )
                         .border(
-                            0.8.dp,
-                            if (isListening) CrimsonRuby else ChampagneGold,
+                            1.2.dp,
+                            if (isListening) JarvisCyanBright else JarvisCyanPrimary,
                             CircleShape
                         )
                         .testTag("jarvis_voice_mic_button")
@@ -1030,8 +957,8 @@ fun JarvisAssistantOverlay(
                     Icon(
                         imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
                         contentDescription = if (isListening) "Stop Voice Input" else "Start Voice Input",
-                        tint = if (isListening) CrimsonRuby else ChampagneGold,
-                        modifier = Modifier.size(21.dp)
+                        tint = if (isListening) JarvisCyanBright else JarvisCyanPrimary,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
 
@@ -1046,18 +973,19 @@ fun JarvisAssistantOverlay(
                                 else -> "Ask Jarvis in Hinglish, Hindi or English..."
                             },
                             fontSize = 13.sp,
-                            color = MutedIvory
+                            color = JarvisTextSecondary
                         )
                     },
                     singleLine = false,
                     maxLines = 3,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = ChampagneGold,
-                        unfocusedBorderColor = HairlinePlatinum,
-                        focusedTextColor = WarmIvory,
-                        unfocusedTextColor = WarmIvory,
-                        focusedContainerColor = ObsidianBlack,
-                        unfocusedContainerColor = ObsidianBlack
+                        focusedBorderColor = JarvisCyanPrimary,
+                        unfocusedBorderColor = JarvisHairlineCyan,
+                        focusedTextColor = JarvisTextWhite,
+                        unfocusedTextColor = JarvisTextWhite,
+                        focusedContainerColor = JarvisAbyssBlack,
+                        unfocusedContainerColor = JarvisAbyssBlack,
+                        cursorColor = JarvisCyanPrimary
                     ),
                     shape = RoundedCornerShape(18.dp),
                     modifier = Modifier
@@ -1078,14 +1006,19 @@ fun JarvisAssistantOverlay(
                         .size(48.dp)
                         .clip(CircleShape)
                         .background(
-                            if (inputText.isNotBlank() && !isGenerating) ChampagneGold
-                            else ElevatedGraphite
+                            if (inputText.isNotBlank() && !isGenerating) JarvisCyanPrimary
+                            else JarvisElevatedSurface
+                        )
+                        .border(
+                            0.8.dp,
+                            if (inputText.isNotBlank() && !isGenerating) JarvisCyanBright else JarvisHairlineCyan,
+                            CircleShape
                         )
                         .testTag("jarvis_send_message_button")
                 ) {
                     if (isGenerating) {
                         CircularProgressIndicator(
-                            color = ChampagneGold,
+                            color = JarvisCyanPrimary,
                             strokeWidth = 2.dp,
                             modifier = Modifier.size(20.dp)
                         )
@@ -1093,7 +1026,7 @@ fun JarvisAssistantOverlay(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Send,
                             contentDescription = "Send Message to J.A.R.V.I.S.",
-                            tint = if (inputText.isNotBlank()) ObsidianBlack else MutedIvory,
+                            tint = if (inputText.isNotBlank()) JarvisAbyssBlack else JarvisTextSecondary,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -1120,7 +1053,7 @@ private fun TelemetryMiniBadge(
             fontSize = 9.sp,
             fontWeight = FontWeight.Medium,
             letterSpacing = 0.6.sp,
-            color = MutedIvory
+            color = JarvisTextSecondary
         )
         Text(
             text = value,
@@ -1144,33 +1077,33 @@ private fun JarvisWelcomeCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(RichGraphite)
-            .border(0.8.dp, HairlineGold, RoundedCornerShape(20.dp))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(JarvisPanelBlack)
+            .border(0.8.dp, JarvisHairlineCyan, RoundedCornerShape(18.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
-            text = "SOVEREIGN AI WEALTH CONCIERGE",
+            text = "STARK AI WEALTH INTELLIGENCE",
             fontFamily = JetBrainsMonoFontFamily,
             fontSize = 9.sp,
             fontWeight = FontWeight.Medium,
             letterSpacing = 1.2.sp,
-            color = ChampagneGold
+            color = JarvisCyanPrimary
         )
         Text(
             text = "At Your Service, $userDisplayName",
             fontFamily = headingFont,
-            style = MaterialTheme.typography.titleLarge,
-            color = WarmIvory,
+            style = MaterialTheme.typography.titleMedium,
+            color = JarvisTextWhite,
             fontWeight = FontWeight.ExtraBold
         )
         Text(
             text = "Synchronized with your live Kharchee ledger (Today: ₹$todaySpent / ₹$dailyLimit · Month: ₹$monthSpent). Converse in Hindi (हिंदी), Hinglish, or English—or tap the microphone for hands-free voice synthesis.",
             style = MaterialTheme.typography.bodyMedium,
-            color = MutedPlatinum,
-            fontSize = 13.sp,
-            lineHeight = 19.sp
+            color = JarvisTextSecondary,
+            fontSize = 12.sp,
+            lineHeight = 18.sp
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1181,8 +1114,8 @@ private fun JarvisWelcomeCard(
                     onSelectQuickPrompt("Analyze my actual expenses this month and tell me how to save more.")
                 },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = ChampagneGold,
-                    contentColor = ObsidianBlack
+                    containerColor = JarvisCyanPrimary,
+                    contentColor = JarvisAbyssBlack
                 ),
                 shape = RoundedCornerShape(12.dp),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
@@ -1195,14 +1128,14 @@ private fun JarvisWelcomeCard(
                     onSelectQuickPrompt("Mera aaj aur is mahine ka kharcha dekh ke Hinglish mein roast karo aur saving tip do!")
                 },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = ElevatedGraphite,
-                    contentColor = ChampagneGold
+                    containerColor = JarvisElevatedSurface,
+                    contentColor = JarvisCyanBright
                 ),
                 shape = RoundedCornerShape(12.dp),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 modifier = Modifier
                     .weight(1f)
-                    .border(0.8.dp, HairlineGold, RoundedCornerShape(12.dp))
+                    .border(0.8.dp, JarvisCyanPrimary.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
             ) {
                 Text("◆ Hinglish Roast", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
@@ -1237,11 +1170,11 @@ private fun JarvisMessageBubble(
                     )
                 )
                 .background(
-                    if (isUser) ElevatedGraphite else RichGraphite
+                    if (isUser) JarvisElevatedSurface else JarvisPanelBlack
                 )
                 .border(
                     0.8.dp,
-                    if (isUser) HairlineGold else HairlinePlatinum,
+                    if (isUser) JarvisCyanPrimary.copy(alpha = 0.55f) else JarvisHairlineCyan,
                     RoundedCornerShape(
                         topStart = 18.dp,
                         topEnd = 18.dp,
@@ -1262,7 +1195,7 @@ private fun JarvisMessageBubble(
                     fontSize = 9.sp,
                     letterSpacing = 0.8.sp,
                     fontWeight = FontWeight.Medium,
-                    color = if (isUser) ChampagneGold else MutedPlatinum
+                    color = if (isUser) JarvisCyanBright else JarvisCyanPrimary
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1270,15 +1203,15 @@ private fun JarvisMessageBubble(
                         text = timeStr,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Medium,
-                        color = MutedIvory
+                        color = JarvisTextSecondary
                     )
                     if (!isUser) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Row(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(ElevatedGraphite)
-                                .border(0.6.dp, HairlineGold, RoundedCornerShape(8.dp))
+                                .background(JarvisElevatedSurface)
+                                .border(0.6.dp, JarvisCyanPrimary.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
                                 .clickable { onSpeakMessage(message.text) }
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -1286,7 +1219,7 @@ private fun JarvisMessageBubble(
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.VolumeUp,
                                 contentDescription = "Speak or Replay Message",
-                                tint = ChampagneGold,
+                                tint = JarvisCyanPrimary,
                                 modifier = Modifier.size(12.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
@@ -1295,7 +1228,7 @@ private fun JarvisMessageBubble(
                                 fontFamily = JetBrainsMonoFontFamily,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = ChampagneGold
+                                color = JarvisCyanBright
                             )
                         }
                     }
@@ -1307,7 +1240,7 @@ private fun JarvisMessageBubble(
             Text(
                 text = message.text,
                 style = MaterialTheme.typography.bodyLarge,
-                color = WarmIvory,
+                color = JarvisTextWhite,
                 fontSize = 14.sp,
                 lineHeight = 21.sp
             )
@@ -1325,13 +1258,13 @@ private fun JarvisStreamingBubble(streamingText: String) {
             modifier = Modifier
                 .widthIn(max = 520.dp)
                 .clip(RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp))
-                .background(RichGraphite)
-                .border(0.8.dp, HairlineGold, RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp))
+                .background(JarvisPanelBlack)
+                .border(0.8.dp, JarvisCyanPrimary.copy(alpha = 0.6f), RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp))
                 .padding(15.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(
-                    color = ChampagneGold,
+                    color = JarvisCyanPrimary,
                     strokeWidth = 1.8.dp,
                     modifier = Modifier.size(14.dp)
                 )
@@ -1342,7 +1275,7 @@ private fun JarvisStreamingBubble(streamingText: String) {
                     fontSize = 9.sp,
                     letterSpacing = 0.8.sp,
                     fontWeight = FontWeight.Medium,
-                    color = ChampagneGold
+                    color = JarvisCyanBright
                 )
             }
             if (streamingText.isNotBlank()) {
@@ -1350,7 +1283,7 @@ private fun JarvisStreamingBubble(streamingText: String) {
                 Text(
                     text = streamingText,
                     style = MaterialTheme.typography.bodyLarge,
-                    color = WarmIvory,
+                    color = JarvisTextWhite,
                     fontSize = 14.sp,
                     lineHeight = 21.sp
                 )
@@ -1369,8 +1302,8 @@ private fun JarvisErrorBanner(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(RichGraphite)
-            .border(0.8.dp, CrimsonRuby.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+            .background(JarvisPanelBlack)
+            .border(0.8.dp, JarvisAlertCrimson.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -1378,7 +1311,7 @@ private fun JarvisErrorBanner(
             Icon(
                 imageVector = Icons.Default.WarningAmber,
                 contentDescription = "Error",
-                tint = CrimsonRuby,
+                tint = JarvisAlertCrimson,
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
@@ -1387,13 +1320,13 @@ private fun JarvisErrorBanner(
                 fontFamily = JetBrainsMonoFontFamily,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Medium,
-                color = CrimsonRuby
+                color = JarvisAlertCrimson
             )
         }
         Text(
             text = errorState.message,
             style = MaterialTheme.typography.bodyMedium,
-            color = WarmIvory,
+            color = JarvisTextWhite,
             fontSize = 13.sp
         )
         Row(
@@ -1403,8 +1336,8 @@ private fun JarvisErrorBanner(
             Button(
                 onClick = onRetry,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = ChampagneGold,
-                    contentColor = ObsidianBlack
+                    containerColor = JarvisCyanPrimary,
+                    contentColor = JarvisAbyssBlack
                 ),
                 shape = RoundedCornerShape(10.dp),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
@@ -1418,7 +1351,7 @@ private fun JarvisErrorBanner(
                 text = "Dismiss",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = MutedPlatinum,
+                color = JarvisTextSecondary,
                 modifier = Modifier
                     .clickable { onDismiss() }
                     .padding(horizontal = 8.dp, vertical = 6.dp)

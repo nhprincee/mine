@@ -12,35 +12,121 @@ import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Work
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 
-// Dark Emerald Fintech & Holographic Sovereign Palette
-val DeepForestAbyss = Color(0xFF030806)
-val ObsidianBlack = Color(0xFF040B08)
-val RichGraphite = Color(0xFF091712)
-val ElevatedGraphite = Color(0xFF10261D)
-val ForestGlassSurface = Color(0xFF143024)
+// ============================================================================
+// OBSIDIAN LUXURY DESIGN SYSTEM TOKENS — DARK MODE
+// ============================================================================
+val ObsidianDarkBackground = Color(0xFF080A0D)
+val ObsidianDarkPrimarySurface = Color(0xFF12161C)
+val ObsidianDarkSecondarySurface = Color(0xFF202630)
+val ObsidianDarkBorder = Color(0xFF303944)
+val ObsidianDarkPrimaryText = Color(0xFFF5F7FA)
+val ObsidianDarkSecondaryText = Color(0xFFA1AAB6)
+val ObsidianDarkMutedText = Color(0xFF84909E)
+val ObsidianDarkSilver = Color(0xFFC4CBD4)
+val ObsidianDarkEmeraldAccent = Color(0xFF00DFA5)
+val ObsidianDarkPositive = Color(0xFF00C98A)
+val ObsidianDarkNegative = Color(0xFFFF5364)
+val ObsidianDarkWarning = Color(0xFFF3B94F)
 
-// Primary Luminous Emerald Highlights (replaces gold overload with authentic emerald fintech glow)
-val ChampagneGold = Color(0xFF00E699)
-val ChampagneGoldSoft = Color(0xFF6FF7C8)
-val SophisticatedEmerald = Color(0xFF10B981)
-val EmeraldNeonGlow = Color(0xFF34D399)
-val DeepEmeraldAccent = Color(0xFF059669)
-val GoldReserveAccent = Color(0xFFD6B77A)
+// ============================================================================
+// OBSIDIAN LUXURY DESIGN SYSTEM TOKENS — LIGHT MODE
+// ============================================================================
+val ObsidianLightBackground = Color(0xFFF4F5F7)
+val ObsidianLightPrimarySurface = Color(0xFFFFFFFF)
+val ObsidianLightSecondarySurface = Color(0xFFEDF0F4)
+val ObsidianLightBorder = Color(0xFFE5E9EF)
+val ObsidianLightPrimaryText = Color(0xFF171B22)
+val ObsidianLightSecondaryText = Color(0xFF667085)
+val ObsidianLightMutedText = Color(0xFF667085)
+val ObsidianLightSilver = Color(0xFFC4CBD4)
+val ObsidianLightEmeraldAccent = Color(0xFF00A879)
+val ObsidianLightPositive = Color(0xFF008F68)
+val ObsidianLightNegative = Color(0xFFD9364F)
+val ObsidianLightWarning = Color(0xFFA96B00)
 
-// Crisp Alabaster & Frosted Sage Typography/Surface Accents
-val WarmIvory = Color(0xFFF0FDF7)
-val MutedPlatinum = Color(0xFFA7C7B9)
-val MutedIvory = Color(0xFF6C9282)
-val CrimsonRuby = Color(0xFFFF5A79)
+/**
+ * Tracks whether Obsidian Luxury Light Mode or Dark Mode is active.
+ * Backed by Compose Snapshot state so any Composable or Canvas reading the semantic tokens
+ * automatically recomposes and redraws when the theme switches.
+ */
+object ObsidianThemeState {
+    var isLightMode by mutableStateOf(false)
+}
 
-// Refined Glowing Hairlines & Chart Gradient Stops
-val HairlinePlatinum = Color(0x2E34D399)
-val HairlineGold = Color(0x5900E699)
-val EmeraldChartFillTop = Color(0x5500E699)
-val EmeraldChartFillBottom = Color(0x0000E699)
+// ============================================================================
+// REACTIVE SEMANTIC THEME TOKENS (RESPOND TO ACTIVE DARK / LIGHT MODE)
+// ============================================================================
+val DeepForestAbyss: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightBackground else ObsidianDarkBackground
+
+val ObsidianBlack: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightBackground else ObsidianDarkBackground
+
+val RichGraphite: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightPrimarySurface else ObsidianDarkPrimarySurface
+
+val ElevatedGraphite: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightSecondarySurface else ObsidianDarkSecondarySurface
+
+val ForestGlassSurface: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightSecondarySurface else ObsidianDarkSecondarySurface
+
+// Metallic Silver & Emerald Financial Action Accents
+val MetallicSilver: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightSilver else ObsidianDarkSilver
+
+val ChampagneGold: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightEmeraldAccent else ObsidianDarkEmeraldAccent
+
+val ChampagneGoldSoft: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightSilver else ObsidianDarkSilver
+
+val SophisticatedEmerald: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightPositive else ObsidianDarkPositive
+
+val EmeraldNeonGlow: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightEmeraldAccent else ObsidianDarkEmeraldAccent
+
+val DeepEmeraldAccent: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightPositive else ObsidianDarkPositive
+
+val GoldReserveAccent: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightWarning else ObsidianDarkWarning
+
+val WarningAmberColor: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightWarning else ObsidianDarkWarning
+
+// Typography & Semantic Status Tokens
+val WarmIvory: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightPrimaryText else ObsidianDarkPrimaryText
+
+val MutedPlatinum: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightSecondaryText else ObsidianDarkSecondaryText
+
+val MutedIvory: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightMutedText else ObsidianDarkMutedText
+
+val CrimsonRuby: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightNegative else ObsidianDarkNegative
+
+// Subtle Structural Borders & Chart Fills
+val HairlinePlatinum: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightBorder else ObsidianDarkBorder
+
+val HairlineGold: Color
+    get() = if (ObsidianThemeState.isLightMode) ObsidianLightBorder else ObsidianDarkBorder
+
+val EmeraldChartFillTop: Color
+    get() = if (ObsidianThemeState.isLightMode) Color(0x3300A879) else Color(0x3800DFA5)
+
+val EmeraldChartFillBottom: Color
+    get() = if (ObsidianThemeState.isLightMode) Color(0x0000A879) else Color(0x0000DFA5)
 
 data class KharcheeHudTheme(
     val id: String,
@@ -53,83 +139,108 @@ data class KharcheeHudTheme(
     val surface: Color,
     val surfaceElevated: Color,
     val borderGlow: Color,
+    val isLight: Boolean = false
 )
 
 val StarkHudTheme = KharcheeHudTheme(
     id = "stark",
-    name = "Sovereign Emerald",
-    subtitle = "Deep forest obsidian & glowing emerald matrix",
+    name = "Obsidian Luxury Dark",
+    subtitle = "Matte black (#080A0D), metallic silver & emerald (#00DFA5)",
     symbol = "◆",
-    accent = ChampagneGold,
-    secondaryAccent = SophisticatedEmerald,
-    background = ObsidianBlack,
-    surface = RichGraphite,
-    surfaceElevated = ElevatedGraphite,
-    borderGlow = Color(0x5900E699)
+    accent = ObsidianDarkEmeraldAccent,
+    secondaryAccent = ObsidianDarkSilver,
+    background = ObsidianDarkBackground,
+    surface = ObsidianDarkPrimarySurface,
+    surfaceElevated = ObsidianDarkSecondarySurface,
+    borderGlow = ObsidianDarkBorder,
+    isLight = false
+)
+
+val LightHudTheme = KharcheeHudTheme(
+    id = "light",
+    name = "Obsidian Luxury Light",
+    subtitle = "Alabaster slate (#F4F5F7), pure white surface & deep emerald (#00A879)",
+    symbol = "◇",
+    accent = ObsidianLightEmeraldAccent,
+    secondaryAccent = ObsidianLightPositive,
+    background = ObsidianLightBackground,
+    surface = ObsidianLightPrimarySurface,
+    surfaceElevated = ObsidianLightSecondarySurface,
+    borderGlow = ObsidianLightBorder,
+    isLight = true
 )
 
 val EmeraldHudTheme = KharcheeHudTheme(
     id = "emerald",
-    name = "Geneva Mint Reserve",
-    subtitle = "Private banking neon mint & dark botanical glass",
+    name = "Obsidian Metallic Silver",
+    subtitle = "Brushed metallic silver (#C4CBD4) & emerald positive telemetry",
     symbol = "❖",
-    accent = EmeraldNeonGlow,
-    secondaryAccent = ChampagneGold,
-    background = ObsidianBlack,
-    surface = RichGraphite,
-    surfaceElevated = ElevatedGraphite,
-    borderGlow = Color(0x5934D399)
+    accent = ObsidianDarkEmeraldAccent,
+    secondaryAccent = ObsidianDarkPositive,
+    background = ObsidianDarkBackground,
+    surface = ObsidianDarkPrimarySurface,
+    surfaceElevated = ObsidianDarkSecondarySurface,
+    borderGlow = ObsidianDarkBorder,
+    isLight = false
 )
 
 val MidnightHudTheme = KharcheeHudTheme(
     id = "midnight",
-    name = "Cyber Jade HUD",
-    subtitle = "Tony Stark holographic teal-emerald matrix",
+    name = "Obsidian Carbon Slate",
+    subtitle = "Architectural carbon surfaces (#12161C) & restrained silver hairlines",
     symbol = "◈",
-    accent = Color(0xFF00F5D4),
-    secondaryAccent = ChampagneGold,
-    background = ObsidianBlack,
-    surface = RichGraphite,
-    surfaceElevated = ElevatedGraphite,
-    borderGlow = Color(0x5900F5D4)
+    accent = ObsidianDarkPositive,
+    secondaryAccent = ObsidianDarkSilver,
+    background = ObsidianDarkBackground,
+    surface = ObsidianDarkPrimarySurface,
+    surfaceElevated = ObsidianDarkSecondarySurface,
+    borderGlow = ObsidianDarkBorder,
+    isLight = false
 )
 
 val ArmorHudTheme = KharcheeHudTheme(
     id = "armor",
-    name = "Emerald & Gold Bullion",
-    subtitle = "Dark forest vault with sovereign gold trim",
+    name = "Obsidian Titanium Reserve",
+    subtitle = "Matte titanium finish with precision emerald financial actions",
     symbol = "⬢",
-    accent = GoldReserveAccent,
-    secondaryAccent = ChampagneGold,
-    background = ObsidianBlack,
-    surface = RichGraphite,
-    surfaceElevated = ElevatedGraphite,
-    borderGlow = Color(0x4DD6B77A)
+    accent = ObsidianDarkEmeraldAccent,
+    secondaryAccent = ObsidianDarkSilver,
+    background = ObsidianDarkBackground,
+    surface = ObsidianDarkPrimarySurface,
+    surfaceElevated = ObsidianDarkSecondarySurface,
+    borderGlow = ObsidianDarkBorder,
+    isLight = false
 )
 
 val ALL_HUD_THEMES = listOf(
     StarkHudTheme,
+    LightHudTheme,
     EmeraldHudTheme,
-    MidnightHudTheme,
-    ArmorHudTheme
+    MidnightHudTheme
 )
 
 fun getHudThemeById(id: String): KharcheeHudTheme {
-    return ALL_HUD_THEMES.find { it.id == id } ?: StarkHudTheme
+    return when (id) {
+        "light" -> LightHudTheme
+        "emerald" -> EmeraldHudTheme
+        "midnight" -> MidnightHudTheme
+        "armor" -> ArmorHudTheme
+        else -> StarkHudTheme
+    }
 }
 
 fun getCategoryColor(category: String): Color = when (category) {
-    "Food" -> Color(0xFF00E699) // Luminous Emerald
-    "Chai & Snacks" -> Color(0xFF34D399) // Mint Emerald
-    "Transport" -> Color(0xFF2DD4BF) // Cyber Teal
-    "Grocery" -> Color(0xFF10B981) // Forest Emerald
-    "Entertainment" -> Color(0xFF38BDF8) // Holographic Cyan
-    "Bills" -> CrimsonRuby // Coral Rose Warning
-    "Shopping" -> Color(0xFFA3E635) // Electric Lime-Emerald
-    "Salary" -> Color(0xFF00E699)
-    "Freelance" -> Color(0xFF2DD4BF)
-    "Cashback" -> GoldReserveAccent
-    else -> MutedPlatinum
+    "Food" -> ChampagneGold
+    "Chai & Snacks" -> SophisticatedEmerald
+    "Transport" -> MetallicSilver
+    "Grocery" -> SophisticatedEmerald
+    "Entertainment" -> MetallicSilver
+    "Bills" -> CrimsonRuby
+    "Shopping" -> WarningAmberColor
+    "Salary" -> SophisticatedEmerald
+    "Freelance" -> ChampagneGold
+    "Cashback" -> SophisticatedEmerald
+    else -> MetallicSilver
 }
 
 fun getCategoryIcon(category: String): ImageVector = when (category) {

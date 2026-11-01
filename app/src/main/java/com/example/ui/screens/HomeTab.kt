@@ -94,9 +94,19 @@ import com.example.ui.theme.HairlinePlatinum
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalAppFontFamily
 import com.example.ui.theme.LocalHudTheme
+import com.example.ui.theme.MetallicSilver
 import com.example.ui.theme.MutedIvory
 import com.example.ui.theme.MutedPlatinum
 import com.example.ui.theme.ObsidianBlack
+import com.example.ui.theme.ObsidianDarkBackground
+import com.example.ui.theme.ObsidianDarkBorder
+import com.example.ui.theme.ObsidianDarkEmeraldAccent
+import com.example.ui.theme.ObsidianDarkMutedText
+import com.example.ui.theme.ObsidianDarkPositive
+import com.example.ui.theme.ObsidianDarkPrimarySurface
+import com.example.ui.theme.ObsidianDarkPrimaryText
+import com.example.ui.theme.ObsidianDarkSecondarySurface
+import com.example.ui.theme.ObsidianDarkSilver
 import com.example.ui.theme.RichGraphite
 import com.example.ui.theme.SophisticatedEmerald
 import com.example.ui.theme.WarmIvory
@@ -866,6 +876,66 @@ fun HomeTab(
                         )
                     }
                 }
+
+                if (upcomingReminders.isNotEmpty()) {
+                    val dueFmt = remember { SimpleDateFormat("dd MMM", Locale.ENGLISH) }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(ElevatedGraphite)
+                            .border(0.8.dp, HairlinePlatinum, RoundedCornerShape(14.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "UPCOMING BILLS",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Medium,
+                                letterSpacing = 1.sp,
+                                color = MutedPlatinum
+                            )
+                            Text(
+                                text = "Manage ➔",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = ChampagneGold,
+                                modifier = Modifier.clickable { onOpenSmartReminders() }
+                            )
+                        }
+                        upcomingReminders.take(3).forEach { bill ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${bill.title} · Due ${dueFmt.format(Date(bill.dueEpochMillis))}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = WarmIvory,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = if (settings.stealthMode) "₹•••" else "₹${bill.amount}",
+                                    fontFamily = headingFont,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 12.sp,
+                                    color = ChampagneGold
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -1085,14 +1155,15 @@ fun CredBlackTitaniumCard(
         else "-₹${inrFormat.format(-totalBalance)}"
     }
 
+    // Matte-Black & Metallic-Silver Obsidian Luxury Card Finishes
     val metallicBorderBrush = remember {
         Brush.linearGradient(
             colors = listOf(
-                ChampagneGold.copy(alpha = 0.9f),
-                EmeraldNeonGlow.copy(alpha = 0.55f),
-                Color(0xFF143527),
-                EmeraldNeonGlow.copy(alpha = 0.65f),
-                ChampagneGold.copy(alpha = 0.95f)
+                ObsidianDarkSilver.copy(alpha = 0.55f),
+                ObsidianDarkBorder,
+                ObsidianDarkSilver.copy(alpha = 0.25f),
+                ObsidianDarkBorder,
+                ObsidianDarkSilver.copy(alpha = 0.45f)
             )
         )
     }
@@ -1100,66 +1171,65 @@ fun CredBlackTitaniumCard(
     val brushedMetallicSurface = remember {
         Brush.linearGradient(
             colors = listOf(
-                DeepForestAbyss,
-                Color(0xFF071A12),
-                Color(0xFF0F2D21),
-                Color(0xFF092017),
-                ObsidianBlack
+                ObsidianDarkBackground,
+                ObsidianDarkPrimarySurface,
+                Color(0xFF181E27),
+                ObsidianDarkPrimarySurface,
+                ObsidianDarkBackground
             ),
             start = Offset(0f, 0f),
-            end = Offset(960f, 560f)
+            end = Offset(960f, 520f)
         )
     }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(26.dp, RoundedCornerShape(26.dp))
-            .clip(RoundedCornerShape(26.dp))
+            .shadow(22.dp, RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(20.dp))
             .background(brushedMetallicSurface)
             .border(
-                width = 1.3.dp,
+                width = 1.dp,
                 brush = metallicBorderBrush,
-                shape = RoundedCornerShape(26.dp)
+                shape = RoundedCornerShape(20.dp)
             )
             .testTag("cred_black_titanium_card")
     ) {
-        // Dark Emerald Glowing Aura + Embedded Sovereign Sparkline Curve
+        // Restrained Metallic Silver Grain & Subtle Emerald Financial Sparkline
         Canvas(modifier = Modifier.matchParentSize()) {
             val w = size.width
             val h = size.height
             for (i in -4..12) {
                 val startX = (w / 8f) * i
                 drawLine(
-                    color = EmeraldNeonGlow.copy(alpha = 0.035f),
+                    color = ObsidianDarkSilver.copy(alpha = 0.025f),
                     start = Offset(startX, 0f),
                     end = Offset(startX + h * 0.85f, h),
-                    strokeWidth = 1.2f
+                    strokeWidth = 1f
                 )
             }
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        ChampagneGold.copy(alpha = 0.20f),
-                        SophisticatedEmerald.copy(alpha = 0.08f),
+                        ObsidianDarkSilver.copy(alpha = 0.08f),
                         Color.Transparent
                     ),
-                    center = Offset(w * 0.82f, h * 0.22f),
-                    radius = w * 0.62f
+                    center = Offset(w * 0.84f, h * 0.20f),
+                    radius = w * 0.55f
                 ),
-                center = Offset(w * 0.82f, h * 0.22f),
-                radius = w * 0.62f
+                center = Offset(w * 0.84f, h * 0.20f),
+                radius = w * 0.55f
             )
 
-            // Embedded Emerald Financial Sparkline Wave across bottom half of card
+            // Restrained Financial Sparkline Wave across bottom of card
             val sparkPoints = listOf(
-                Offset(0f, h * 0.82f),
-                Offset(w * 0.18f, h * 0.76f),
-                Offset(w * 0.36f, h * 0.80f),
-                Offset(w * 0.54f, h * 0.68f),
-                Offset(w * 0.72f, h * 0.71f),
-                Offset(w * 0.88f, h * 0.58f),
-                Offset(w, h * 0.52f)
+                Offset(0f, h * 0.84f),
+                Offset(w * 0.18f, h * 0.79f),
+                Offset(w * 0.36f, h * 0.82f),
+                Offset(w * 0.54f, h * 0.72f),
+                Offset(w * 0.72f, h * 0.74f),
+                Offset(w * 0.88f, h * 0.64f),
+                Offset(w, h * 0.58f)
             )
             val sparkLinePath = Path().apply {
                 moveTo(sparkPoints.first().x, sparkPoints.first().y)
@@ -1170,43 +1240,26 @@ fun CredBlackTitaniumCard(
                     cubicTo(midX, prev.y, midX, curr.y, curr.x, curr.y)
                 }
             }
-            val sparkAreaPath = Path().apply {
-                addPath(sparkLinePath)
-                lineTo(w, h)
-                lineTo(0f, h)
-                close()
-            }
-            drawPath(
-                path = sparkAreaPath,
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        EmeraldChartFillTop.copy(alpha = 0.22f),
-                        EmeraldChartFillBottom
-                    ),
-                    startY = h * 0.50f,
-                    endY = h
-                )
-            )
             drawPath(
                 path = sparkLinePath,
                 brush = Brush.horizontalGradient(
                     colors = listOf(
-                        SophisticatedEmerald.copy(alpha = 0.25f),
-                        EmeraldNeonGlow.copy(alpha = 0.65f),
-                        ChampagneGold.copy(alpha = 0.85f)
+                        ObsidianDarkSilver.copy(alpha = 0.18f),
+                        ObsidianDarkSilver.copy(alpha = 0.38f),
+                        ObsidianDarkEmeraldAccent.copy(alpha = 0.55f)
                     )
                 ),
-                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+                style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
             )
         }
 
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 22.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+                .padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // TOP ROW: Embossed "KHARCHEE BLACK TITANIUM" + Micro Chip + Contactless Icon
+            // TOP ROW: Metallic Silver EMV Chip + Silver Typography + Contactless Badge
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1216,40 +1269,40 @@ fun CredBlackTitaniumCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Realistic Champagne & Platinum EMV Micro-Chip
+                    // Brushed Metallic Silver EMV Micro-Chip
                     Canvas(modifier = Modifier.size(width = 36.dp, height = 26.dp)) {
                         drawRoundRect(
                             brush = Brush.linearGradient(
                                 colors = listOf(
-                                    ChampagneGold,
-                                    MutedPlatinum,
-                                    ChampagneGold.copy(alpha = 0.85f)
+                                    Color(0xFFDCE1E7),
+                                    ObsidianDarkSilver,
+                                    Color(0xFF8A94A2)
                                 )
                             ),
                             cornerRadius = CornerRadius(5.dp.toPx(), 5.dp.toPx())
                         )
                         drawRoundRect(
-                            color = ObsidianBlack.copy(alpha = 0.45f),
+                            color = ObsidianDarkBackground.copy(alpha = 0.45f),
                             cornerRadius = CornerRadius(5.dp.toPx(), 5.dp.toPx()),
                             style = Stroke(width = 1.dp.toPx())
                         )
                         drawLine(
-                            color = ObsidianBlack.copy(alpha = 0.35f),
+                            color = ObsidianDarkBackground.copy(alpha = 0.35f),
                             start = Offset(size.width * 0.33f, 2f),
                             end = Offset(size.width * 0.33f, size.height - 2f),
-                            strokeWidth = 1.1f
+                            strokeWidth = 1f
                         )
                         drawLine(
-                            color = ObsidianBlack.copy(alpha = 0.35f),
+                            color = ObsidianDarkBackground.copy(alpha = 0.35f),
                             start = Offset(size.width * 0.66f, 2f),
                             end = Offset(size.width * 0.66f, size.height - 2f),
-                            strokeWidth = 1.1f
+                            strokeWidth = 1f
                         )
                         drawLine(
-                            color = ObsidianBlack.copy(alpha = 0.35f),
+                            color = ObsidianDarkBackground.copy(alpha = 0.35f),
                             start = Offset(2f, size.height * 0.5f),
                             end = Offset(size.width - 2f, size.height * 0.5f),
-                            strokeWidth = 1.1f
+                            strokeWidth = 1f
                         )
                     }
 
@@ -1260,38 +1313,38 @@ fun CredBlackTitaniumCard(
                         ) {
                             Text(
                                 text = if (isPro) {
-                                    if (proTier == "platinum") "KHARCHEE PRO PLATINUM" else "KHARCHEE PRO GOLD"
-                                } else "KHARCHEE BLACK TITANIUM",
+                                    if (proTier == "platinum") "KHARCHEE OBSIDIAN PLATINUM" else "KHARCHEE OBSIDIAN PRO"
+                                } else "KHARCHEE OBSIDIAN VAULT",
                                 fontFamily = headingFont,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 letterSpacing = 1.6.sp,
-                                color = WarmIvory
+                                color = ObsidianDarkSilver
                             )
                             if (isPro) {
                                 Surface(
-                                    color = ChampagneGold.copy(alpha = 0.18f),
+                                    color = ObsidianDarkEmeraldAccent.copy(alpha = 0.14f),
                                     shape = RoundedCornerShape(4.dp),
-                                    border = BorderStroke(0.6.dp, ChampagneGold)
+                                    border = BorderStroke(0.6.dp, ObsidianDarkEmeraldAccent.copy(alpha = 0.6f))
                                 ) {
                                     Text(
                                         text = "PRO ELITE",
                                         fontFamily = JetBrainsMonoFontFamily,
                                         fontSize = 8.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = ChampagneGold,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                        color = ObsidianDarkEmeraldAccent,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                                     )
                                 }
                             }
                         }
                         Text(
-                            text = if (isPro) "SOVEREIGN PRIVATE BANKING PASS" else "SOVEREIGN PRIVATE RESERVE · STANDARD",
+                            text = if (isPro) "METALLIC SILVER · PRIVATE MEMBERSHIP" else "MATTE BLACK & METALLIC SILVER EDITION",
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 8.sp,
                             fontWeight = FontWeight.Medium,
-                            letterSpacing = 1.4.sp,
-                            color = ChampagneGold
+                            letterSpacing = 1.2.sp,
+                            color = ObsidianDarkMutedText
                         )
                     }
                 }
@@ -1300,20 +1353,20 @@ fun CredBlackTitaniumCard(
                     modifier = Modifier
                         .size(34.dp)
                         .clip(CircleShape)
-                        .background(ElevatedGraphite)
-                        .border(0.8.dp, HairlineGold, CircleShape),
+                        .background(ObsidianDarkSecondarySurface)
+                        .border(0.8.dp, ObsidianDarkBorder, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Contactless,
-                        contentDescription = "Holographic Contactless Enabled",
-                        tint = ChampagneGold,
+                        contentDescription = "Contactless Vault",
+                        tint = ObsidianDarkSilver,
                         modifier = Modifier.size(18.dp)
                     )
                 }
             }
 
-            // CENTER: Current Total Balance with Manrope ExtraBold + Discipline Score Indicator
+            // CENTER: Total Available Balance (Manrope ExtraBold 800) + Discipline Index
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1321,12 +1374,12 @@ fun CredBlackTitaniumCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "CURRENT TOTAL BALANCE",
+                        text = "TOTAL AVAILABLE BALANCE",
                         fontFamily = JetBrainsMonoFontFamily,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Medium,
                         letterSpacing = 1.4.sp,
-                        color = MutedPlatinum
+                        color = ObsidianDarkSilver
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
@@ -1334,19 +1387,19 @@ fun CredBlackTitaniumCard(
                         fontFamily = headingFont,
                         style = MaterialTheme.typography.displayMedium,
                         fontWeight = FontWeight.ExtraBold,
-                        color = WarmIvory,
+                        color = ObsidianDarkPrimaryText,
                         fontSize = 31.sp
                     )
                 }
 
-                // CRED-style Discipline Score Metallic Pill
+                // Metallic Silver & Emerald Discipline Pill
                 Column(
                     modifier = Modifier
                         .clip(RoundedCornerShape(14.dp))
-                        .background(ObsidianBlack.copy(alpha = 0.75f))
+                        .background(ObsidianDarkBackground.copy(alpha = 0.82f))
                         .border(
                             width = 0.8.dp,
-                            color = HairlineGold,
+                            color = ObsidianDarkBorder,
                             shape = RoundedCornerShape(14.dp)
                         )
                         .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -1359,16 +1412,16 @@ fun CredBlackTitaniumCard(
                         Icon(
                             imageVector = Icons.Default.WorkspacePremium,
                             contentDescription = "Discipline Score",
-                            tint = ChampagneGold,
+                            tint = ObsidianDarkSilver,
                             modifier = Modifier.size(13.dp)
                         )
                         Text(
-                            text = "DISCIPLINE SCORE",
+                            text = "DISCIPLINE",
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 8.sp,
                             fontWeight = FontWeight.Medium,
                             letterSpacing = 0.8.sp,
-                            color = MutedPlatinum
+                            color = ObsidianDarkSilver
                         )
                     }
                     Spacer(modifier = Modifier.height(2.dp))
@@ -1378,7 +1431,7 @@ fun CredBlackTitaniumCard(
                             fontFamily = headingFont,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.ExtraBold,
-                            color = ChampagneGold,
+                            color = ObsidianDarkEmeraldAccent,
                             fontSize = 20.sp
                         )
                         Text(
@@ -1386,22 +1439,22 @@ fun CredBlackTitaniumCard(
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Medium,
-                            color = MutedIvory,
+                            color = ObsidianDarkMutedText,
                             modifier = Modifier.padding(bottom = 2.dp)
                         )
                     }
                 }
             }
 
-            // BOTTOM: Spending Runway Streak + Masked Card Number (•••• 2026)
+            // BOTTOM: Spending Runway Streak + Masked Metallic Card Credentials (•••• 2026)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(ObsidianBlack.copy(alpha = 0.65f))
+                    .background(ObsidianDarkBackground.copy(alpha = 0.72f))
                     .border(
                         width = 0.8.dp,
-                        color = HairlinePlatinum,
+                        color = ObsidianDarkBorder,
                         shape = RoundedCornerShape(12.dp)
                     )
                     .padding(horizontal = 14.dp, vertical = 9.dp),
@@ -1417,13 +1470,13 @@ fun CredBlackTitaniumCard(
                         fontFamily = JetBrainsMonoFontFamily,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = SophisticatedEmerald
+                        color = ObsidianDarkPositive
                     )
                     Text(
                         text = if (stealthMode) "· SAFE ₹•••" else "· SAFE ₹$remainingToday",
                         fontFamily = JetBrainsMonoFontFamily,
                         fontSize = 10.sp,
-                        color = MutedIvory
+                        color = ObsidianDarkMutedText
                     )
                 }
 
@@ -1433,7 +1486,7 @@ fun CredBlackTitaniumCard(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 1.5.sp,
-                    color = MutedPlatinum
+                    color = ObsidianDarkSilver
                 )
             }
         }
@@ -1447,43 +1500,30 @@ fun ProactiveInsightBannerCard(
     modifier: Modifier = Modifier
 ) {
     val headingFont = LocalAppFontFamily.current
+    val jarvisCyan = Color(0xFF00E5FF)
 
     val accentBorder = when (insight.severity) {
         "warning" -> CrimsonRuby
-        "surge" -> ChampagneGold
+        "surge" -> jarvisCyan
         "positive" -> SophisticatedEmerald
-        else -> MutedPlatinum
+        else -> jarvisCyan
     }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(16.dp, RoundedCornerShape(20.dp))
-            .clip(RoundedCornerShape(20.dp))
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(
-                        RichGraphite,
-                        ElevatedGraphite,
-                        RichGraphite
-                    )
-                )
-            )
+            .shadow(14.dp, RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(18.dp))
+            .background(RichGraphite)
             .border(
                 width = 1.dp,
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        accentBorder.copy(alpha = 0.85f),
-                        HairlinePlatinum,
-                        accentBorder.copy(alpha = 0.4f)
-                    )
-                ),
-                shape = RoundedCornerShape(20.dp)
+                color = HairlinePlatinum,
+                shape = RoundedCornerShape(18.dp)
             )
-            .padding(18.dp)
+            .padding(16.dp)
             .testTag("proactive_insight_card")
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1495,7 +1535,7 @@ fun ProactiveInsightBannerCard(
                 ) {
                     Text(
                         text = insight.iconEmoji,
-                        fontSize = 16.sp
+                        fontSize = 15.sp
                     )
                     Text(
                         text = "J.A.R.V.I.S. PROACTIVE TELEMETRY",
@@ -1503,7 +1543,7 @@ fun ProactiveInsightBannerCard(
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Medium,
                         letterSpacing = 1.2.sp,
-                        color = accentBorder
+                        color = jarvisCyan
                     )
                 }
 
@@ -1537,7 +1577,7 @@ fun ProactiveInsightBannerCard(
             Text(
                 text = insight.message,
                 style = MaterialTheme.typography.bodySmall,
-                color = MutedIvory,
+                color = MutedPlatinum,
                 lineHeight = 18.sp
             )
 
@@ -1546,9 +1586,9 @@ fun ProactiveInsightBannerCard(
                 horizontalArrangement = Arrangement.End
             ) {
                 Surface(
-                    color = ObsidianBlack,
+                    color = ObsidianDarkBackground,
                     shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, ChampagneGold.copy(alpha = 0.6f)),
+                    border = BorderStroke(1.dp, jarvisCyan.copy(alpha = 0.55f)),
                     modifier = Modifier
                         .clickable { onAskJarvis() }
                         .testTag("ask_jarvis_proactive_button")
@@ -1564,11 +1604,11 @@ fun ProactiveInsightBannerCard(
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 11.sp,
                             letterSpacing = 0.5.sp,
-                            color = ChampagneGold
+                            color = jarvisCyan
                         )
                         Text(
                             text = "➔",
-                            color = ChampagneGold,
+                            color = jarvisCyan,
                             fontSize = 12.sp
                         )
                     }

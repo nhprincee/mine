@@ -162,5 +162,62 @@ class ExampleUnitTest {
         assertEquals(1200L, summary.savedFromCancelledAmount)
         assertEquals(2500L, summary.postponedAmount)
     }
-}
 
+    @Test
+    fun jarvisReactorCore_statusLabelsAndUploadedAssetBundled() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val drawable = context.getDrawable(R.drawable.jarvis_reactor_core)
+        assertNotNull("Uploaded JARVIS reactor image must be bundled as R.drawable.jarvis_reactor_core", drawable)
+
+        assertEquals(
+            "ONLINE",
+            com.example.ui.jarvis.resolveJarvisCoreStatus(isListening = false, isThinking = false, isSpeaking = false).label
+        )
+        assertEquals(
+            "LISTENING",
+            com.example.ui.jarvis.resolveJarvisCoreStatus(isListening = true, isThinking = false, isSpeaking = false).label
+        )
+        assertEquals(
+            "THINKING",
+            com.example.ui.jarvis.resolveJarvisCoreStatus(isListening = false, isThinking = true, isSpeaking = false).label
+        )
+        assertEquals(
+            "SPEAKING",
+            com.example.ui.jarvis.resolveJarvisCoreStatus(isListening = false, isThinking = false, isSpeaking = true).label
+        )
+    }
+
+    @Test
+    fun obsidianLuxuryDesignSystem_darkAndLightModeTokens_matchSpecification() {
+        // Dark Mode tokens
+        com.example.ui.theme.ObsidianThemeState.isLightMode = false
+        assertEquals(0xFF080A0D.toInt(), com.example.ui.theme.ObsidianBlack.value.shr(32).toInt())
+        assertEquals(0xFF12161C.toInt(), com.example.ui.theme.RichGraphite.value.shr(32).toInt())
+        assertEquals(0xFF202630.toInt(), com.example.ui.theme.ElevatedGraphite.value.shr(32).toInt())
+        assertEquals(0xFF303944.toInt(), com.example.ui.theme.HairlinePlatinum.value.shr(32).toInt())
+        assertEquals(0xFFF5F7FA.toInt(), com.example.ui.theme.WarmIvory.value.shr(32).toInt())
+        assertEquals(0xFFA1AAB6.toInt(), com.example.ui.theme.MutedPlatinum.value.shr(32).toInt())
+        assertEquals(0xFF84909E.toInt(), com.example.ui.theme.MutedIvory.value.shr(32).toInt())
+        assertEquals(0xFFC4CBD4.toInt(), com.example.ui.theme.MetallicSilver.value.shr(32).toInt())
+        assertEquals(0xFF00DFA5.toInt(), com.example.ui.theme.ChampagneGold.value.shr(32).toInt())
+        assertEquals(0xFF00C98A.toInt(), com.example.ui.theme.SophisticatedEmerald.value.shr(32).toInt())
+        assertEquals(0xFFFF5364.toInt(), com.example.ui.theme.CrimsonRuby.value.shr(32).toInt())
+        assertEquals(0xFFF3B94F.toInt(), com.example.ui.theme.GoldReserveAccent.value.shr(32).toInt())
+
+        // Light Mode tokens
+        com.example.ui.theme.ObsidianThemeState.isLightMode = true
+        assertEquals(0xFFF4F5F7.toInt(), com.example.ui.theme.ObsidianBlack.value.shr(32).toInt())
+        assertEquals(0xFFFFFFFF.toInt(), com.example.ui.theme.RichGraphite.value.shr(32).toInt())
+        assertEquals(0xFFEDF0F4.toInt(), com.example.ui.theme.ElevatedGraphite.value.shr(32).toInt())
+        assertEquals(0xFFE5E9EF.toInt(), com.example.ui.theme.HairlinePlatinum.value.shr(32).toInt())
+        assertEquals(0xFF171B22.toInt(), com.example.ui.theme.WarmIvory.value.shr(32).toInt())
+        assertEquals(0xFF667085.toInt(), com.example.ui.theme.MutedPlatinum.value.shr(32).toInt())
+        assertEquals(0xFF00A879.toInt(), com.example.ui.theme.ChampagneGold.value.shr(32).toInt())
+        assertEquals(0xFF008F68.toInt(), com.example.ui.theme.SophisticatedEmerald.value.shr(32).toInt())
+        assertEquals(0xFFD9364F.toInt(), com.example.ui.theme.CrimsonRuby.value.shr(32).toInt())
+        assertEquals(0xFFA96B00.toInt(), com.example.ui.theme.GoldReserveAccent.value.shr(32).toInt())
+
+        // Reset to Dark Mode default
+        com.example.ui.theme.ObsidianThemeState.isLightMode = false
+    }
+}

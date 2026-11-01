@@ -32,9 +32,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.WorkspacePremium
@@ -109,9 +111,13 @@ import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.KharcheeTheme
 import com.example.ui.theme.LocalAppFontFamily
 import com.example.ui.theme.LocalHudTheme
+import com.example.ui.theme.MetallicSilver
 import com.example.ui.theme.MutedIvory
 import com.example.ui.theme.MutedPlatinum
 import com.example.ui.theme.ObsidianBlack
+import com.example.ui.theme.ObsidianDarkBackground
+import com.example.ui.theme.ObsidianDarkPrimarySurface
+import com.example.ui.theme.ObsidianDarkPrimaryText
 import com.example.ui.theme.RichGraphite
 import com.example.ui.theme.WarmIvory
 import com.example.ui.viewmodel.KharcheeViewModel
@@ -320,15 +326,17 @@ fun KharcheeMainShell(
                     contentWindowInsets = WindowInsets.safeDrawing,
                     snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                     floatingActionButton = {
+                        val jarvisCyan = Color(0xFF00E5FF)
                         ExtendedFloatingActionButton(
                             onClick = { showJarvisAssistant = true },
-                            containerColor = RichGraphite,
-                            contentColor = ChampagneGold,
+                            containerColor = ObsidianDarkPrimarySurface,
+                            contentColor = jarvisCyan,
+                            shape = RoundedCornerShape(14.dp),
                             icon = {
                                 Icon(
                                     imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = "Open J.A.R.V.I.S. AI Concierge",
-                                    tint = ChampagneGold,
+                                    contentDescription = "Open J.A.R.V.I.S. AI Core",
+                                    tint = jarvisCyan,
                                     modifier = Modifier.size(18.dp)
                                 )
                             },
@@ -339,17 +347,15 @@ fun KharcheeMainShell(
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 12.sp,
                                     letterSpacing = 1.2.sp,
-                                    color = WarmIvory
+                                    color = ObsidianDarkPrimaryText
                                 )
                             },
                             modifier = Modifier
-                                .shadow(18.dp, RoundedCornerShape(18.dp))
+                                .shadow(16.dp, RoundedCornerShape(14.dp))
                                 .border(
                                     width = 1.dp,
-                                    brush = Brush.linearGradient(
-                                        listOf(ChampagneGold, MutedPlatinum.copy(alpha = 0.4f))
-                                    ),
-                                    shape = RoundedCornerShape(18.dp)
+                                    color = jarvisCyan.copy(alpha = 0.55f),
+                                    shape = RoundedCornerShape(14.dp)
                                 )
                                 .testTag("open_jarvis_fab")
                         )
@@ -358,8 +364,16 @@ fun KharcheeMainShell(
                         KharcheeTopHeader(
                             activeTab = activeTab,
                             stealthMode = settings.stealthMode,
+                            isLightMode = settings.themeId == "light",
                             streakDays = streakDays,
                             onOpenJarvis = { showJarvisAssistant = true },
+                            onToggleThemeMode = {
+                                val nextTheme = if (settings.themeId == "light") "stark" else "light"
+                                viewModel.updateSettings(
+                                    themeId = nextTheme,
+                                    toastText = if (nextTheme == "light") "◇ Obsidian Luxury Light Mode" else "◆ Obsidian Luxury Dark Mode"
+                                )
+                            },
                             onToggleStealth = {
                                 viewModel.updateSettings(
                                     stealthMode = !settings.stealthMode,
@@ -780,13 +794,16 @@ fun KharcheeMainShell(
 private fun KharcheeTopHeader(
     activeTab: KharcheeTab,
     stealthMode: Boolean,
+    isLightMode: Boolean,
     streakDays: Int,
     onOpenJarvis: () -> Unit,
+    onToggleThemeMode: () -> Unit,
     onToggleStealth: () -> Unit,
     onSignOut: () -> Unit
 ) {
     val hud = LocalHudTheme.current
     val headingFont = LocalAppFontFamily.current
+    val jarvisCyan = Color(0xFF00E5FF)
 
     Column(
         modifier = Modifier
@@ -805,19 +822,15 @@ private fun KharcheeTopHeader(
                 Box(
                     modifier = Modifier
                         .size(38.dp)
-                        .clip(RoundedCornerShape(11.dp))
-                        .background(
-                            Brush.linearGradient(
-                                listOf(ElevatedGraphite, RichGraphite)
-                            )
-                        )
-                        .border(0.8.dp, HairlineGold, RoundedCornerShape(11.dp)),
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(ObsidianDarkBackground)
+                        .border(1.dp, MetallicSilver.copy(alpha = 0.45f), RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "K",
                         fontFamily = headingFont,
-                        color = ChampagneGold,
+                        color = MetallicSilver,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
@@ -843,7 +856,7 @@ private fun KharcheeTopHeader(
                         )
                     }
                     Text(
-                        text = if (stealthMode) "STEALTH VAULT · BALANCES MASKED" else "SOVEREIGN PRIVATE BANKING",
+                        text = if (stealthMode) "STEALTH VAULT · BALANCES MASKED" else "OBSIDIAN LUXURY · PRIVATE FINTECH",
                         fontFamily = JetBrainsMonoFontFamily,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Medium,
@@ -855,24 +868,24 @@ private fun KharcheeTopHeader(
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Surface(
-                    color = RichGraphite,
-                    shape = RoundedCornerShape(50),
+                    color = ObsidianDarkPrimarySurface,
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
-                        .border(0.8.dp, HairlineGold, RoundedCornerShape(50))
+                        .border(0.8.dp, jarvisCyan.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
                         .clickable { onOpenJarvis() }
                         .testTag("open_jarvis_header_button")
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp)
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.AutoAwesome,
                             contentDescription = "Launch J.A.R.V.I.S.",
-                            tint = ChampagneGold,
+                            tint = jarvisCyan,
                             modifier = Modifier.size(13.dp)
                         )
                         Spacer(modifier = Modifier.width(5.dp))
@@ -882,15 +895,15 @@ private fun KharcheeTopHeader(
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 10.sp,
                             letterSpacing = 1.sp,
-                            color = WarmIvory
+                            color = ObsidianDarkPrimaryText
                         )
                     }
                 }
 
                 Surface(
                     color = RichGraphite,
-                    shape = RoundedCornerShape(50),
-                    modifier = Modifier.border(0.8.dp, HairlinePlatinum, RoundedCornerShape(50))
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.border(0.8.dp, HairlinePlatinum, RoundedCornerShape(12.dp))
                 ) {
                     Text(
                         text = "◆ ${streakDays}D",
@@ -900,6 +913,20 @@ private fun KharcheeTopHeader(
                         letterSpacing = 0.6.sp,
                         color = ChampagneGold,
                         modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onToggleThemeMode,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .testTag("toggle_theme_mode_button")
+                ) {
+                    Icon(
+                        imageVector = if (isLightMode) Icons.Default.DarkMode else Icons.Default.LightMode,
+                        contentDescription = if (isLightMode) "Switch to Obsidian Dark Mode" else "Switch to Obsidian Light Mode",
+                        tint = MutedPlatinum,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 
@@ -932,6 +959,6 @@ private fun KharcheeTopHeader(
                 }
             }
         }
-        HorizontalDivider(color = HairlinePlatinum, thickness = 0.6.dp)
+        HorizontalDivider(color = HairlinePlatinum, thickness = 0.8.dp)
     }
 }

@@ -180,6 +180,18 @@ fun NightGuardInterceptOverlay(
     val remainingAfterSpend = dailyLimit - (todaySpent + pendingRequest.amount)
     val primaryGoal = savingsGoals.firstOrNull()
 
+    val ObsidianBlack = com.example.ui.theme.ObsidianDarkBackground
+    val RichGraphite = com.example.ui.theme.ObsidianDarkPrimarySurface
+    val ElevatedGraphite = com.example.ui.theme.ObsidianDarkSecondarySurface
+    val HairlinePlatinum = com.example.ui.theme.ObsidianDarkBorder
+    val HairlineGold = com.example.ui.theme.ObsidianDarkSilver.copy(alpha = 0.42f)
+    val WarmIvory = com.example.ui.theme.ObsidianDarkPrimaryText
+    val MutedPlatinum = com.example.ui.theme.ObsidianDarkSecondaryText
+    val MutedIvory = com.example.ui.theme.ObsidianDarkMutedText
+    val ChampagneGold = com.example.ui.theme.ObsidianDarkSilver
+    val SophisticatedEmerald = com.example.ui.theme.ObsidianDarkEmeraldAccent
+    val CrimsonRuby = com.example.ui.theme.ObsidianDarkNegative
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -187,7 +199,7 @@ fun NightGuardInterceptOverlay(
                 Brush.verticalGradient(
                     colors = listOf(
                         ObsidianBlack,
-                        DeepForestAbyss,
+                        RichGraphite,
                         ObsidianBlack
                     )
                 )
@@ -262,18 +274,18 @@ fun NightGuardInterceptOverlay(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .shadow(20.dp, RoundedCornerShape(24.dp))
-                    .clip(RoundedCornerShape(24.dp))
+                    .shadow(16.dp, RoundedCornerShape(20.dp))
+                    .clip(RoundedCornerShape(20.dp))
                     .background(
                         Brush.linearGradient(
                             colors = listOf(
-                                DeepForestAbyss,
                                 RichGraphite,
+                                ElevatedGraphite,
                                 ObsidianBlack
                             )
                         )
                     )
-                    .border(1.dp, SophisticatedEmerald.copy(alpha = 0.45f), RoundedCornerShape(24.dp))
+                    .border(1.dp, HairlinePlatinum, RoundedCornerShape(20.dp))
                     .padding(22.dp)
             ) {
                 Text(
