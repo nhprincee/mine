@@ -1,0 +1,166 @@
+{
+  "entities": {
+    "UserSettings": {
+      "title": "UserSettings",
+      "description": "Per-user configuration for daily spending limit, lockdown mode, stealth mode, HUD theme, UPI accountability guard, Kharchee Pro membership, Night Guard, and Smart Payment Reminders.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "dailyLimit": { "type": "integer", "description": "Daily spending budget limit in INR." },
+        "lockdownActive": { "type": "boolean", "description": "Whether manual or automatic spending lockdown is engaged." },
+        "autoLockdownAt90": { "type": "boolean", "description": "Whether lockdown automatically engages at 90% daily budget usage." },
+        "stealthMode": { "type": "boolean", "description": "Whether balances are masked in public." },
+        "themeId": { "type": "string", "description": "Selected Iron Man HUD theme ID (stark, mark85, stealth)." },
+        "myUpiId": { "type": "string", "description": "User's personal VPA/UPI ID for group bill split deep links." },
+        "upiGuardTone": { "type": "string", "description": "Accountability notification tone (roast, hinglish, disciplined)." },
+        "isPro": { "type": "boolean", "description": "Whether the user has an active Kharchee Pro membership." },
+        "proTier": { "type": "string", "description": "Active Pro membership tier (free, monthly, annual, sovereign)." },
+        "proExpiresAtMillis": { "type": "integer", "description": "Epoch milliseconds when the Pro subscription renews or expires." },
+        "nightGuardEnabled": { "type": "boolean", "description": "Whether Night Guard impulse protection is enabled." },
+        "nightGuardStartHour": { "type": "integer", "description": "Night Guard start hour (0-23, default 22)." },
+        "nightGuardStartMinute": { "type": "integer", "description": "Night Guard start minute (0-59, default 0)." },
+        "nightGuardEndHour": { "type": "integer", "description": "Night Guard end hour (0-23, default 5)." },
+        "nightGuardEndMinute": { "type": "integer", "description": "Night Guard end minute (0-59, default 0)." },
+        "nightGuardCooldownEndMillis": { "type": "integer", "description": "Epoch milliseconds when mandatory 5-minute Night Guard cooldown expires." },
+        "lastChallengeId": { "type": "string", "description": "ID of the last Night Guard brain diversion challenge shown." },
+        "enablePreSpendConfirm": { "type": "boolean", "description": "Whether pre-spend confirmation dialog is shown before discretionary expenses." },
+        "notifyPaymentReminders": { "type": "boolean", "description": "Whether scheduled payment reminder notifications are enabled." },
+        "notifyNightGuardAlert": { "type": "boolean", "description": "Whether Night Guard activation notifications are enabled." },
+        "notifyMorningReview": { "type": "boolean", "description": "Whether morning financial review notifications are enabled." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation server timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update server timestamp." }
+      },
+      "required": ["userId", "dailyLimit", "lockdownActive", "autoLockdownAt90", "stealthMode", "themeId", "myUpiId", "upiGuardTone", "createdAt", "updatedAt"]
+    },
+    "ExpenseRecord": {
+      "title": "ExpenseRecord",
+      "description": "Individual expense or income transaction logged by the user via manual entry, 1-tap preset, or SMS/UPI parser.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "title": { "type": "string", "description": "Merchant or item name." },
+        "category": { "type": "string", "description": "Category name (Food, Chai & Snacks, Transport, Shopping, Subscriptions, Entertainment, Bills & Rent, Salary, Freelance, Refund, Investment, Other)." },
+        "amount": { "type": "integer", "description": "Transaction amount in INR (whole rupees)." },
+        "paymentMode": { "type": "string", "description": "Payment channel (UPI, Cash, Card)." },
+        "type": { "type": "string", "description": "Transaction direction (expense or income)." },
+        "note": { "type": "string", "description": "Optional note or parsed SMS snippet." },
+        "txEpochMillis": { "type": "integer", "description": "Epoch milliseconds when the transaction occurred." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation server timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update server timestamp." }
+      },
+      "required": ["userId", "title", "category", "amount", "paymentMode", "type", "note", "txEpochMillis", "createdAt", "updatedAt"]
+    },
+    "KhataFriend": {
+      "title": "KhataFriend",
+      "description": "Friend or contact in the Khata Lena/Dena ledger for splitting bills and tracking IOUs.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "name": { "type": "string", "description": "Friend's display name." },
+        "phone": { "type": "string", "description": "Friend's 10-digit WhatsApp/mobile number." },
+        "upiId": { "type": "string", "description": "Friend's UPI ID for direct settlement." },
+        "netBalance": { "type": "integer", "description": "Positive means friend owes user (Lena); negative means user owes friend (Dena)." },
+        "lastNote": { "type": "string", "description": "Description of the latest split or settlement." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation server timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update server timestamp." }
+      },
+      "required": ["userId", "name", "phone", "upiId", "netBalance", "lastNote", "createdAt", "updatedAt"]
+    },
+    "SavingsGoal": {
+      "title": "SavingsGoal",
+      "description": "Micro-savings target tracked by the user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "title": { "type": "string", "description": "Name of the savings goal." },
+        "targetAmount": { "type": "integer", "description": "Target amount in INR." },
+        "savedAmount": { "type": "integer", "description": "Currently saved amount in INR." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation server timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update server timestamp." }
+      },
+      "required": ["userId", "title", "targetAmount", "savedAmount", "createdAt", "updatedAt"]
+    },
+    "JarvisMessage": {
+      "title": "JarvisMessage",
+      "description": "Persistent conversation turn between the user and J.A.R.V.I.S. AI financial assistant.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "role": { "type": "string", "description": "Message speaker role (user or assistant)." },
+        "text": { "type": "string", "description": "Content of the message in English, Hinglish, or Hindi." },
+        "mode": { "type": "string", "description": "JARVIS personality mode active during this turn (roast, analyst,saver)." },
+        "language": { "type": "string", "description": "Language preference during this turn (hinglish, english, hindi)." },
+        "txEpochMillis": { "type": "integer", "description": "Epoch milliseconds when the message was sent." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation server timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update server timestamp." }
+      },
+      "required": ["userId", "role", "text", "mode", "language", "txEpochMillis", "createdAt", "updatedAt"]
+    },
+    "PaymentReminderRecord": {
+      "title": "PaymentReminderRecord",
+      "description": "Scheduled payment or bill reminder configured by the user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "title": { "type": "string", "description": "Payment or bill title." },
+        "amount": { "type": "integer", "description": "Payment amount in INR." },
+        "category": { "type": "string", "description": "Expense category." },
+        "dueEpochMillis": { "type": "integer", "description": "Due date and time in epoch milliseconds." },
+        "intervalType": { "type": "string", "description": "Reminder interval (same_day, 1_day_before, 3_days_before, weekly)." },
+        "isPaid": { "type": "boolean", "description": "Whether the payment has been marked as paid/completed." },
+        "note": { "type": "string", "description": "Optional note for the reminder." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation server timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update server timestamp." }
+      },
+      "required": ["userId", "title", "amount", "category", "dueEpochMillis", "intervalType", "isPaid", "note", "createdAt", "updatedAt"]
+    },
+    "NightGuardEventRecord": {
+      "title": "NightGuardEventRecord",
+      "description": "Audit record of a Night Guard impulse-spending intervention (cancelled, postponed, proceeded, or essential_bypass).",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "title": { "type": "string", "description": "Merchant or expense title." },
+        "category": { "type": "string", "description": "Expense category." },
+        "amount": { "type": "integer", "description": "Expense amount in INR." },
+        "outcome": { "type": "string", "description": "Intervention outcome (cancelled, postponed, proceeded, essential_bypass)." },
+        "bypassReason": { "type": "string", "description": "Emergency bypass category if essential_bypass was used." },
+        "challengeCategory": { "type": "string", "description": "Brain diversion challenge category completed." },
+        "eventEpochMillis": { "type": "integer", "description": "Epoch milliseconds when the intervention occurred." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation server timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update server timestamp." }
+      },
+      "required": ["userId", "title", "category", "amount", "outcome", "bypassReason", "challengeCategory", "eventEpochMillis", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserSettings" },
+      "description": "Root user settings document keyed by Firebase Auth UID."
+    },
+    "/users/{userId}/expenses/{expenseId}": {
+      "schema": { "$ref": "#/entities/ExpenseRecord" },
+      "description": "Private subcollection of expenses and income entries belonging to the user."
+    },
+    "/users/{userId}/khata_friends/{friendId}": {
+      "schema": { "$ref": "#/entities/KhataFriend" },
+      "description": "Private subcollection of Khata friends and Lena/Dena balances belonging to the user."
+    },
+    "/users/{userId}/savings_goals/{goalId}": {
+      "schema": { "$ref": "#/entities/SavingsGoal" },
+      "description": "Private subcollection of micro-savings goals belonging to the user."
+    },
+    "/users/{userId}/jarvis_messages/{messageId}": {
+      "schema": { "$ref": "#/entities/JarvisMessage" },
+      "description": "Private subcollection of persistent JARVIS AI conversation messages belonging to the user."
+    },
+    "/users/{userId}/payment_reminders/{reminderId}": {
+      "schema": { "$ref": "#/entities/PaymentReminderRecord" },
+      "description": "Private subcollection of scheduled payment and bill reminders belonging to the user."
+    },
+    "/users/{userId}/night_guard_events/{eventId}": {
+      "schema": { "$ref": "#/entities/NightGuardEventRecord" },
+      "description": "Private subcollection of Night Guard intervention events belonging to the user."
+    }
+  }
+}

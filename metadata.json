@@ -1,0 +1,6 @@
+{
+  "name": "Kharchee",
+  "description": "Smart expense tracker, monthly budget planner, and group bill splitter with real-time cloud sync.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

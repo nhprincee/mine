@@ -1,0 +1,520 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: /users/{userId}
+    // Document ID: {userId} (matches request.auth.uid)
+    // Fields:
+    //   - userId: string (required, immutable, == request.auth.uid)
+    //   - dailyLimit: int (required, 50 <= dailyLimit <= 500000)
+    //   - lockdownActive: bool (required)
+    //   - autoLockdownAt90: bool (required)
+    //   - stealthMode: bool (required)
+    //   - themeId: string (required, in ['stark', 'mark85', 'stealth'])
+    //   - myUpiId: string (required, size <= 100)
+    //   - upiGuardTone: string (required, in ['roast', 'hinglish', 'disciplined'])
+    //   - isPro: bool (optional)
+    //   - proTier: string (optional, in ['free', 'monthly', 'annual', 'sovereign'])
+    //   - proExpiresAtMillis: int (optional, >= 0)
+    //   - nightGuardEnabled: bool (optional)
+    //   - nightGuardStartHour: int (optional, 0..23)
+    //   - nightGuardStartMinute: int (optional, 0..59)
+    //   - nightGuardEndHour: int (optional, 0..23)
+    //   - nightGuardEndMinute: int (optional, 0..59)
+    //   - nightGuardCooldownEndMillis: int (optional, >= 0)
+    //   - lastChallengeId: string (optional, size <= 64)
+    //   - enablePreSpendConfirm: bool (optional)
+    //   - notifyPaymentReminders: bool (optional)
+    //   - notifyNightGuardAlert: bool (optional)
+    //   - notifyMorningReview: bool (optional)
+    //   - createdAt: timestamp (required, immutable, <= request.time)
+    //   - updatedAt: timestamp (required, <= request.time)
+    //
+    // Subcollection: /users/{userId}/expenses/{expenseId}
+    // Subcollection: /users/{userId}/khata_friends/{friendId}
+    // Subcollection: /users/{userId}/savings_goals/{goalId}
+    // Subcollection: /users/{userId}/jarvis_messages/{messageId}
+    // Subcollection: /users/{userId}/payment_reminders/{reminderId}
+    // Subcollection: /users/{userId}/night_guard_events/{eventId}
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidCategory(cat) {
+      return cat in [
+        'Food',
+        'Chai & Snacks',
+        'Transport',
+        'Grocery',
+        'Shopping',
+        'Subscriptions',
+        'Entertainment',
+        'Bills',
+        'Bills & Rent',
+        'Salary',
+        'Freelance',
+        'Cashback',
+        'Refund',
+        'Investment',
+        'Other'
+      ];
+    }
+
+    function isValidPaymentMode(mode) {
+      return mode in ['UPI', 'Cash', 'Card'];
+    }
+
+    function isValidThemeId(themeId) {
+      return themeId in ['stark', 'mark85', 'stealth'];
+    }
+
+    function isValidGuardTone(tone) {
+      return tone in ['roast', 'hinglish', 'disciplined'];
+    }
+
+    function isValidProTier(tier) {
+      return tier in ['free', 'gold', 'platinum', 'monthly', 'annual', 'sovereign'];
+    }
+
+    function isValidOptionalProFields(data) {
+      return (!('isPro' in data) || data.isPro is bool)
+        && (!('proTier' in data) || (data.proTier is string && isValidProTier(data.proTier)))
+        && (!('proExpiryMillis' in data) || (data.proExpiryMillis is int && data.proExpiryMillis >= 0))
+        && (!('proExpiresAtMillis' in data) || (data.proExpiresAtMillis is int && data.proExpiresAtMillis >= 0));
+    }
+
+    function isValidOptionalNightGuardAndNotifyFields(data) {
+      return (!('nightGuardEnabled' in data) || data.nightGuardEnabled is bool)
+        && (!('nightGuardStartHour' in data) || (data.nightGuardStartHour is int && data.nightGuardStartHour >= 0 && data.nightGuardStartHour <= 23))
+        && (!('nightGuardStartMinute' in data) || (data.nightGuardStartMinute is int && data.nightGuardStartMinute >= 0 && data.nightGuardStartMinute <= 59))
+        && (!('nightGuardEndHour' in data) || (data.nightGuardEndHour is int && data.nightGuardEndHour >= 0 && data.nightGuardEndHour <= 23))
+        && (!('nightGuardEndMinute' in data) || (data.nightGuardEndMinute is int && data.nightGuardEndMinute >= 0 && data.nightGuardEndMinute <= 59))
+        && (!('nightGuardCooldownEndMillis' in data) || (data.nightGuardCooldownEndMillis is int && data.nightGuardCooldownEndMillis >= 0))
+        && (!('lastChallengeId' in data) || (data.lastChallengeId is string && data.lastChallengeId.size() <= 64))
+        && (!('enablePreSpendConfirm' in data) || data.enablePreSpendConfirm is bool)
+        && (!('notifyPaymentReminders' in data) || data.notifyPaymentReminders is bool)
+        && (!('notifyNightGuardAlert' in data) || data.notifyNightGuardAlert is bool)
+        && (!('notifyMorningReview' in data) || data.notifyMorningReview is bool);
+    }
+
+    function isValidUserSettings(data, userId) {
+      return data.keys().hasAll([
+          'userId',
+          'dailyLimit',
+          'lockdownActive',
+          'autoLockdownAt90',
+          'stealthMode',
+          'themeId',
+          'myUpiId',
+          'upiGuardTone',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'userId',
+          'dailyLimit',
+          'lockdownActive',
+          'autoLockdownAt90',
+          'stealthMode',
+          'themeId',
+          'myUpiId',
+          'upiGuardTone',
+          'isPro',
+          'proTier',
+          'proExpiryMillis',
+          'proExpiresAtMillis',
+          'nightGuardEnabled',
+          'nightGuardStartHour',
+          'nightGuardStartMinute',
+          'nightGuardEndHour',
+          'nightGuardEndMinute',
+          'nightGuardCooldownEndMillis',
+          'lastChallengeId',
+          'enablePreSpendConfirm',
+          'notifyPaymentReminders',
+          'notifyNightGuardAlert',
+          'notifyMorningReview',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.userId is string && data.userId == userId
+        && data.dailyLimit is int && data.dailyLimit >= 50 && data.dailyLimit <= 500000
+        && data.lockdownActive is bool
+        && data.autoLockdownAt90 is bool
+        && data.stealthMode is bool
+        && data.themeId is string && isValidThemeId(data.themeId)
+        && data.myUpiId is string && data.myUpiId.size() <= 100
+        && data.upiGuardTone is string && isValidGuardTone(data.upiGuardTone)
+        && isValidOptionalProFields(data)
+        && isValidOptionalNightGuardAndNotifyFields(data)
+        && data.createdAt is timestamp && data.createdAt <= request.time
+        && data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidExpense(data, userId) {
+      return data.keys().hasAll([
+          'userId',
+          'title',
+          'category',
+          'amount',
+          'paymentMode',
+          'type',
+          'note',
+          'txEpochMillis',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'userId',
+          'title',
+          'category',
+          'amount',
+          'paymentMode',
+          'type',
+          'note',
+          'txEpochMillis',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.userId is string && data.userId == userId
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 120
+        && data.category is string && isValidCategory(data.category)
+        && data.amount is int && data.amount > 0 && data.amount <= 10000000
+        && data.paymentMode is string && isValidPaymentMode(data.paymentMode)
+        && data.type is string && data.type in ['expense', 'income']
+        && data.note is string && data.note.size() <= 500
+        && data.txEpochMillis is int && data.txEpochMillis > 0
+        && data.createdAt is timestamp && data.createdAt <= request.time
+        && data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidKhataFriend(data, userId) {
+      return data.keys().hasAll([
+          'userId',
+          'name',
+          'phone',
+          'upiId',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'userId',
+          'name',
+          'phone',
+          'avatarInitials',
+          'upiId',
+          'balance',
+          'lastDescription',
+          'settled',
+          'netBalance',
+          'lastNote',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.userId is string && data.userId == userId
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 80
+        && data.phone is string && data.phone.size() <= 20
+        && data.upiId is string && data.upiId.size() <= 100
+        && (!('avatarInitials' in data) || (data.avatarInitials is string && data.avatarInitials.size() <= 8))
+        && (!('balance' in data) || (data.balance is int && data.balance >= -10000000 && data.balance <= 10000000))
+        && (!('lastDescription' in data) || (data.lastDescription is string && data.lastDescription.size() <= 240))
+        && (!('settled' in data) || data.settled is bool)
+        && (!('netBalance' in data) || (data.netBalance is int && data.netBalance >= -10000000 && data.netBalance <= 10000000))
+        && (!('lastNote' in data) || (data.lastNote is string && data.lastNote.size() <= 240))
+        && data.createdAt is timestamp && data.createdAt <= request.time
+        && data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidSavingsGoal(data, userId) {
+      return data.keys().hasAll([
+          'userId',
+          'title',
+          'targetAmount',
+          'savedAmount',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'userId',
+          'title',
+          'targetAmount',
+          'savedAmount',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.userId is string && data.userId == userId
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 100
+        && data.targetAmount is int && data.targetAmount >= 100 && data.targetAmount <= 50000000
+        && data.savedAmount is int && data.savedAmount >= 0 && data.savedAmount <= 50000000
+        && data.createdAt is timestamp && data.createdAt <= request.time
+        && data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidJarvisMessage(data, userId) {
+      return data.keys().hasAll([
+          'userId',
+          'role',
+          'text',
+          'mode',
+          'language',
+          'txEpochMillis',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'userId',
+          'role',
+          'text',
+          'mode',
+          'language',
+          'txEpochMillis',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.userId is string && data.userId == userId
+        && data.role is string && data.role in ['user', 'assistant', 'jarvis']
+        && data.text is string && data.text.size() > 0 && data.text.size() <= 6000
+        && data.mode is string && data.mode in ['roast', 'analyst', 'saver', 'advice']
+        && data.language is string && data.language in ['hinglish', 'english', 'hindi']
+        && data.txEpochMillis is int && data.txEpochMillis > 0
+        && data.createdAt is timestamp && data.createdAt <= request.time
+        && data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidPaymentReminder(data, userId) {
+      return data.keys().hasAll([
+          'userId',
+          'title',
+          'amount',
+          'category',
+          'dueEpochMillis',
+          'intervalType',
+          'isPaid',
+          'note',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'userId',
+          'title',
+          'amount',
+          'category',
+          'dueEpochMillis',
+          'intervalType',
+          'isPaid',
+          'note',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.userId is string && data.userId == userId
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 120
+        && data.amount is int && data.amount > 0 && data.amount <= 10000000
+        && data.category is string && isValidCategory(data.category)
+        && data.dueEpochMillis is int && data.dueEpochMillis > 0
+        && data.intervalType is string && data.intervalType in ['same_day', '1_day_before', '3_days_before', 'weekly']
+        && data.isPaid is bool
+        && data.note is string && data.note.size() <= 300
+        && data.createdAt is timestamp && data.createdAt <= request.time
+        && data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidNightGuardEvent(data, userId) {
+      return data.keys().hasAll([
+          'userId',
+          'title',
+          'category',
+          'amount',
+          'outcome',
+          'bypassReason',
+          'challengeCategory',
+          'eventEpochMillis',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'userId',
+          'title',
+          'category',
+          'amount',
+          'outcome',
+          'bypassReason',
+          'challengeCategory',
+          'eventEpochMillis',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.userId is string && data.userId == userId
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 120
+        && data.category is string && isValidCategory(data.category)
+        && data.amount is int && data.amount > 0 && data.amount <= 10000000
+        && data.outcome is string && data.outcome in ['cancelled', 'postponed', 'proceeded', 'essential_bypass']
+        && data.bypassReason is string && data.bypassReason.size() <= 120
+        && data.challengeCategory is string && data.challengeCategory.size() <= 60
+        && data.eventEpochMillis is int && data.eventEpochMillis > 0
+        && data.createdAt is timestamp && data.createdAt <= request.time
+        && data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUserSettings(request.resource.data, userId);
+      allow update: if isOwner(userId)
+                    && isValidUserSettings(request.resource.data, userId)
+                    && request.resource.data.userId == resource.data.userId
+                    && request.resource.data.createdAt == resource.data.createdAt
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                      'dailyLimit',
+                      'lockdownActive',
+                      'autoLockdownAt90',
+                      'stealthMode',
+                      'themeId',
+                      'myUpiId',
+                      'upiGuardTone',
+                      'isPro',
+                      'proTier',
+                      'proExpiryMillis',
+                      'proExpiresAtMillis',
+                      'nightGuardEnabled',
+                      'nightGuardStartHour',
+                      'nightGuardStartMinute',
+                      'nightGuardEndHour',
+                      'nightGuardEndMinute',
+                      'nightGuardCooldownEndMillis',
+                      'lastChallengeId',
+                      'enablePreSpendConfirm',
+                      'notifyPaymentReminders',
+                      'notifyNightGuardAlert',
+                      'notifyMorningReview',
+                      'updatedAt'
+                    ]);
+      allow delete: if isOwner(userId);
+
+      match /expenses/{expenseId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isOwner(userId) && isValidExpense(request.resource.data, userId);
+        allow update: if isOwner(userId)
+                      && isValidExpense(request.resource.data, userId)
+                      && request.resource.data.userId == resource.data.userId
+                      && request.resource.data.createdAt == resource.data.createdAt
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                        'title',
+                        'category',
+                        'amount',
+                        'paymentMode',
+                        'type',
+                        'note',
+                        'txEpochMillis',
+                        'updatedAt'
+                      ]);
+        allow delete: if isOwner(userId);
+      }
+
+      match /khata_friends/{friendId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isOwner(userId) && isValidKhataFriend(request.resource.data, userId);
+        allow update: if isOwner(userId)
+                      && isValidKhataFriend(request.resource.data, userId)
+                      && request.resource.data.userId == resource.data.userId
+                      && request.resource.data.createdAt == resource.data.createdAt
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                        'name',
+                        'phone',
+                        'avatarInitials',
+                        'upiId',
+                        'balance',
+                        'lastDescription',
+                        'settled',
+                        'netBalance',
+                        'lastNote',
+                        'updatedAt'
+                      ]);
+        allow delete: if isOwner(userId);
+      }
+
+      match /savings_goals/{goalId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isOwner(userId) && isValidSavingsGoal(request.resource.data, userId);
+        allow update: if isOwner(userId)
+                      && isValidSavingsGoal(request.resource.data, userId)
+                      && request.resource.data.userId == resource.data.userId
+                      && request.resource.data.createdAt == resource.data.createdAt
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                        'title',
+                        'targetAmount',
+                        'savedAmount',
+                        'updatedAt'
+                      ]);
+        allow delete: if isOwner(userId);
+      }
+
+      match /jarvis_messages/{messageId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isOwner(userId) && isValidJarvisMessage(request.resource.data, userId);
+        allow update: if isOwner(userId)
+                      && isValidJarvisMessage(request.resource.data, userId)
+                      && request.resource.data.userId == resource.data.userId
+                      && request.resource.data.createdAt == resource.data.createdAt
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                        'text',
+                        'mode',
+                        'language',
+                        'updatedAt'
+                      ]);
+        allow delete: if isOwner(userId);
+      }
+
+      match /payment_reminders/{reminderId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isOwner(userId) && isValidPaymentReminder(request.resource.data, userId);
+        allow update: if isOwner(userId)
+                      && isValidPaymentReminder(request.resource.data, userId)
+                      && request.resource.data.userId == resource.data.userId
+                      && request.resource.data.createdAt == resource.data.createdAt
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                        'title',
+                        'amount',
+                        'category',
+                        'dueEpochMillis',
+                        'intervalType',
+                        'isPaid',
+                        'note',
+                        'updatedAt'
+                      ]);
+        allow delete: if isOwner(userId);
+      }
+
+      match /night_guard_events/{eventId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isOwner(userId) && isValidNightGuardEvent(request.resource.data, userId);
+        allow update: if isOwner(userId)
+                      && isValidNightGuardEvent(request.resource.data, userId)
+                      && request.resource.data.userId == resource.data.userId
+                      && request.resource.data.createdAt == resource.data.createdAt
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                        'outcome',
+                        'bypassReason',
+                        'challengeCategory',
+                        'updatedAt'
+                      ]);
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}
