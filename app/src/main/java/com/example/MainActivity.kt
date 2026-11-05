@@ -30,8 +30,10 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.History
@@ -81,6 +83,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import com.example.data.model.ExpenseRecord
+import com.example.data.model.KharcheeOnboardingProfileStore
+import com.example.data.model.KharcheeProfileAndToolsStore
 import com.example.data.model.UserSettings
 import com.example.data.model.isIncomeTransaction
 import com.example.data.model.isSameDay
@@ -88,20 +99,33 @@ import com.example.data.model.isSameMonth
 import com.example.data.repository.KharcheeRepository
 import com.example.ui.auth.AuthScreen
 import com.example.ui.auth.signOut
+import com.example.ui.components.KharcheeArchitecturalLogo
+import com.example.ui.components.KharcheeLogoLoadingIndicator
 import com.example.ui.jarvis.JarvisAssistantOverlay
 import com.example.ui.screens.AddSavingsGoalBottomSheet
 import com.example.ui.screens.AddTransactionBottomSheet
+import com.example.ui.screens.AdvancedKhataScreen
+import com.example.ui.screens.EditTransactionBottomSheet
 import com.example.ui.screens.FakeMomCallOverlay
+import com.example.ui.screens.FinanceToolsBottomSheet
 import com.example.ui.screens.HistoryTab
+import com.example.ui.auth.IntroAuthPreferences
 import com.example.ui.screens.HomeTab
 import com.example.ui.screens.InsightsTab
+import com.example.ui.screens.KharcheeSnapBottomSheet
 import com.example.ui.screens.KhataTab
+import com.example.ui.screens.MaiDeepCanvas
+import com.example.ui.screens.MaiScreenBottomNavigationBar
+import com.example.ui.screens.MaiScreenTopHeader
+import com.example.ui.screens.MyProfileBottomSheet
 import com.example.ui.screens.NightGuardInterceptOverlay
 import com.example.ui.screens.NightGuardSettingsBottomSheet
 import com.example.ui.screens.PreSpendConfirmationSheet
 import com.example.ui.screens.ProVaultTab
 import com.example.ui.screens.SmartPaymentRemindersBottomSheet
 import com.example.ui.screens.SmsUpiParserBottomSheet
+import com.example.ui.screens.VaultEcosystemTab
+import com.example.ui.screens.KharcheeSmartOnboardingOverlay
 import com.example.ui.theme.ChampagneGold
 import com.example.ui.theme.ElevatedGraphite
 import com.example.ui.theme.FontPreferenceManager
@@ -119,6 +143,8 @@ import com.example.ui.theme.ObsidianDarkBackground
 import com.example.ui.theme.ObsidianDarkPrimarySurface
 import com.example.ui.theme.ObsidianDarkPrimaryText
 import com.example.ui.theme.RichGraphite
+import com.example.ui.theme.SophisticatedEmerald
+import com.example.ui.theme.ThemePreferenceManager
 import com.example.ui.theme.WarmIvory
 import com.example.ui.viewmodel.KharcheeViewModel
 import com.example.ui.viewmodel.UiState
@@ -140,7 +166,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         configureAppCheck(this, intent)
         FontPreferenceManager.ensureInitialized(this)
+        ThemePreferenceManager.ensureInitialized(this)
         KharcheeNotificationManager.ensureChannels(this)
+        IntroAuthPreferences.syncLocalSessionFromDisk(this)
         enableEdgeToEdge()
         setContent {
             AppNavigation()
@@ -158,33 +186,56 @@ internal fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
 
 @Composable
 fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
+    val context = LocalContext.current
     val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
+    val localSession by IntroAuthPreferences.localSessionFlow.collectAsStateWithLifecycle()
     val user = currentUser
+    val fallbackSession = localSession
 
-    if (user == null) {
-        KharcheeTheme(themeId = "stark") {
-            AuthScreen(onAuthSuccess = {})
+    if (user == null && fallbackSession == null) {
+        val savedThemeId = remember { ThemePreferenceManager.loadThemePreference(context) }
+        KharcheeTheme(themeId = savedThemeId) {
+            AuthScreen(
+                onAuthSuccess = {
+                    IntroAuthPreferences.syncLocalSessionFromDisk(context)
+                }
+            )
         }
-    } else {
+    } else if (user != null) {
         KharcheeMainShell(
             currentUserId = user.uid,
-            userDisplayName = user.displayName ?: user.email?.substringBefore("@") ?: user.phoneNumber ?: "Kharchee Sovereign"
+            userDisplayName = user.displayName ?: user.email?.substringBefore("@") ?: user.phoneNumber ?: "Kharchee",
+            userEmail = user.email ?: "",
+            userPhone = user.phoneNumber ?: "",
+            userCreationTimestamp = user.metadata?.creationTimestamp ?: 0L
+        )
+    } else if (fallbackSession != null) {
+        KharcheeMainShell(
+            currentUserId = fallbackSession.uid,
+            userDisplayName = fallbackSession.displayName.ifBlank { "Kharchee" },
+            userEmail = fallbackSession.email,
+            userPhone = "",
+            userCreationTimestamp = fallbackSession.creationTimestamp
         )
     }
 }
 
 enum class KharcheeTab(val id: String, val label: String, val icon: ImageVector) {
-    HOME("home", "Vault", Icons.Default.Home),
+    HOME("home", "Home", Icons.Default.Home),
     HISTORY("history", "Passbook", Icons.Default.History),
+    JARVIS("jarvis", "JARVIS", Icons.Default.AutoAwesome),
     INSIGHTS("insights", "Analytics", Icons.Default.Analytics),
-    KHATA("khata", "Khata", Icons.Default.Groups),
-    PRO("pro", "Private Club", Icons.Default.WorkspacePremium)
+    VAULT("vault", "Vault", Icons.Default.AccountBalanceWallet),
+    PRO("pro", "KHARCHEE PRO", Icons.Default.WorkspacePremium)
 }
 
 @Composable
 fun KharcheeMainShell(
     currentUserId: String,
-    userDisplayName: String
+    userDisplayName: String,
+    userEmail: String = "",
+    userPhone: String = "",
+    userCreationTimestamp: Long = 0L
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -234,6 +285,10 @@ fun KharcheeMainShell(
 
     var activeTab by remember { mutableStateOf(KharcheeTab.HOME) }
     var addModalType by remember { mutableStateOf<String?>(null) } // "expense" or "income"
+    var editingExpense by remember { mutableStateOf<ExpenseRecord?>(null) }
+    var showMyProfileModal by remember { mutableStateOf(false) }
+    var showFinanceToolsModal by remember { mutableStateOf(false) }
+    var showKharcheeSnapModal by remember { mutableStateOf(false) }
     var showSmsParserModal by remember { mutableStateOf(false) }
     var showSavingsGoalModal by remember { mutableStateOf(false) }
     var showSmartRemindersModal by remember { mutableStateOf(false) }
@@ -241,6 +296,48 @@ fun KharcheeMainShell(
     var showMomCallEscape by remember { mutableStateOf(false) }
     var showJarvisAssistant by remember { mutableStateOf(false) }
     var jarvisInitialPrompt by remember { mutableStateOf<String?>(null) }
+    var showOnboardingFlowModal by remember { mutableStateOf(false) }
+    var onboardingCheckedForSession by remember(currentUserId) { mutableStateOf(false) }
+
+    var profileVersion by remember { mutableStateOf(0) }
+
+    LaunchedEffect(
+        currentUserId,
+        expensesUiState,
+        goalsUiState,
+        khataUiState,
+        onboardingCheckedForSession
+    ) {
+        if (!onboardingCheckedForSession &&
+            expensesUiState !is UiState.Loading &&
+            goalsUiState !is UiState.Loading &&
+            khataUiState !is UiState.Loading
+        ) {
+            onboardingCheckedForSession = true
+            val shouldLaunch = KharcheeOnboardingProfileStore.shouldShowGuidedOnboardingOnLaunch(
+                context = context,
+                userId = currentUserId,
+                existingExpensesCount = expenses.size,
+                existingGoalsCount = savingsGoals.size,
+                existingKhataCount = khataFriends.size
+            )
+            if (shouldLaunch) {
+                showOnboardingFlowModal = true
+            }
+        }
+    }
+    val userProfileData = remember(currentUserId, userDisplayName, userEmail, userPhone, settings.dailyLimit, userCreationTimestamp, profileVersion) {
+        KharcheeProfileAndToolsStore.getProfileMetadata(
+            context = context,
+            userId = currentUserId,
+            defaultName = userDisplayName,
+            defaultEmail = userEmail,
+            defaultPhone = userPhone,
+            dailyLimit = settings.dailyLimit,
+            creationTimestampMillis = userCreationTimestamp
+        )
+    }
+    val effectiveDisplayName = userProfileData.customDisplayName.ifBlank { userDisplayName }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -315,134 +412,147 @@ fun KharcheeMainShell(
     }
 
     KharcheeTheme(themeId = settings.themeId) {
-        val hud = LocalHudTheme.current
-
-        Box(modifier = Modifier.fillMaxSize().background(ObsidianBlack)) {
+        Box(modifier = Modifier.fillMaxSize().background(MaiDeepCanvas)) {
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 val isWideScreen = maxWidth >= 600.dp
 
                 Scaffold(
-                    containerColor = ObsidianBlack,
+                    containerColor = MaiDeepCanvas,
                     contentWindowInsets = WindowInsets.safeDrawing,
                     snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                     floatingActionButton = {
-                        val jarvisCyan = Color(0xFF00E5FF)
-                        ExtendedFloatingActionButton(
-                            onClick = { showJarvisAssistant = true },
-                            containerColor = ObsidianDarkPrimarySurface,
-                            contentColor = jarvisCyan,
-                            shape = RoundedCornerShape(14.dp),
-                            icon = {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = "Open J.A.R.V.I.S. AI Core",
-                                    tint = jarvisCyan,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            },
-                            text = {
-                                Text(
-                                    text = "J.A.R.V.I.S.",
-                                    fontFamily = JetBrainsMonoFontFamily,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 12.sp,
-                                    letterSpacing = 1.2.sp,
-                                    color = ObsidianDarkPrimaryText
-                                )
-                            },
-                            modifier = Modifier
-                                .shadow(16.dp, RoundedCornerShape(14.dp))
-                                .border(
-                                    width = 1.dp,
-                                    color = jarvisCyan.copy(alpha = 0.55f),
-                                    shape = RoundedCornerShape(14.dp)
-                                )
-                                .testTag("open_jarvis_fab")
-                        )
+                        if (isWideScreen && activeTab != KharcheeTab.JARVIS) {
+                            ExtendedFloatingActionButton(
+                                onClick = { showKharcheeSnapModal = true },
+                                containerColor = ObsidianDarkPrimarySurface,
+                                contentColor = SophisticatedEmerald,
+                                shape = RoundedCornerShape(14.dp),
+                                icon = {
+                                    Icon(
+                                        imageVector = Icons.Default.CameraAlt,
+                                        contentDescription = "Open SNAP & TRACK",
+                                        tint = SophisticatedEmerald,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
+                                text = {
+                                    Text(
+                                        text = "SNAP & TRACK",
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 11.sp,
+                                        letterSpacing = 1.sp,
+                                        color = ObsidianDarkPrimaryText
+                                    )
+                                },
+                                modifier = Modifier
+                                    .shadow(16.dp, RoundedCornerShape(14.dp))
+                                    .border(
+                                        width = 1.dp,
+                                        color = SophisticatedEmerald.copy(alpha = 0.65f),
+                                        shape = RoundedCornerShape(14.dp)
+                                    )
+                                    .testTag("open_snap_and_track_fab")
+                            )
+                        }
                     },
                     topBar = {
-                        KharcheeTopHeader(
-                            activeTab = activeTab,
-                            stealthMode = settings.stealthMode,
-                            isLightMode = settings.themeId == "light",
-                            streakDays = streakDays,
-                            onOpenJarvis = { showJarvisAssistant = true },
-                            onToggleThemeMode = {
-                                val nextTheme = if (settings.themeId == "light") "stark" else "light"
-                                viewModel.updateSettings(
-                                    themeId = nextTheme,
-                                    toastText = if (nextTheme == "light") "◇ Obsidian Luxury Light Mode" else "◆ Obsidian Luxury Dark Mode"
-                                )
-                            },
-                            onToggleStealth = {
-                                viewModel.updateSettings(
-                                    stealthMode = !settings.stealthMode,
-                                    toastText = if (!settings.stealthMode) "🛡️ Stealth Zero-Balance Shield ON" else "👁️ Stealth Shield OFF"
-                                )
-                            },
-                            onSignOut = {
-                                signOut(
-                                    context = context,
-                                    credentialManager = credentialManager,
-                                    onSignOutComplete = {},
-                                    scope = scope
-                                )
-                            }
-                        )
+                        if (activeTab == KharcheeTab.HOME) {
+                            MaiScreenTopHeader(
+                                userDisplayName = effectiveDisplayName,
+                                profilePhotoUri = userProfileData.profilePhotoUri,
+                                hasUnreadReminders = paymentReminders.any { !it.isPaid },
+                                stealthMode = settings.stealthMode,
+                                isLightMode = settings.themeId == "light",
+                                onOpenMyProfile = { showMyProfileModal = true },
+                                onOpenNotifications = { showSmartRemindersModal = true },
+                                onToggleThemeMode = {
+                                    val nextTheme = when (settings.themeId) {
+                                        "stark" -> "neon"
+                                        "neon" -> "light"
+                                        else -> "stark"
+                                    }
+                                    ThemePreferenceManager.saveThemePreference(context, nextTheme)
+                                    viewModel.updateSettings(
+                                        themeId = nextTheme,
+                                        toastText = when (nextTheme) {
+                                            "neon" -> "⚡ Theme B: Neon Intelligence Activated"
+                                            "light" -> "◇ Theme C: Light Luxury Activated"
+                                            else -> "◆ Theme A: Obsidian Luxury Activated"
+                                        }
+                                    )
+                                },
+                                onToggleStealth = {
+                                    viewModel.updateSettings(
+                                        stealthMode = !settings.stealthMode,
+                                        toastText = if (!settings.stealthMode) "🛡️ Stealth Zero-Balance Shield ON" else "👁️ Stealth Shield OFF"
+                                    )
+                                },
+                                onSignOut = {
+                                    signOut(
+                                        context = context,
+                                        credentialManager = credentialManager,
+                                        onSignOutComplete = {},
+                                        scope = scope
+                                    )
+                                }
+                            )
+                        } else {
+                            KharcheeTopHeader(
+                                activeTab = activeTab,
+                                userDisplayName = effectiveDisplayName,
+                                profilePhotoUri = userProfileData.profilePhotoUri,
+                                stealthMode = settings.stealthMode,
+                                isLightMode = settings.themeId == "light",
+                                streakDays = streakDays,
+                                onOpenMyProfile = { showMyProfileModal = true },
+                                onOpenJarvis = { showJarvisAssistant = true },
+                                onToggleThemeMode = {
+                                    val nextTheme = when (settings.themeId) {
+                                        "stark" -> "neon"
+                                        "neon" -> "light"
+                                        else -> "stark"
+                                    }
+                                    ThemePreferenceManager.saveThemePreference(context, nextTheme)
+                                    viewModel.updateSettings(
+                                        themeId = nextTheme,
+                                        toastText = when (nextTheme) {
+                                            "neon" -> "⚡ Theme B: Neon Intelligence Activated"
+                                            "light" -> "◇ Theme C: Light Luxury Activated"
+                                            else -> "◆ Theme A: Obsidian Luxury Activated"
+                                        }
+                                    )
+                                },
+                                onToggleStealth = {
+                                    viewModel.updateSettings(
+                                        stealthMode = !settings.stealthMode,
+                                        toastText = if (!settings.stealthMode) "🛡️ Stealth Zero-Balance Shield ON" else "👁️ Stealth Shield OFF"
+                                    )
+                                },
+                                onSignOut = {
+                                    signOut(
+                                        context = context,
+                                        credentialManager = credentialManager,
+                                        onSignOutComplete = {},
+                                        scope = scope
+                                    )
+                                }
+                            )
+                        }
                     },
                     bottomBar = {
                         if (!isWideScreen) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(RichGraphite)
-                            ) {
-                                HorizontalDivider(color = HairlinePlatinum, thickness = 0.6.dp)
-                                NavigationBar(
-                                    containerColor = RichGraphite,
-                                    tonalElevation = 0.dp,
-                                    modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars)
-                                ) {
-                                    KharcheeTab.entries.forEach { tab ->
-                                        val selected = activeTab == tab
-                                        val activeColor by animateColorAsState(
-                                            targetValue = if (selected) ChampagneGold else MutedIvory,
-                                            animationSpec = tween(220),
-                                            label = "navTabColor"
-                                        )
-                                        NavigationBarItem(
-                                            selected = selected,
-                                            onClick = { activeTab = tab },
-                                            icon = {
-                                                Icon(
-                                                    imageVector = tab.icon,
-                                                    contentDescription = tab.label,
-                                                    tint = activeColor,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                            },
-                                            label = {
-                                                Text(
-                                                    text = tab.label,
-                                                    fontFamily = JetBrainsMonoFontFamily,
-                                                    fontSize = 10.sp,
-                                                    letterSpacing = 0.3.sp,
-                                                    color = if (selected) WarmIvory else MutedIvory,
-                                                    fontWeight = FontWeight.SemiBold
-                                                )
-                                            },
-                                            colors = NavigationBarItemDefaults.colors(
-                                                selectedIconColor = ChampagneGold,
-                                                selectedTextColor = WarmIvory,
-                                                indicatorColor = ChampagneGold.copy(alpha = 0.14f),
-                                                unselectedIconColor = MutedIvory,
-                                                unselectedTextColor = MutedIvory
-                                            ),
-                                            modifier = Modifier.testTag("nav_tab_${tab.id}")
-                                        )
-                                    }
-                                }
-                            }
+                            MaiScreenBottomNavigationBar(
+                                activeTabId = activeTab.id,
+                                onSelectHome = { activeTab = KharcheeTab.HOME },
+                                onSelectPassbook = { activeTab = KharcheeTab.VAULT },
+                                onOpenCenterScanner = { showKharcheeSnapModal = true },
+                                onSelectAnalytics = { activeTab = KharcheeTab.INSIGHTS },
+                                onOpenProfile = { showMyProfileModal = true },
+                                onSelectVault = { activeTab = KharcheeTab.VAULT },
+                                onSelectJarvis = { activeTab = KharcheeTab.JARVIS },
+                                onSelectPro = { activeTab = KharcheeTab.PRO }
+                            )
                         }
                     }
                 ) { innerPadding ->
@@ -491,9 +601,7 @@ fun KharcheeMainShell(
                                 .fillMaxHeight()
                         ) {
                             if (expensesUiState is UiState.Loading && settingsUiState is UiState.Loading) {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(color = ChampagneGold)
-                                }
+                                KharcheeLogoLoadingIndicator()
                             } else {
                                 when (activeTab) {
                                     KharcheeTab.HOME -> HomeTab(
@@ -545,13 +653,92 @@ fun KharcheeMainShell(
                                         onTriggerMomCall = { showMomCallEscape = true },
                                         onOpenNightGuardSettings = { showNightGuardSettingsModal = true },
                                         onTestNightGuard = viewModel::triggerNightGuardSimulation,
-                                        onOpenSmartReminders = { showSmartRemindersModal = true }
+                                        onOpenSmartReminders = { showSmartRemindersModal = true },
+                                        userId = currentUserId,
+                                        onEditExpense = { editingExpense = it },
+                                        onOpenFinanceTools = { showFinanceToolsModal = true },
+                                        onOpenSnapAndTrack = { showKharcheeSnapModal = true },
+                                        onOpenJarvisTab = { activeTab = KharcheeTab.JARVIS },
+                                        onOpenOnboardingProfileEditor = { showOnboardingFlowModal = true },
+                                        onToggleStealth = {
+                                            viewModel.updateSettings(
+                                                stealthMode = !settings.stealthMode,
+                                                toastText = if (!settings.stealthMode) "🛡️ Stealth Zero-Balance Shield ON" else "👁️ Stealth Shield OFF"
+                                            )
+                                        },
+                                        onNavigateToPassbook = { activeTab = KharcheeTab.HISTORY },
+                                        onNavigateToAnalytics = { activeTab = KharcheeTab.INSIGHTS },
+                                        onNavigateToVault = { activeTab = KharcheeTab.VAULT },
+                                        onOpenSettings = { showMyProfileModal = true },
+                                        onCreateBillReminder = { title, amount, category, dueEpochMillis ->
+                                            viewModel.createPaymentReminder(
+                                                title = title,
+                                                amount = amount,
+                                                category = category,
+                                                dueEpochMillis = dueEpochMillis,
+                                                intervalType = "same_day",
+                                                note = "Added from Home Dashboard"
+                                            )
+                                        },
+                                        onToggleBillPaid = { reminder, isPaid ->
+                                            viewModel.markPaymentReminderPaid(reminder, isPaid)
+                                        },
+                                        onDeleteBillReminder = { reminder ->
+                                            viewModel.deletePaymentReminder(reminder)
+                                        },
+                                        khataFriends = khataFriends
                                     )
 
                                     KharcheeTab.HISTORY -> HistoryTab(
                                         expenses = expenses,
                                         stealthMode = settings.stealthMode,
-                                        onDeleteExpense = { viewModel.deleteExpense(it.id, it.title) }
+                                        onDeleteExpense = { viewModel.deleteExpense(it.id, it.title) },
+                                        onEditExpense = { editingExpense = it },
+                                        onOpenAddExpense = { addModalType = "expense" },
+                                        onOpenAddIncome = { addModalType = "income" }
+                                    )
+
+                                    KharcheeTab.JARVIS -> JarvisAssistantOverlay(
+                                        userDisplayName = effectiveDisplayName,
+                                        todaySpent = todaySpent,
+                                        monthSpent = monthSpent,
+                                        dailyLimit = settings.dailyLimit,
+                                        disciplineScore = disciplineScore,
+                                        messages = jarvisMessages,
+                                        streamingReply = jarvisStreamingReply,
+                                        isGenerating = jarvisIsGenerating,
+                                        activeMode = jarvisMode,
+                                        activeLanguage = jarvisLanguage,
+                                        errorState = jarvisError,
+                                        latestSpokenText = latestSpokenJarvisText,
+                                        onConsumeLatestSpokenText = viewModel::consumeLatestSpokenJarvisText,
+                                        onSelectMode = viewModel::setJarvisMode,
+                                        onSelectLanguage = viewModel::setJarvisLanguage,
+                                        proactiveInsights = proactiveInsights,
+                                        pendingProposedAction = pendingProposedAction,
+                                        onConfirmProposedAction = { action ->
+                                            viewModel.executeConfirmedJarvisAction(
+                                                action = action,
+                                                onNavigateToTab = { targetTabId ->
+                                                    val matched = KharcheeTab.entries.find { it.id == targetTabId }
+                                                    if (matched != null) {
+                                                        activeTab = matched
+                                                    }
+                                                }
+                                            )
+                                        },
+                                        onDismissProposedAction = viewModel::dismissProposedAction,
+                                        initialPrompt = jarvisInitialPrompt,
+                                        onSendMessage = { prompt ->
+                                            jarvisInitialPrompt = null
+                                            viewModel.sendJarvisMessage(prompt, effectiveDisplayName)
+                                        },
+                                        onClearHistory = viewModel::clearJarvisConversation,
+                                        onDismissError = viewModel::dismissJarvisError,
+                                        onClose = {
+                                            activeTab = KharcheeTab.HOME
+                                            jarvisInitialPrompt = null
+                                        }
                                     )
 
                                     KharcheeTab.INSIGHTS -> InsightsTab(
@@ -561,33 +748,74 @@ fun KharcheeMainShell(
                                         disciplineScore = disciplineScore,
                                         stealthMode = settings.stealthMode,
                                         settings = settings,
-                                        nightGuardEvents = nightGuardEvents
-                                    )
-
-                                    KharcheeTab.KHATA -> KhataTab(
-                                        friends = khataFriends,
-                                        myUpiId = settings.myUpiId,
-                                        stealthMode = settings.stealthMode,
-                                        onUpdateMyUpiId = { newUpi ->
-                                            viewModel.updateSettings(
-                                                myUpiId = newUpi,
-                                                toastText = "✅ Saved receiving UPI ID: $newUpi"
-                                            )
+                                        nightGuardEvents = nightGuardEvents,
+                                        savingsGoals = savingsGoals,
+                                        paymentReminders = paymentReminders,
+                                        userDisplayName = effectiveDisplayName,
+                                        onOpenJarvisWithPrompt = { prompt ->
+                                            jarvisInitialPrompt = prompt
+                                            showJarvisAssistant = true
                                         },
-                                        onAddFriend = viewModel::addKhataFriend,
-                                        onAddEntry = viewModel::recordKhataEntry,
-                                        onSettleFriend = viewModel::settleFriend,
-                                        onSplitBill = viewModel::splitBillEqually,
+                                        onOpenProfile = { showMyProfileModal = true },
+                                        onOpenNotifications = { showSmartRemindersModal = true },
                                         onShowToast = viewModel::showToast
                                     )
 
+                                    KharcheeTab.VAULT -> {
+                                        var showVaultGoalsSubScreen by remember { mutableStateOf(false) }
+                                        BackHandler(enabled = showVaultGoalsSubScreen) {
+                                            showVaultGoalsSubScreen = false
+                                        }
+                                        if (showVaultGoalsSubScreen) {
+                                            VaultEcosystemTab(
+                                                userId = currentUserId,
+                                                userDisplayName = effectiveDisplayName,
+                                                settings = settings,
+                                                expenses = expenses,
+                                                savingsGoals = savingsGoals,
+                                                khataFriends = khataFriends,
+                                                streakDays = streakDays,
+                                                disciplineScore = disciplineScore,
+                                                monthSpent = monthSpent,
+                                                onCreateGoal = viewModel::createSavingsGoal,
+                                                onAddGoalProgress = viewModel::addSavingsProgress,
+                                                onOpenSnapAndTrack = { showKharcheeSnapModal = true },
+                                                onUpdateMyUpiId = { newUpi ->
+                                                    viewModel.updateSettings(
+                                                        myUpiId = newUpi,
+                                                        toastText = "✅ Saved receiving UPI ID: $newUpi"
+                                                    )
+                                                },
+                                                onAddFriend = viewModel::addKhataFriend,
+                                                onAddEntry = viewModel::recordKhataEntry,
+                                                onSettleFriend = viewModel::settleFriend,
+                                                onSplitBill = viewModel::splitBillEqually,
+                                                onShowToast = viewModel::showToast,
+                                                paymentReminders = paymentReminders
+                                            )
+                                        } else {
+                                            AdvancedKhataScreen(
+                                                userId = currentUserId,
+                                                legacyFriends = khataFriends,
+                                                stealthMode = settings.stealthMode,
+                                                onShowToast = viewModel::showToast,
+                                                onOpenVaultTools = { showVaultGoalsSubScreen = true }
+                                            )
+                                        }
+                                    }
+
                                     KharcheeTab.PRO -> ProVaultTab(
                                         settings = settings,
-                                        userDisplayName = userDisplayName,
+                                        userDisplayName = effectiveDisplayName,
                                         disciplineScore = disciplineScore,
                                         streakDays = streakDays,
                                         expenses = expenses,
+                                        userId = currentUserId,
+                                        savingsGoals = savingsGoals,
+                                        paymentReminders = paymentReminders,
+                                        onShowToast = viewModel::showToast,
                                         onSelectTheme = { newTheme ->
+                                            ThemePreferenceManager.saveThemePreference(context, newTheme)
                                             viewModel.updateSettings(
                                                 themeId = newTheme,
                                                 toastText = "◆ Activated ${newTheme.uppercase()} Sovereign Theme"
@@ -632,6 +860,128 @@ fun KharcheeMainShell(
                 )
             }
 
+            if (editingExpense != null) {
+                EditTransactionBottomSheet(
+                    expense = editingExpense!!,
+                    onDismiss = { editingExpense = null },
+                    onSaveUpdated = { updated ->
+                        viewModel.updateExistingExpense(updated)
+                    }
+                )
+            }
+
+            if (showMyProfileModal) {
+                MyProfileBottomSheet(
+                    userId = currentUserId,
+                    initialProfile = userProfileData,
+                    settings = settings,
+                    onDismiss = {
+                        profileVersion++
+                        showMyProfileModal = false
+                    },
+                    onSaveProfileAndSettings = { newName, newPhone, newPhotoUri, newDailyLimit, newMonthlyBudget, newPrimaryWallet, newUpiId, newThemeId, notifyPayRem, notifyNight, notifyMorn ->
+                        KharcheeProfileAndToolsStore.saveProfileMetadata(
+                            context = context,
+                            userId = currentUserId,
+                            displayName = newName,
+                            phone = newPhone,
+                            profilePhotoUri = newPhotoUri,
+                            monthlyBudget = newMonthlyBudget,
+                            primaryWallet = newPrimaryWallet
+                        )
+                        ThemePreferenceManager.saveThemePreference(context, newThemeId)
+                        profileVersion++
+                        viewModel.updateSettings(
+                            dailyLimit = newDailyLimit,
+                            myUpiId = newUpiId,
+                            themeId = newThemeId,
+                            notifyPaymentReminders = notifyPayRem,
+                            notifyNightGuardAlert = notifyNight,
+                            notifyMorningReview = notifyMorn,
+                            toastText = "✅ Profile, Theme & Account Settings Saved"
+                        )
+                    },
+                    onSignOut = {
+                        showMyProfileModal = false
+                        signOut(
+                            context = context,
+                            credentialManager = credentialManager,
+                            onSignOutComplete = {},
+                            scope = scope
+                        )
+                    },
+                    onDeleteAccount = {
+                        showMyProfileModal = false
+                        KharcheeProfileAndToolsStore.clearAllForUser(context, currentUserId)
+                        KharcheeOnboardingProfileStore.clearOnboardingProfileForUser(context, currentUserId)
+                        viewModel.deleteUserAccountData {
+                            try {
+                                Firebase.auth.currentUser?.delete()
+                            } catch (_: Exception) {
+                            }
+                            signOut(
+                                context = context,
+                                credentialManager = credentialManager,
+                                onSignOutComplete = {},
+                                scope = scope
+                            )
+                        }
+                    }
+                )
+            }
+
+            if (showFinanceToolsModal) {
+                FinanceToolsBottomSheet(
+                    userId = currentUserId,
+                    expenses = expenses,
+                    savingsGoals = savingsGoals,
+                    khataFriends = khataFriends,
+                    monthSpent = monthSpent,
+                    onDismiss = { showFinanceToolsModal = false },
+                    onLogTransaction = { title, cat, amt, mode, type, note ->
+                        viewModel.requestAddTransaction(
+                            title = title,
+                            category = cat,
+                            amount = amt,
+                            paymentMode = mode,
+                            type = type,
+                            note = note
+                        )
+                    },
+                    onOpenReceiptScanner = {
+                        showFinanceToolsModal = false
+                        showKharcheeSnapModal = true
+                    },
+                    onOpenBillReminders = {
+                        showFinanceToolsModal = false
+                        showSmartRemindersModal = true
+                    },
+                    onOpenKhataTab = {
+                        showFinanceToolsModal = false
+                        activeTab = KharcheeTab.VAULT
+                    }
+                )
+            }
+
+            if (showKharcheeSnapModal) {
+                KharcheeSnapBottomSheet(
+                    userId = currentUserId,
+                    existingExpenses = expenses,
+                    onDismiss = { showKharcheeSnapModal = false },
+                    onConfirmSaveReceiptExpense = { title, cat, amt, mode, note ->
+                        viewModel.requestAddTransaction(
+                            title = title,
+                            category = cat,
+                            amount = amt,
+                            paymentMode = mode,
+                            type = "expense",
+                            note = note,
+                            triggerUpiGuard = true
+                        )
+                    }
+                )
+            }
+
             if (showSmsParserModal) {
                 SmsUpiParserBottomSheet(
                     onDismiss = { showSmsParserModal = false },
@@ -652,7 +1002,8 @@ fun KharcheeMainShell(
             if (showSavingsGoalModal) {
                 AddSavingsGoalBottomSheet(
                     onDismiss = { showSavingsGoalModal = false },
-                    onCreateGoal = viewModel::createSavingsGoal
+                    onCreateGoal = viewModel::createSavingsGoal,
+                    userId = currentUserId
                 )
             }
 
@@ -786,6 +1137,41 @@ fun KharcheeMainShell(
                     }
                 )
             }
+
+            if (showOnboardingFlowModal) {
+                KharcheeSmartOnboardingOverlay(
+                    userId = currentUserId,
+                    defaultDisplayName = effectiveDisplayName,
+                    actualRecordedTransactions = expenses,
+                    onSaveAndContinueLater = {
+                        profileVersion++
+                        showOnboardingFlowModal = false
+                        viewModel.showToast("Saved onboarding progress. Resume anytime from your Home screen.")
+                    },
+                    onProfileConfirmed = { confirmedProfile, plan ->
+                        profileVersion++
+                        showOnboardingFlowModal = false
+                        viewModel.setJarvisLanguage(confirmedProfile.personal.preferredLanguage.lowercase())
+                        viewModel.updateSettings(
+                            dailyLimit = plan.recommendedDailyLimit ?: settings.dailyLimit,
+                            notifyPaymentReminders = confirmedProfile.goalsAndConsent.consentNotifications,
+                            notifyNightGuardAlert = confirmedProfile.goalsAndConsent.consentNotifications,
+                            toastText = "✅ Personal Financial Profile Confirmed & Applied Across KHARCHEE"
+                        )
+                        // Sync declared goals into Savings Goals Vault if not already created (never creating fake transactions)
+                        confirmedProfile.goalsAndConsent.goals.forEach { declaredGoal ->
+                            val exists = savingsGoals.any { it.title.equals(declaredGoal.title, ignoreCase = true) }
+                            if (!exists && declaredGoal.targetAmount >= 100L) {
+                                viewModel.createSavingsGoal(
+                                    title = declaredGoal.title,
+                                    targetAmount = declaredGoal.targetAmount,
+                                    savedAmount = declaredGoal.existingSavedAmount
+                                )
+                            }
+                        }
+                    }
+                )
+            }
         }
     }
 }
@@ -793,9 +1179,12 @@ fun KharcheeMainShell(
 @Composable
 private fun KharcheeTopHeader(
     activeTab: KharcheeTab,
+    userDisplayName: String,
+    profilePhotoUri: String,
     stealthMode: Boolean,
     isLightMode: Boolean,
     streakDays: Int,
+    onOpenMyProfile: () -> Unit,
     onOpenJarvis: () -> Unit,
     onToggleThemeMode: () -> Unit,
     onToggleStealth: () -> Unit,
@@ -804,6 +1193,9 @@ private fun KharcheeTopHeader(
     val hud = LocalHudTheme.current
     val headingFont = LocalAppFontFamily.current
     val jarvisCyan = Color(0xFF00E5FF)
+    val initials = remember(userDisplayName) {
+        userDisplayName.trim().take(2).uppercase().ifBlank { "KH" }
+    }
 
     Column(
         modifier = Modifier
@@ -814,112 +1206,85 @@ private fun KharcheeTopHeader(
             modifier = Modifier
                 .fillMaxWidth()
                 .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(ObsidianDarkBackground)
-                        .border(1.dp, MetallicSilver.copy(alpha = 0.45f), RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "K",
-                        fontFamily = headingFont,
-                        color = MetallicSilver,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "KHARCHEE",
-                            fontFamily = headingFont,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 15.sp,
-                            color = WarmIvory,
-                            letterSpacing = 2.sp
-                        )
-                        Text(
-                            text = " · ${activeTab.label.uppercase()}",
-                            fontFamily = JetBrainsMonoFontFamily,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium,
-                            letterSpacing = 1.sp,
-                            color = hud.accent
-                        )
-                    }
-                    Text(
-                        text = if (stealthMode) "STEALTH VAULT · BALANCES MASKED" else "OBSIDIAN LUXURY · PRIVATE FINTECH",
-                        fontFamily = JetBrainsMonoFontFamily,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Medium,
-                        letterSpacing = 0.8.sp,
-                        color = MutedIvory
-                    )
-                }
-            }
+            // Left: Original Geometric Architectural Logo + Full KHARCHEE Wordmark
+            KharcheeArchitecturalLogo(
+                symbolSize = 34.dp,
+                wordmarkFontSizeSp = 15,
+                subtitle = "${activeTab.label.uppercase()} · OBSIDIAN VAULT"
+            )
 
+            // Right: My Profile Pill + Theme / Stealth / Sign-out Actions
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Surface(
-                    color = ObsidianDarkPrimarySurface,
-                    shape = RoundedCornerShape(12.dp),
+                    color = RichGraphite,
+                    shape = RoundedCornerShape(50),
                     modifier = Modifier
-                        .border(0.8.dp, jarvisCyan.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
-                        .clickable { onOpenJarvis() }
-                        .testTag("open_jarvis_header_button")
+                        .border(0.8.dp, SophisticatedEmerald.copy(alpha = 0.65f), RoundedCornerShape(50))
+                        .clickable { onOpenMyProfile() }
+                        .testTag("open_my_profile_button")
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = "Launch J.A.R.V.I.S.",
-                            tint = jarvisCyan,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(5.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(ObsidianDarkBackground)
+                                .border(0.8.dp, ChampagneGold, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val context = LocalContext.current
+                            val profileBitmap = remember(profilePhotoUri) {
+                                if (profilePhotoUri.isBlank()) null
+                                else try {
+                                    context.contentResolver.openInputStream(Uri.parse(profilePhotoUri))?.use { stream ->
+                                        BitmapFactory.decodeStream(stream)?.asImageBitmap()
+                                    }
+                                } catch (_: Exception) {
+                                    null
+                                }
+                            }
+                            if (profileBitmap != null) {
+                                Image(
+                                    bitmap = profileBitmap,
+                                    contentDescription = "My Profile Photo",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize().clip(CircleShape)
+                                )
+                            } else {
+                                Text(
+                                    text = initials,
+                                    fontFamily = headingFont,
+                                    color = ChampagneGold,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "JARVIS",
+                            text = "My Profile",
                             fontFamily = JetBrainsMonoFontFamily,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 10.sp,
-                            letterSpacing = 1.sp,
-                            color = ObsidianDarkPrimaryText
+                            color = WarmIvory
                         )
                     }
-                }
-
-                Surface(
-                    color = RichGraphite,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.border(0.8.dp, HairlinePlatinum, RoundedCornerShape(12.dp))
-                ) {
-                    Text(
-                        text = "◆ ${streakDays}D",
-                        fontFamily = JetBrainsMonoFontFamily,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 10.sp,
-                        letterSpacing = 0.6.sp,
-                        color = ChampagneGold,
-                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)
-                    )
                 }
 
                 IconButton(
                     onClick = onToggleThemeMode,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(34.dp)
                         .testTag("toggle_theme_mode_button")
                 ) {
                     Icon(
@@ -933,28 +1298,28 @@ private fun KharcheeTopHeader(
                 IconButton(
                     onClick = onToggleStealth,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(34.dp)
                         .testTag("toggle_stealth_mode_button")
                 ) {
                     Icon(
                         imageVector = if (stealthMode) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                         contentDescription = "Toggle Stealth Mode",
                         tint = if (stealthMode) ChampagneGold else MutedPlatinum,
-                        modifier = Modifier.size(19.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 
                 IconButton(
                     onClick = onSignOut,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(34.dp)
                         .testTag("sign_out_button")
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Logout,
                         contentDescription = "Sign Out",
                         tint = MutedPlatinum,
-                        modifier = Modifier.size(19.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }

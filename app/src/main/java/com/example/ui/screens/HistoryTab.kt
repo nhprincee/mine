@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import android.content.Intent
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,17 +16,25 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -38,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -46,6 +57,9 @@ import com.example.data.model.ALL_CATEGORIES
 import com.example.data.model.ExpenseRecord
 import com.example.data.model.PAYMENT_MODES
 import com.example.data.model.isIncomeTransaction
+import com.example.data.model.isSameDay
+import com.example.data.model.isSameMonth
+import com.example.ui.components.KharcheeCompactHeaderBranding
 import com.example.ui.theme.ChampagneGold
 import com.example.ui.theme.CrimsonRuby
 import com.example.ui.theme.ElevatedGraphite
@@ -59,21 +73,31 @@ import com.example.ui.theme.ObsidianBlack
 import com.example.ui.theme.RichGraphite
 import com.example.ui.theme.SophisticatedEmerald
 import com.example.ui.theme.WarmIvory
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun HistoryTab(
     expenses: List<ExpenseRecord>,
     stealthMode: Boolean,
     onDeleteExpense: (ExpenseRecord) -> Unit,
+    onEditExpense: (ExpenseRecord) -> Unit = {},
+    onOpenAddExpense: () -> Unit = {},
+    onOpenAddIncome: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val headingFont = LocalAppFontFamily.current
     var searchQuery by remember { mutableStateOf("") }
-    var selectedType by remember { mutableStateOf("All") } // "All", "expense", "income"
+    var selectedType by remember { mutableStateOf("All") } // "All", "expense", "income", "recurring"
     var selectedCategory by remember { mutableStateOf("All") }
     var selectedMode by remember { mutableStateOf("All") }
+    var selectedDateRange by remember { mutableStateOf("All Time") } // "All Time", "Today", "7 Days", "This Month", "30 Days"
 
-    val filtered = remember(expenses, searchQuery, selectedType, selectedCategory, selectedMode) {
+    val now = System.currentTimeMillis()
+
+    val filtered = remember(expenses, searchQuery, selectedType, selectedCategory, selectedMode, selectedDateRange) {
         expenses.filter { tx ->
             val matchesQuery = searchQuery.isBlank() ||
                 tx.title.contains(searchQuery, ignoreCase = true) ||
@@ -83,11 +107,19 @@ fun HistoryTab(
             val matchesType = when (selectedType) {
                 "expense" -> !isInc
                 "income" -> isInc
+                "recurring" -> tx.note.contains("[RECURRING]", ignoreCase = true)
                 else -> true
             }
             val matchesCat = selectedCategory == "All" || tx.category == selectedCategory
             val matchesMode = selectedMode == "All" || tx.paymentMode == selectedMode
-            matchesQuery && matchesType && matchesCat && matchesMode
+            val matchesDate = when (selectedDateRange) {
+                "Today" -> isSameDay(tx.txEpochMillis, now)
+                "7 Days" -> tx.txEpochMillis >= now - 7L * 86_400_000L
+                "This Month" -> isSameMonth(tx.txEpochMillis, now)
+                "30 Days" -> tx.txEpochMillis >= now - 30L * 86_400_000L
+                else -> true
+            }
+            matchesQuery && matchesType && matchesCat && matchesMode && matchesDate
         }
     }
 
@@ -116,30 +148,133 @@ fun HistoryTab(
                     .border(0.8.dp, HairlinePlatinum, RoundedCornerShape(22.dp))
                     .padding(18.dp)
             ) {
-                Text(
-                    text = "PRIVATE LEDGER PASSBOOK",
-                    fontFamily = JetBrainsMonoFontFamily,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Medium,
-                    letterSpacing = 1.4.sp,
-                    color = ChampagneGold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Audit & Filter Transactions",
-                    fontFamily = headingFont,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = WarmIvory
-                )
-                Spacer(modifier = Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        KharcheeCompactHeaderBranding(sectionLabel = "HISTORY")
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "PRIVATE LEDGER PASSBOOK",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium,
+                            letterSpacing = 1.4.sp,
+                            color = ChampagneGold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Audit, Filter & Export",
+                            fontFamily = headingFont,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = WarmIvory
+                        )
+                    }
+
+                    // CSV / Excel Export Button
+                    Surface(
+                        color = ElevatedGraphite,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .border(0.8.dp, SophisticatedEmerald.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+                            .clickable {
+                                val csvFmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ENGLISH)
+                                val sb = StringBuilder()
+                                sb.appendLine("Date,Title,Category,Type,PaymentMode,Amount_INR,Notes")
+                                filtered.forEach { item ->
+                                    val dateStr = csvFmt.format(Date(item.txEpochMillis))
+                                    val cleanTitle = item.title.replace("\"", "\"\"")
+                                    val cleanNote = item.note.replace("\"", "\"\"")
+                                    val typeLabel = if (isIncomeTransaction(item)) "Income" else "Expense"
+                                    sb.appendLine("\"$dateStr\",\"$cleanTitle\",\"${item.category}\",\"$typeLabel\",\"${item.paymentMode}\",${item.amount},\"$cleanNote\"")
+                                }
+                                try {
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/csv"
+                                        putExtra(Intent.EXTRA_SUBJECT, "KHARCHEE Passbook Export ($selectedDateRange)")
+                                        putExtra(Intent.EXTRA_TEXT, sb.toString())
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Export Passbook CSV / Excel"))
+                                } catch (_: Exception) {
+                                }
+                            }
+                            .testTag("export_passbook_csv_button")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FileDownload,
+                                contentDescription = "Export CSV",
+                                tint = SophisticatedEmerald,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "CSV Export",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = SophisticatedEmerald
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Quick Add Expense & Income Bar inside Passbook
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = onOpenAddExpense,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ChampagneGold,
+                            contentColor = ObsidianBlack
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .testTag("passbook_add_expense_button")
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Add Expense", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    }
+                    OutlinedButton(
+                        onClick = onOpenAddIncome,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(0.8.dp, SophisticatedEmerald.copy(alpha = 0.6f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = SophisticatedEmerald.copy(alpha = 0.08f),
+                            contentColor = SophisticatedEmerald
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .testTag("passbook_add_income_button")
+                    ) {
+                        Icon(Icons.Default.TrendingUp, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Add Income", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
 
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     placeholder = {
                         Text(
-                            "Search merchant, category, or note...",
+                            "Search merchant, category, subcategory, or note...",
                             color = MutedIvory,
                             fontSize = 13.sp
                         )
@@ -169,7 +304,25 @@ fun HistoryTab(
                         .testTag("history_search_input")
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Date Range Selection Chips
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("All Time", "Today", "7 Days", "This Month", "30 Days").forEach { rangeLabel ->
+                        FilterChipButton(
+                            label = rangeLabel,
+                            selected = selectedDateRange == rangeLabel,
+                            onClick = { selectedDateRange = rangeLabel }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
 
                 // Type & Mode Filter Chips
                 Row(
@@ -181,6 +334,9 @@ fun HistoryTab(
                     FilterChipButton("All Types", selectedType == "All") { selectedType = "All" }
                     FilterChipButton("Expenses Only", selectedType == "expense") { selectedType = "expense" }
                     FilterChipButton("Income Only", selectedType == "income") { selectedType = "income" }
+                    FilterChipButton("↻ Recurring", selectedType == "recurring") {
+                        selectedType = if (selectedType == "recurring") "All" else "recurring"
+                    }
                     PAYMENT_MODES.forEach { mode ->
                         FilterChipButton(mode, selectedMode == mode) {
                             selectedMode = if (selectedMode == mode) "All" else mode
@@ -216,7 +372,7 @@ fun HistoryTab(
                 ) {
                     Column {
                         Text(
-                            text = "FILTERED OUTFLOW",
+                            text = "FILTERED OUTFLOW (${filtered.count { !isIncomeTransaction(it) }})",
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Medium,
@@ -233,7 +389,7 @@ fun HistoryTab(
                     }
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
-                            text = "FILTERED INFLOW",
+                            text = "FILTERED INFLOW (${filtered.count { isIncomeTransaction(it) }})",
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Medium,
@@ -275,6 +431,7 @@ fun HistoryTab(
                 TransactionRowCard(
                     expense = tx,
                     stealthMode = stealthMode,
+                    onEdit = { onEditExpense(tx) },
                     onDelete = { onDeleteExpense(tx) }
                 )
             }

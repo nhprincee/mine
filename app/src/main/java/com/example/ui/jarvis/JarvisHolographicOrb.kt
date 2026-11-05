@@ -31,11 +31,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.StopCircle
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -74,19 +72,25 @@ import com.example.ui.theme.LocalAppFontFamily
 import kotlin.math.abs
 import kotlin.math.sin
 
-// Futuristic Black & Cyan-Blue Arc Reactor Palette for JARVIS
-internal val JarvisAbyssBlack = Color(0xFF010409)
-internal val JarvisReactorBlack = Color(0xFF000000)
-internal val JarvisPanelBlack = Color(0xFF050B14)
-internal val JarvisElevatedSurface = Color(0xFF0A1424)
-internal val JarvisCyanPrimary = Color(0xFF00E5FF)
-internal val JarvisCyanBright = Color(0xFF7AF6FF)
-internal val JarvisCyanAccent = Color(0xFF00B4D8)
-internal val JarvisCyanDeep = Color(0xFF0284C7)
-internal val JarvisHairlineCyan = Color(0xFF15324E)
-internal val JarvisTextWhite = Color(0xFFF0F9FF)
-internal val JarvisTextSecondary = Color(0xFF94A3B8)
-internal val JarvisAlertCrimson = Color(0xFFFF4D6D)
+// Deep Navy + Black + Purple/Violet AI Command Center Palette (matching KHARCHEE intro theme)
+internal val JarvisAbyssBlack = Color(0xFF04020C)
+internal val JarvisDeepNavyTop = Color(0xFF14092E)
+internal val JarvisDeepNavyMid = Color(0xFF0B051D)
+internal val JarvisReactorBlack = Color(0xFF05030F)
+internal val JarvisPanelBlack = Color(0xFF0C071E)
+internal val JarvisElevatedSurface = Color(0xFF170E33)
+internal val JarvisUserBubbleStart = Color(0xFF281554)
+internal val JarvisUserBubbleEnd = Color(0xFF180C36)
+internal val JarvisCyanPrimary = Color(0xFFA855F7)      // Electric Purple/Violet primary accent
+internal val JarvisCyanBright = Color(0xFFD8B4FE)       // Luminous Lavender-Violet highlight
+internal val JarvisCyanAccent = Color(0xFF7C3AED)       // Deep Royal Violet accent
+internal val JarvisCyanDeep = Color(0xFF4C1D95)         // Cosmic Indigo-Violet depth
+internal val JarvisHologramCyan = Color(0xFF38BDF8)     // Subtle Cyan-Blue bridge matching the Pinterest JARVIS ring
+internal val JarvisHairlineCyan = Color(0xFF341F69)     // Subtle Violet-Navy hairline border
+internal val JarvisTextWhite = Color(0xFFF7F4FF)
+internal val JarvisTextSecondary = Color(0xFFA79EC8)
+internal val JarvisAlertCrimson = Color(0xFFFF4D7D)
+internal val JarvisEmeraldAccent = Color(0xFF2EE59D)
 
 /**
  * Clean canonical status state for the JARVIS AI Core.
@@ -249,15 +253,71 @@ fun parseNaturalLanguageActionProposal(rawPrompt: String): JarvisProposedAction?
 }
 
 /**
- * Primary J.A.R.V.I.S. AI Core Visual Component featuring the user's uploaded Stark Arc Reactor image
- * (`R.drawable.jarvis_reactor_core`) placed prominently in the centre of the screen with `ContentScale.Fit`
- * to preserve original proportions and details without distortion.
- *
- * State-driven cyan-blue animations:
- * - Idle (`ONLINE`): slow, subtle breathing cyan-blue ambient glow.
- * - Listening (`LISTENING`): animated outer cyan-blue glow and live listening indicator.
- * - Processing (`THINKING`): gentle rotating light-ring effect around the reactor core.
- * - Speaking (`SPEAKING`): subtle synchronized pulse animation.
+ * Reusable Circular Pinterest J.A.R.V.I.S. Visual Emblem.
+ * Preserves the Pinterest reference image (`R.drawable.jarvis_reactor_core`) inside a circular
+ * container blended naturally into the Purple + Dark Navy interface.
+ */
+@Composable
+fun JarvisCircularReferenceBadge(
+    size: Dp,
+    modifier: Modifier = Modifier,
+    isAnimated: Boolean = false
+) {
+    Box(
+        modifier = modifier
+            .size(size)
+            .shadow(10.dp, CircleShape, ambientColor = JarvisCyanPrimary, spotColor = JarvisCyanPrimary)
+            .clip(CircleShape)
+            .background(JarvisReactorBlack)
+            .border(
+                width = 1.4.dp,
+                brush = Brush.sweepGradient(
+                    colors = listOf(
+                        JarvisCyanBright,
+                        JarvisCyanPrimary,
+                        JarvisHologramCyan.copy(alpha = 0.85f),
+                        JarvisCyanAccent,
+                        JarvisCyanBright
+                    )
+                ),
+                shape = CircleShape
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.jarvis_reactor_core),
+            contentDescription = "J.A.R.V.I.S. Circular Core",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(CircleShape)
+        )
+        // Subtle Purple + Dark Navy edge vignette so the circular Pinterest design blends seamlessly
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val c = Offset(this.size.width / 2f, this.size.height / 2f)
+            val r = this.size.minDimension / 2f
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colorStops = arrayOf(
+                        0.0f to Color.Transparent,
+                        0.68f to JarvisCyanPrimary.copy(alpha = if (isAnimated) 0.16f else 0.10f),
+                        0.90f to JarvisDeepNavyTop.copy(alpha = 0.55f),
+                        1.0f to JarvisReactorBlack.copy(alpha = 0.88f)
+                    ),
+                    center = c,
+                    radius = r
+                ),
+                center = c,
+                radius = r
+            )
+        }
+    }
+}
+
+/**
+ * Compact & Expandable J.A.R.V.I.S. Circular Core Visual Component.
+ * Displays the Pinterest reference image's central circular J.A.R.V.I.S. design (`R.drawable.jarvis_reactor_core`)
+ * blended naturally into the Deep Navy + Black + Purple/Violet AI Command Center interface.
  */
 @Composable
 fun JarvisHolographicOrbVisualizer(
@@ -269,7 +329,7 @@ fun JarvisHolographicOrbVisualizer(
     lastSpokenPreview: String,
     onToggleMic: () -> Unit,
     onStopSpeaking: () -> Unit,
-    reactorSize: Dp = 196.dp,
+    reactorSize: Dp = 132.dp,
     modifier: Modifier = Modifier
 ) {
     val coreStatus = resolveJarvisCoreStatus(
@@ -278,7 +338,7 @@ fun JarvisHolographicOrbVisualizer(
         isSpeaking = isSpeaking
     )
 
-    val infiniteTransition = rememberInfiniteTransition(label = "jarvisReactorCoreTransition")
+    val infiniteTransition = rememberInfiniteTransition(label = "jarvisCommandCenterOrbTransition")
 
     // 1. Idle: slow, subtle breathing glow (3200ms)
     val idleBreathing by infiniteTransition.animateFloat(
@@ -291,23 +351,23 @@ fun JarvisHolographicOrbVisualizer(
         label = "idleBreathing"
     )
 
-    // 2. Listening: animated outer glow & ripple expansion (950ms)
+    // 2. Listening: animated outer glow & ripple expansion (900ms)
     val listeningGlow by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 950, easing = FastOutSlowInEasing),
+            animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "listeningGlow"
     )
 
-    // 3. Processing (Thinking): gentle rotating light-ring effect (4200ms continuous 360 deg)
+    // 3. Processing (Thinking): rotating orbital light-ring effect (3800ms continuous 360 deg)
     val processingRotation by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 4200, easing = LinearEasing),
+            animation = tween(durationMillis = 3800, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "processingRotation"
@@ -317,35 +377,35 @@ fun JarvisHolographicOrbVisualizer(
         initialValue = 360f,
         targetValue = 0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 6800, easing = LinearEasing),
+            animation = tween(durationMillis = 6400, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "counterRotation"
     )
 
-    // 4. Speaking: subtle synchronized pulse animation (520ms)
+    // 4. Speaking: synchronized pulse animation (500ms)
     val speakingPulse by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 520, easing = FastOutSlowInEasing),
+            animation = tween(durationMillis = 500, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "speakingPulse"
     )
 
     val reactorScale = when (coreStatus) {
-        JarvisCoreStatus.ONLINE -> 0.99f + (0.025f * idleBreathing)
+        JarvisCoreStatus.ONLINE -> 0.99f + (0.02f * idleBreathing)
         JarvisCoreStatus.LISTENING -> 1.0f + (0.045f * listeningGlow)
-        JarvisCoreStatus.THINKING -> 1.0f + (0.02f * idleBreathing)
-        JarvisCoreStatus.SPEAKING -> 0.99f + (0.055f * speakingPulse)
+        JarvisCoreStatus.THINKING -> 1.0f + (0.025f * idleBreathing)
+        JarvisCoreStatus.SPEAKING -> 0.99f + (0.05f * speakingPulse)
     }
 
     val statusSubtitle = when (coreStatus) {
-        JarvisCoreStatus.LISTENING -> "Listening in ${activeLanguage.replaceFirstChar { it.uppercase() }} · Speak your command"
-        JarvisCoreStatus.THINKING -> "Synthesizing live ledger, budgets & transaction telemetry..."
-        JarvisCoreStatus.SPEAKING -> lastSpokenPreview.take(88).ifBlank { "Transmitting spoken financial briefing..." }
-        JarvisCoreStatus.ONLINE -> "Tap the reactor core or microphone to converse with J.A.R.V.I.S."
+        JarvisCoreStatus.LISTENING -> "Listening (${activeLanguage.replaceFirstChar { it.uppercase() }})... Speak your financial command"
+        JarvisCoreStatus.THINKING -> "Analyzing live KHARCHEE ledger, budgets & transactions..."
+        JarvisCoreStatus.SPEAKING -> lastSpokenPreview.take(88).ifBlank { "Speaking live financial analysis..." }
+        JarvisCoreStatus.ONLINE -> "Tap the circular J.A.R.V.I.S. core or mic for instant voice intelligence"
     }
 
     Column(
@@ -355,9 +415,9 @@ fun JarvisHolographicOrbVisualizer(
             .background(
                 Brush.radialGradient(
                     colors = listOf(
-                        JarvisCyanDeep.copy(alpha = 0.16f),
-                        JarvisPanelBlack,
-                        JarvisReactorBlack
+                        JarvisCyanPrimary.copy(alpha = 0.20f),
+                        JarvisDeepNavyTop.copy(alpha = 0.85f),
+                        JarvisPanelBlack
                     )
                 )
             )
@@ -365,303 +425,382 @@ fun JarvisHolographicOrbVisualizer(
                 width = 1.dp,
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        JarvisCyanPrimary.copy(alpha = 0.55f),
+                        JarvisCyanBright.copy(alpha = 0.55f),
                         JarvisHairlineCyan,
-                        JarvisCyanAccent.copy(alpha = 0.45f)
+                        JarvisCyanPrimary.copy(alpha = 0.45f)
                     )
                 ),
                 shape = RoundedCornerShape(24.dp)
             )
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp)
             .testTag("jarvis_holographic_orb_card"),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Prominent Centered Reactor Visual Stage
-        Box(
-            modifier = Modifier
-                .size(reactorSize)
-                .clickable {
-                    if (isSpeaking) onStopSpeaking() else onToggleMic()
-                }
-                .testTag("jarvis_central_orb_button"),
-            contentAlignment = Alignment.Center
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Ambient Cyan-Blue Lighting & State-Specific Ring Effects behind and around the Reactor
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val centerOffset = Offset(size.width / 2f, size.height / 2f)
-                val maxR = size.minDimension / 2f
-
-                // Base ambient cyan-blue lighting modulated by current state
-                val ambientAlpha = when (coreStatus) {
-                    JarvisCoreStatus.ONLINE -> 0.22f + 0.14f * idleBreathing
-                    JarvisCoreStatus.LISTENING -> 0.34f + 0.24f * listeningGlow
-                    JarvisCoreStatus.THINKING -> 0.28f + 0.16f * idleBreathing
-                    JarvisCoreStatus.SPEAKING -> 0.30f + 0.26f * speakingPulse
-                }
-
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            JarvisCyanPrimary.copy(alpha = ambientAlpha),
-                            JarvisCyanDeep.copy(alpha = ambientAlpha * 0.55f),
-                            Color.Transparent
-                        ),
-                        center = centerOffset,
-                        radius = maxR
-                    ),
-                    center = centerOffset,
-                    radius = maxR
-                )
-
-                when (coreStatus) {
-                    JarvisCoreStatus.ONLINE -> {
-                        // Idle: Slow, subtle breathing outer halo ring
-                        val idleRingR = maxR * (0.82f + 0.04f * idleBreathing)
-                        drawCircle(
-                            color = JarvisCyanPrimary.copy(alpha = 0.22f + 0.18f * idleBreathing),
-                            radius = idleRingR,
-                            center = centerOffset,
-                            style = Stroke(width = 1.5.dp.toPx())
-                        )
-                    }
-
-                    JarvisCoreStatus.LISTENING -> {
-                        // Listening: Animated outer glow & expanding acoustic rings
-                        val outerWaveR = maxR * (0.80f + 0.16f * listeningGlow)
-                        val innerWaveR = maxR * (0.74f + 0.10f * (1f - listeningGlow))
-                        drawCircle(
-                            color = JarvisCyanBright.copy(alpha = 0.55f * (1f - listeningGlow * 0.5f)),
-                            radius = outerWaveR,
-                            center = centerOffset,
-                            style = Stroke(width = 2.5.dp.toPx())
-                        )
-                        drawCircle(
-                            color = JarvisCyanPrimary.copy(alpha = 0.45f),
-                            radius = innerWaveR,
-                            center = centerOffset,
-                            style = Stroke(
-                                width = 1.8.dp.toPx(),
-                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(16f, 10f), 0f)
-                            )
-                        )
-                    }
-
-                    JarvisCoreStatus.THINKING -> {
-                        // Processing: Gentle rotating light-ring effect
-                        rotate(degrees = processingRotation, pivot = centerOffset) {
-                            drawArc(
-                                brush = Brush.sweepGradient(
-                                    colors = listOf(
-                                        Color.Transparent,
-                                        JarvisCyanDeep.copy(alpha = 0.35f),
-                                        JarvisCyanPrimary,
-                                        JarvisCyanBright,
-                                        Color.Transparent
-                                    ),
-                                    center = centerOffset
-                                ),
-                                startAngle = 0f,
-                                sweepAngle = 290f,
-                                useCenter = false,
-                                topLeft = Offset(centerOffset.x - maxR * 0.88f, centerOffset.y - maxR * 0.88f),
-                                size = Size(maxR * 1.76f, maxR * 1.76f),
-                                style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
-                            )
-                        }
-                        rotate(degrees = counterRotation, pivot = centerOffset) {
-                            drawCircle(
-                                color = JarvisCyanAccent.copy(alpha = 0.45f),
-                                radius = maxR * 0.80f,
-                                center = centerOffset,
-                                style = Stroke(
-                                    width = 1.4.dp.toPx(),
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 12f, 4f, 12f), 0f)
-                                )
-                            )
-                        }
-                    }
-
-                    JarvisCoreStatus.SPEAKING -> {
-                        // Speaking: Subtle synchronized pulse rings around the reactor
-                        val pulseR1 = maxR * (0.78f + 0.12f * speakingPulse)
-                        val pulseR2 = maxR * (0.86f + 0.10f * speakingPulse)
-                        drawCircle(
-                            color = JarvisCyanPrimary.copy(alpha = 0.52f),
-                            radius = pulseR1,
-                            center = centerOffset,
-                            style = Stroke(width = (2.0f + 1.5f * speakingPulse).dp.toPx())
-                        )
-                        drawCircle(
-                            color = JarvisCyanBright.copy(alpha = 0.28f * (1f - speakingPulse * 0.4f)),
-                            radius = pulseR2,
-                            center = centerOffset,
-                            style = Stroke(width = 1.4.dp.toPx())
-                        )
-                    }
-                }
-            }
-
-            // Actual Uploaded Reactor Image Asset — Contain fitting (ContentScale.Fit) without distortion
+            // Circular Pinterest J.A.R.V.I.S. Visual Stage blended into Purple + Dark Navy
             Box(
                 modifier = Modifier
-                    .fillMaxSize(0.84f)
-                    .graphicsLayer {
-                        scaleX = reactorScale
-                        scaleY = reactorScale
+                    .size(reactorSize)
+                    .clickable {
+                        if (isSpeaking) onStopSpeaking() else onToggleMic()
                     }
-                    .clip(CircleShape)
-                    .background(JarvisReactorBlack)
-                    .border(
-                        width = 1.5.dp,
-                        brush = Brush.sweepGradient(
-                            colors = listOf(
-                                JarvisCyanPrimary.copy(alpha = 0.65f),
-                                JarvisCyanDeep.copy(alpha = 0.25f),
-                                JarvisCyanBright.copy(alpha = 0.75f),
-                                JarvisCyanDeep.copy(alpha = 0.25f),
-                                JarvisCyanPrimary.copy(alpha = 0.65f)
-                            )
-                        ),
-                        shape = CircleShape
-                    ),
+                    .testTag("jarvis_central_orb_button"),
                 contentAlignment = Alignment.Center
             ) {
-                Image(
-                    painter = painterResource(id = R.drawable.jarvis_reactor_core),
-                    contentDescription = "J.A.R.V.I.S. AI Core Reactor",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .testTag("jarvis_reactor_image")
-                )
-
-                // Subtle Cyan-Blue Rim Vignette & Synchronized State Overlay
+                // Ambient Purple/Violet + Cyan-Blue Aura & State-Specific Orbital Rings
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val centerOffset = Offset(size.width / 2f, size.height / 2f)
-                    val r = size.minDimension / 2f
-                    val innerPulseAlpha = when (coreStatus) {
-                        JarvisCoreStatus.ONLINE -> 0.06f + 0.08f * idleBreathing
-                        JarvisCoreStatus.LISTENING -> 0.12f + 0.18f * listeningGlow
-                        JarvisCoreStatus.THINKING -> 0.10f + 0.12f * idleBreathing
-                        JarvisCoreStatus.SPEAKING -> 0.10f + 0.22f * speakingPulse
+                    val maxR = size.minDimension / 2f
+
+                    val ambientAlpha = when (coreStatus) {
+                        JarvisCoreStatus.ONLINE -> 0.26f + 0.14f * idleBreathing
+                        JarvisCoreStatus.LISTENING -> 0.40f + 0.25f * listeningGlow
+                        JarvisCoreStatus.THINKING -> 0.34f + 0.18f * idleBreathing
+                        JarvisCoreStatus.SPEAKING -> 0.36f + 0.24f * speakingPulse
                     }
+
+                    // Outer Purple/Violet halo
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                JarvisCyanBright.copy(alpha = innerPulseAlpha),
-                                JarvisCyanPrimary.copy(alpha = innerPulseAlpha * 0.5f),
+                                JarvisCyanPrimary.copy(alpha = ambientAlpha),
+                                JarvisCyanDeep.copy(alpha = ambientAlpha * 0.65f),
                                 Color.Transparent
                             ),
                             center = centerOffset,
-                            radius = r * 0.75f
+                            radius = maxR
                         ),
                         center = centerOffset,
-                        radius = r * 0.75f
+                        radius = maxR
                     )
-                }
-            }
-        }
 
-        Spacer(modifier = Modifier.height(8.dp))
+                    when (coreStatus) {
+                        JarvisCoreStatus.ONLINE -> {
+                            val idleRingR = maxR * (0.86f + 0.03f * idleBreathing)
+                            drawCircle(
+                                brush = Brush.sweepGradient(
+                                    colors = listOf(
+                                        JarvisCyanPrimary.copy(alpha = 0.45f),
+                                        JarvisHologramCyan.copy(alpha = 0.35f),
+                                        JarvisCyanBright.copy(alpha = 0.55f),
+                                        JarvisCyanPrimary.copy(alpha = 0.45f)
+                                    ),
+                                    center = centerOffset
+                                ),
+                                radius = idleRingR,
+                                center = centerOffset,
+                                style = Stroke(width = 1.6.dp.toPx())
+                            )
+                        }
 
-        // Clean Status Label: ONLINE / LISTENING / THINKING / SPEAKING
-        Surface(
-            color = JarvisCyanPrimary.copy(alpha = 0.12f),
-            shape = RoundedCornerShape(50),
-            border = BorderStroke(
-                width = 1.dp,
-                color = when (coreStatus) {
-                    JarvisCoreStatus.LISTENING -> JarvisCyanBright
-                    JarvisCoreStatus.THINKING -> JarvisCyanPrimary
-                    JarvisCoreStatus.SPEAKING -> JarvisCyanBright
-                    JarvisCoreStatus.ONLINE -> JarvisCyanAccent.copy(alpha = 0.65f)
+                        JarvisCoreStatus.LISTENING -> {
+                            val outerWaveR = maxR * (0.84f + 0.14f * listeningGlow)
+                            val innerWaveR = maxR * (0.78f + 0.08f * (1f - listeningGlow))
+                            drawCircle(
+                                color = JarvisCyanBright.copy(alpha = 0.65f * (1f - listeningGlow * 0.45f)),
+                                radius = outerWaveR,
+                                center = centerOffset,
+                                style = Stroke(width = 2.4.dp.toPx())
+                            )
+                            drawCircle(
+                                color = JarvisHologramCyan.copy(alpha = 0.55f),
+                                radius = innerWaveR,
+                                center = centerOffset,
+                                style = Stroke(
+                                    width = 1.8.dp.toPx(),
+                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 9f), 0f)
+                                )
+                            )
+                        }
+
+                        JarvisCoreStatus.THINKING -> {
+                            rotate(degrees = processingRotation, pivot = centerOffset) {
+                                drawArc(
+                                    brush = Brush.sweepGradient(
+                                        colors = listOf(
+                                            Color.Transparent,
+                                            JarvisCyanAccent.copy(alpha = 0.4f),
+                                            JarvisCyanPrimary,
+                                            JarvisHologramCyan,
+                                            JarvisCyanBright,
+                                            Color.Transparent
+                                        ),
+                                        center = centerOffset
+                                    ),
+                                    startAngle = 0f,
+                                    sweepAngle = 295f,
+                                    useCenter = false,
+                                    topLeft = Offset(centerOffset.x - maxR * 0.90f, centerOffset.y - maxR * 0.90f),
+                                    size = Size(maxR * 1.80f, maxR * 1.80f),
+                                    style = Stroke(width = 2.8.dp.toPx(), cap = StrokeCap.Round)
+                                )
+                            }
+                            rotate(degrees = counterRotation, pivot = centerOffset) {
+                                drawCircle(
+                                    color = JarvisCyanBright.copy(alpha = 0.45f),
+                                    radius = maxR * 0.82f,
+                                    center = centerOffset,
+                                    style = Stroke(
+                                        width = 1.4.dp.toPx(),
+                                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 10f, 4f, 10f), 0f)
+                                    )
+                                )
+                            }
+                        }
+
+                        JarvisCoreStatus.SPEAKING -> {
+                            val pulseR1 = maxR * (0.82f + 0.11f * speakingPulse)
+                            val pulseR2 = maxR * (0.89f + 0.08f * speakingPulse)
+                            drawCircle(
+                                color = JarvisCyanPrimary.copy(alpha = 0.60f),
+                                radius = pulseR1,
+                                center = centerOffset,
+                                style = Stroke(width = (2.0f + 1.4f * speakingPulse).dp.toPx())
+                            )
+                            drawCircle(
+                                color = JarvisHologramCyan.copy(alpha = 0.36f * (1f - speakingPulse * 0.4f)),
+                                radius = pulseR2,
+                                center = centerOffset,
+                                style = Stroke(width = 1.4.dp.toPx())
+                            )
+                        }
+                    }
                 }
-            ),
-            modifier = Modifier.testTag("jarvis_status_label")
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp)
-            ) {
+
+                // Central Circular Pinterest J.A.R.V.I.S. Design (`R.drawable.jarvis_reactor_core`)
                 Box(
                     modifier = Modifier
-                        .size(7.dp)
+                        .fillMaxSize(0.84f)
+                        .graphicsLayer {
+                            scaleX = reactorScale
+                            scaleY = reactorScale
+                        }
+                        .shadow(16.dp, CircleShape, ambientColor = JarvisCyanPrimary, spotColor = JarvisCyanPrimary)
                         .clip(CircleShape)
-                        .background(
-                            if (coreStatus == JarvisCoreStatus.ONLINE) JarvisCyanPrimary
-                            else JarvisCyanBright
-                        )
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = coreStatus.label,
-                    fontFamily = JetBrainsMonoFontFamily,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 2.2.sp,
-                    color = JarvisTextWhite
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(6.dp))
-
-        // Animated Listening / Speaking Indicator Bars
-        AnimatedVisibility(visible = isListening || isSpeaking || isThinking) {
-            val activePhase = when {
-                isSpeaking -> speakingPulse
-                isListening -> listeningGlow
-                else -> idleBreathing
-            }
-            Canvas(
-                modifier = Modifier
-                    .width(160.dp)
-                    .height(18.dp)
-                    .padding(vertical = 2.dp)
-            ) {
-                val barCount = 16
-                val barWidth = 3.5.dp.toPx()
-                val totalBarsWidth = barCount * barWidth
-                val gap = ((size.width - totalBarsWidth) / (barCount - 1).coerceAtLeast(1)).coerceAtLeast(2f)
-
-                for (i in 0 until barCount) {
-                    val phaseOffset = (activePhase * 6.28f) + (i * 0.48f)
-                    val wave = abs(sin(phaseOffset)).toFloat()
-                    val barHeight = (size.height * (0.22f + 0.78f * wave)).coerceAtLeast(3.dp.toPx())
-                    val topY = (size.height - barHeight) / 2f
-                    drawRoundRect(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                JarvisCyanBright,
-                                JarvisCyanPrimary,
-                                JarvisCyanDeep
-                            )
+                        .background(JarvisReactorBlack)
+                        .border(
+                            width = 1.8.dp,
+                            brush = Brush.sweepGradient(
+                                colors = listOf(
+                                    JarvisCyanBright.copy(alpha = 0.85f),
+                                    JarvisCyanPrimary.copy(alpha = 0.75f),
+                                    JarvisHologramCyan.copy(alpha = 0.80f),
+                                    JarvisCyanDeep.copy(alpha = 0.55f),
+                                    JarvisCyanBright.copy(alpha = 0.85f)
+                                )
+                            ),
+                            shape = CircleShape
                         ),
-                        topLeft = Offset(i * (barWidth + gap), topY),
-                        size = Size(barWidth, barHeight),
-                        cornerRadius = CornerRadius(4f, 4f)
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.jarvis_reactor_core),
+                        contentDescription = "J.A.R.V.I.S. AI Core Circular Visual",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape)
+                            .testTag("jarvis_reactor_image")
                     )
+
+                    // Natural Purple + Dark Navy Rim Vignette so the Pinterest J.A.R.V.I.S. circle blends seamlessly
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val centerOffset = Offset(size.width / 2f, size.height / 2f)
+                        val r = size.minDimension / 2f
+                        val innerPulseAlpha = when (coreStatus) {
+                            JarvisCoreStatus.ONLINE -> 0.08f + 0.06f * idleBreathing
+                            JarvisCoreStatus.LISTENING -> 0.14f + 0.14f * listeningGlow
+                            JarvisCoreStatus.THINKING -> 0.12f + 0.10f * idleBreathing
+                            JarvisCoreStatus.SPEAKING -> 0.12f + 0.18f * speakingPulse
+                        }
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colorStops = arrayOf(
+                                    0.0f to Color.Transparent,
+                                    0.62f to JarvisCyanPrimary.copy(alpha = innerPulseAlpha),
+                                    0.88f to JarvisDeepNavyTop.copy(alpha = 0.50f),
+                                    1.0f to JarvisReactorBlack.copy(alpha = 0.86f)
+                                ),
+                                center = centerOffset,
+                                radius = r
+                            ),
+                            center = centerOffset,
+                            radius = r
+                        )
+                    }
+                }
+            }
+
+            // Right-side Compact AI Command Center Telemetry & Voice Controls
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        color = JarvisCyanPrimary.copy(alpha = 0.16f),
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(
+                            width = 1.dp,
+                            color = when (coreStatus) {
+                                JarvisCoreStatus.LISTENING -> JarvisCyanBright
+                                JarvisCoreStatus.THINKING -> JarvisHologramCyan
+                                JarvisCoreStatus.SPEAKING -> JarvisCyanBright
+                                JarvisCoreStatus.ONLINE -> JarvisCyanPrimary.copy(alpha = 0.7f)
+                            }
+                        ),
+                        modifier = Modifier.testTag("jarvis_status_label")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        when (coreStatus) {
+                                            JarvisCoreStatus.ONLINE -> JarvisEmeraldAccent
+                                            JarvisCoreStatus.LISTENING -> JarvisCyanBright
+                                            JarvisCoreStatus.THINKING -> JarvisHologramCyan
+                                            JarvisCoreStatus.SPEAKING -> JarvisCyanPrimary
+                                        }
+                                    )
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = coreStatus.label,
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.6.sp,
+                                color = JarvisTextWhite
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = if (activeMode == "roast") "ROAST CORE" else "WEALTH CORE",
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = JarvisCyanBright,
+                        letterSpacing = 1.sp
+                    )
+                }
+
+                Text(
+                    text = "J.A.R.V.I.S. Neural Command",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = JarvisTextWhite,
+                    fontSize = 14.sp
+                )
+
+                Text(
+                    text = statusSubtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = JarvisTextSecondary,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                // Animated Voice Frequency Waveform Bars when Listening / Thinking / Speaking
+                AnimatedVisibility(visible = isListening || isSpeaking || isThinking) {
+                    val activePhase = when {
+                        isSpeaking -> speakingPulse
+                        isListening -> listeningGlow
+                        else -> idleBreathing
+                    }
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(16.dp)
+                            .padding(vertical = 1.dp)
+                    ) {
+                        val barCount = 18
+                        val barWidth = 3.dp.toPx()
+                        val totalBarsWidth = barCount * barWidth
+                        val gap = ((size.width - totalBarsWidth) / (barCount - 1).coerceAtLeast(1)).coerceAtLeast(2f)
+
+                        for (i in 0 until barCount) {
+                            val phaseOffset = (activePhase * 6.28f) + (i * 0.45f)
+                            val wave = abs(sin(phaseOffset)).toFloat()
+                            val barHeight = (size.height * (0.24f + 0.76f * wave)).coerceAtLeast(3.dp.toPx())
+                            val topY = (size.height - barHeight) / 2f
+                            drawRoundRect(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        JarvisCyanBright,
+                                        JarvisCyanPrimary,
+                                        JarvisHologramCyan
+                                    )
+                                ),
+                                topLeft = Offset(i * (barWidth + gap), topY),
+                                size = Size(barWidth, barHeight),
+                                cornerRadius = CornerRadius(4f, 4f)
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        color = if (isListening) JarvisCyanPrimary.copy(alpha = 0.28f) else JarvisElevatedSurface,
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(
+                            0.9.dp,
+                            if (isListening) JarvisCyanBright else JarvisCyanPrimary.copy(alpha = 0.55f)
+                        ),
+                        modifier = Modifier.clickable {
+                            if (isSpeaking) onStopSpeaking() else onToggleMic()
+                        }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isListening || isSpeaking) Icons.Default.Stop else Icons.Default.Mic,
+                                contentDescription = "Voice Command",
+                                tint = JarvisCyanBright,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = when {
+                                    isListening -> "Stop Listening"
+                                    isSpeaking -> "Stop Voice"
+                                    else -> "Voice Command"
+                                },
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = JarvisTextWhite
+                            )
+                        }
+                    }
                 }
             }
         }
-
-        Text(
-            text = statusSubtitle,
-            style = MaterialTheme.typography.bodySmall,
-            color = JarvisTextSecondary,
-            fontSize = 11.sp,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 8.dp)
-        )
     }
 }
 
 /**
  * Confirmation-Gated Holographic Action Card inside J.A.R.V.I.S.
- * Styled with the black & cyan-blue futuristic JARVIS interface.
+ * Styled with the Deep Navy + Black + Purple/Violet futuristic JARVIS Command Center aesthetic.
  */
 @Composable
 fun JarvisActionConfirmationCard(
@@ -675,8 +814,8 @@ fun JarvisActionConfirmationCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(16.dp, RoundedCornerShape(18.dp))
-            .clip(RoundedCornerShape(18.dp))
+            .shadow(16.dp, RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(20.dp))
             .background(
                 Brush.linearGradient(
                     colors = listOf(
@@ -685,7 +824,7 @@ fun JarvisActionConfirmationCard(
                     )
                 )
             )
-            .border(1.2.dp, JarvisCyanPrimary, RoundedCornerShape(18.dp))
+            .border(1.2.dp, JarvisCyanPrimary, RoundedCornerShape(20.dp))
             .padding(16.dp)
             .testTag("jarvis_action_confirmation_card"),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -702,16 +841,16 @@ fun JarvisActionConfirmationCard(
                 Icon(
                     imageVector = Icons.Default.Security,
                     contentDescription = "Confirmation Required",
-                    tint = JarvisCyanPrimary,
+                    tint = JarvisCyanBright,
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
                     text = "J.A.R.V.I.S. ACTION CONFIRMATION REQUIRED",
                     fontFamily = JetBrainsMonoFontFamily,
                     fontSize = 9.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.Bold,
                     letterSpacing = 0.9.sp,
-                    color = JarvisCyanPrimary
+                    color = JarvisCyanBright
                 )
             }
 
@@ -750,9 +889,9 @@ fun JarvisActionConfirmationCard(
                 onClick = { onConfirm(proposedAction) },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = JarvisCyanPrimary,
-                    contentColor = JarvisAbyssBlack
+                    contentColor = JarvisTextWhite
                 ),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                 modifier = Modifier
                     .weight(1f)
@@ -773,7 +912,7 @@ fun JarvisActionConfirmationCard(
 
             OutlinedButton(
                 onClick = onCancel,
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 border = BorderStroke(0.8.dp, JarvisHairlineCyan),
                 colors = ButtonDefaults.outlinedButtonColors(
                     contentColor = JarvisTextSecondary

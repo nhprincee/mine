@@ -745,12 +745,15 @@ class KharcheeRepository(private val db: FirebaseFirestore) {
         }
     }
 
-    // --- INITIAL DATA SEEDING FOR FIRST-TIME USERS ---
+    // --- INITIAL WORKSPACE FOR FIRST-TIME USERS (CLEAN WORKSPACE, NO FAKE TRANSACTIONS) ---
 
     suspend fun seedInitialDataIfNeeded(): Result<Unit> = runCatching {
         val uid = requireUserId()
         val userDoc = db.collection("users").document(uid).get().await()
         if (!userDoc.exists()) {
+            // New account starts with a completely clean financial workspace:
+            // Zero demo transactions, zero fake income/expenses, zero sample balances,
+            // and notifications off until explicit user consent during onboarding.
             upsertUserSettings(
                 dailyLimit = 500L,
                 lockdownActive = false,
@@ -758,36 +761,38 @@ class KharcheeRepository(private val db: FirebaseFirestore) {
                 stealthMode = false,
                 themeId = "stark",
                 myUpiId = "",
-                upiGuardTone = "hinglish"
-            ).getOrThrow()
-
-            val now = System.currentTimeMillis()
-            val hourMs = 3600_000L
-            val dayMs = 86_400_000L
-
-            createExpense("Masala Chai & Bun Maska", "Chai & Snacks", 68L, "UPI", "expense", "Tapri with team", now - hourMs).getOrThrow()
-            createExpense("Metro Smart Card Top-up", "Transport", 50L, "UPI", "expense", "Daily commute", now - 2 * hourMs).getOrThrow()
-            createExpense("Grilled Paneer Protein Bowl", "Food", 180L, "UPI", "expense", "Post-workout", now - dayMs - 2 * hourMs).getOrThrow()
-            createExpense("HP Petrol Pump Refill", "Transport", 200L, "UPI", "expense", "", now - dayMs - 5 * hourMs).getOrThrow()
-            createExpense("Oats, Milk & Eggs", "Grocery", 280L, "UPI", "expense", "Weekly essentials", now - 2 * dayMs).getOrThrow()
-            createExpense("Turf Football Share", "Entertainment", 250L, "UPI", "expense", "Weekend 5v5", now - 3 * dayMs).getOrThrow()
-            createExpense("Monthly Salary Credit", "Salary", 25000L, "UPI", "income", "Primary monthly payroll deposit", now - 4 * dayMs).getOrThrow()
-            createExpense("UI Design Sprint Payout", "Freelance", 4500L, "UPI", "income", "Client milestone invoice", now - 2 * dayMs).getOrThrow()
-
-            createKhataFriend("Rohan Verma", "919876543210", "rohan.verma@oksbi", 590L, "Midnight Biryani & Turf Split").getOrThrow()
-            createKhataFriend("Kabir Malhotra", "919812345678", "kabir.m@okhdfcbank", 420L, "IMAX Movie Tickets").getOrThrow()
-            createKhataFriend("Priya Nair", "919988776655", "priyanair@paytm", -180L, "Uber Airport Pool Share").getOrThrow()
-
-            createSavingsGoal("Emergency Rainy-Day Fund", 25000L, 8500L).getOrThrow()
-
-            createPaymentReminder(
-                title = "Fiber Broadband & WiFi Bill",
-                amount = 999L,
-                category = "Bills",
-                dueEpochMillis = now + 2 * dayMs,
-                intervalType = "1_day_before",
-                note = "Monthly high-speed broadband plan"
+                upiGuardTone = "hinglish",
+                notifyPaymentReminders = false,
+                notifyNightGuardAlert = false,
+                notifyMorningReview = false
             ).getOrThrow()
         }
     }
+
+    suspend fun deleteAllUserData(): Result<Unit> = runCatching {
+        val uid = requireUserId()
+        val userDoc = db.collection("users").document(uid)
+        val subcollections = listOf(
+            "expenses",
+            "khata_friends",
+            "savings_goals",
+            "jarvis_messages",
+            "payment_reminders",
+            "night_guard_events"
+        )
+        for (sub in subcollections) {
+            try {
+                val snap = userDoc.collection(sub).whereEqualTo("userId", uid).get().await()
+                for (doc in snap.documents) {
+                    doc.reference.delete().await()
+                }
+            } catch (_: Exception) {
+            }
+        }
+        try {
+            userDoc.delete().await()
+        } catch (_: Exception) {
+        }
+    }
 }
+

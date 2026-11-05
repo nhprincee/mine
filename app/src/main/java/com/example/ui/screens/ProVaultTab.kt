@@ -62,9 +62,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.ExpenseRecord
+import com.example.data.model.PaymentReminderRecord
 import com.example.data.model.STARK_ARC_BADGES
+import com.example.data.model.SavingsGoalRecord
 import com.example.data.model.UserSettings
 import com.example.data.model.isIncomeTransaction
+import com.example.ui.components.KharcheeCompactHeaderBranding
 import com.example.ui.theme.ALL_APP_FONTS
 import com.example.ui.theme.ALL_HUD_THEMES
 import com.example.ui.theme.ChampagneGold
@@ -188,6 +191,11 @@ fun ProVaultTab(
     disciplineScore: Int,
     streakDays: Int,
     expenses: List<ExpenseRecord> = emptyList(),
+    userId: String = settings.userId.ifBlank { "default_user" },
+    savingsGoals: List<SavingsGoalRecord> = emptyList(),
+    paymentReminders: List<PaymentReminderRecord> = emptyList(),
+    onDeleteAccountRequested: (() -> Unit)? = null,
+    onShowToast: (String) -> Unit = {},
     onSelectTheme: (String) -> Unit,
     onToggleAutoLockdown: (Boolean) -> Unit,
     onSelectUpiTone: (String) -> Unit,
@@ -276,36 +284,33 @@ fun ProVaultTab(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Surface(
-                            color = ObsidianDarkSecondarySurface,
-                            shape = RoundedCornerShape(50),
-                            modifier = Modifier.border(0.8.dp, ObsidianDarkBorder, RoundedCornerShape(50))
-                        ) {
-                            Text(
-                                text = if (settings.isPro) {
-                                    "ACTIVE: ${if (settings.proTier == "platinum") "PRO OBSIDIAN ELITE" else "PRO SILVER"} · VALID UNTIL $expiryFormatted"
-                                } else {
-                                    "OBSIDIAN PRIVATE CLUB PASS (STANDARD)"
-                                },
-                                fontFamily = JetBrainsMonoFontFamily,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                letterSpacing = 1.sp,
-                                color = ObsidianDarkSilver,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
-                            )
-                        }
+                        KharcheeCompactHeaderBranding(isPro = true)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Surface(
+                        color = ObsidianDarkSecondarySurface,
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier.border(0.8.dp, ObsidianDarkBorder, RoundedCornerShape(50))
+                    ) {
                         Text(
-                            text = hud.symbol,
-                            fontSize = 18.sp,
-                            color = ObsidianDarkSilver
+                            text = if (settings.isPro) {
+                                "ACTIVE: ${if (settings.proTier == "platinum") "PRO OBSIDIAN ELITE" else "PRO SILVER"} · VALID UNTIL $expiryFormatted"
+                            } else {
+                                "OBSIDIAN PRIVATE CLUB PASS (STANDARD)"
+                            },
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 1.sp,
+                            color = ObsidianDarkSilver,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
                         )
                     }
 
                     Spacer(modifier = Modifier.height(18.dp))
 
                     Text(
-                        text = "CRED DISCIPLINE INDEX",
+                        text = "KHARCHEE DISCIPLINE INDEX",
                         fontFamily = JetBrainsMonoFontFamily,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Medium,
@@ -377,6 +382,24 @@ fun ProVaultTab(
                     }
                 }
             }
+        }
+
+        // KHARCHEE PRO 40-MODULE INTELLIGENCE SUITE HUB
+        item {
+            KharcheePro30ModuleHubSection(
+                userId = userId,
+                userDisplayName = userDisplayName,
+                isProUnlocked = settings.isPro,
+                disciplineScore = disciplineScore,
+                streakDays = streakDays,
+                dailyLimit = settings.dailyLimit,
+                expenses = expenses,
+                savingsGoals = savingsGoals,
+                paymentReminders = paymentReminders,
+                proExpiryMillis = settings.proExpiryMillis,
+                onDeleteAccountRequested = onDeleteAccountRequested,
+                onShowToast = onShowToast
+            )
         }
 
         // ADVANCED PRO ANALYTICS & VELOCITY DASHBOARD (FEATURE 4)
@@ -1252,7 +1275,7 @@ fun ProVaultTab(
             containerColor = RichGraphite,
             title = {
                 Text(
-                    text = "Activate ${selectedPlan.title}",
+                    text = "KHARCHEE PRO · ${selectedPlan.title}",
                     fontFamily = headingFont,
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.ExtraBold,
@@ -1260,17 +1283,44 @@ fun ProVaultTab(
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
                         text = "Plan: ${selectedPlan.title} (${selectedPlan.priceDisplay})",
                         style = MaterialTheme.typography.bodyLarge,
                         color = ChampagneGold,
                         fontWeight = FontWeight.SemiBold
                     )
+                    Surface(
+                        color = ElevatedGraphite,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(0.8.dp, HairlineGold, RoundedCornerShape(12.dp))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "RAZORPAY CHECKOUT · SETUP / SANDBOX STATE",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = ChampagneGold
+                            )
+                            Text(
+                                text = "Live production activation requires server-side Razorpay signature verification (RAZORPAY_KEY_ID & HMAC webhook secret). When live Razorpay server keys are not configured, you can launch UPI checkout or preview Pro in Sandbox/Test mode.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MutedPlatinum,
+                                fontSize = 11.sp,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
                     Text(
-                        text = "Unlocks J.A.R.V.I.S. Uncapped Voice Analytics, Custom Metallic HUD Themes, Unlimited Split Khata Ledgers, and Zero Ads.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MutedPlatinum
+                        text = "Includes J.A.R.V.I.S. Uncapped Voice Analytics, Three Independent HUD Themes, Unlimited Split Khata Ledgers, and Zero Ads.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MutedIvory
                     )
                 }
             },
@@ -1289,7 +1339,7 @@ fun ProVaultTab(
                         }
                         showCheckoutModal = false
                         onUpgradeProPlan?.invoke(selectedPlan.tierKey, selectedPlan.durationDays)
-                        onProActivated?.invoke("${selectedPlan.title} (${selectedPlan.priceDisplay})")
+                        onProActivated?.invoke("${selectedPlan.title} (${selectedPlan.priceDisplay} · Sandbox Preview)")
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = ChampagneGold,
@@ -1297,14 +1347,15 @@ fun ProVaultTab(
                     )
                 ) {
                     Text(
-                        text = "Pay ${selectedPlan.priceDisplay} via UPI / Razorpay",
-                        fontWeight = FontWeight.SemiBold
+                        text = "Enable Sandbox Preview (${selectedPlan.priceDisplay})",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp
                     )
                 }
             },
             dismissButton = {
                 OutlinedButton(onClick = { showCheckoutModal = false }) {
-                    Text("Cancel", color = MutedPlatinum, fontWeight = FontWeight.SemiBold)
+                    Text("Close", color = MutedPlatinum, fontWeight = FontWeight.SemiBold)
                 }
             }
         )

@@ -28,10 +28,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Contactless
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.NightlightRound
@@ -68,13 +71,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.AccountabilityEvaluation
+import com.example.data.model.AdvancedKhataStore
 import com.example.data.model.ExpenseRecord
+import com.example.data.model.KhataFriendRecord
+import com.example.data.model.KharcheeProfileAndToolsStore
 import com.example.data.model.NightGuardSchedule
 import com.example.data.model.PaymentReminderRecord
 import com.example.data.model.ProactiveFinancialInsight
@@ -82,6 +89,7 @@ import com.example.data.model.QUICK_ADD_PRESETS
 import com.example.data.model.SavingsGoalRecord
 import com.example.data.model.UserSettings
 import com.example.data.model.isIncomeTransaction
+import com.example.data.model.isSameMonth
 import com.example.ui.theme.ChampagneGold
 import com.example.ui.theme.CrimsonRuby
 import com.example.ui.theme.DeepForestAbyss
@@ -148,8 +156,24 @@ fun HomeTab(
     onOpenNightGuardSettings: () -> Unit = {},
     onTestNightGuard: () -> Unit = {},
     onOpenSmartReminders: () -> Unit = {},
+    userId: String = "default",
+    onEditExpense: (ExpenseRecord) -> Unit = {},
+    onOpenFinanceTools: () -> Unit = {},
+    onOpenSnapAndTrack: () -> Unit = {},
+    onOpenJarvisTab: () -> Unit = {},
+    onOpenOnboardingProfileEditor: () -> Unit = {},
+    onToggleStealth: () -> Unit = {},
+    onNavigateToPassbook: () -> Unit = {},
+    onNavigateToAnalytics: () -> Unit = {},
+    onNavigateToVault: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
+    onCreateBillReminder: ((title: String, amount: Long, category: String, dueEpochMillis: Long) -> Unit)? = null,
+    onToggleBillPaid: ((PaymentReminderRecord, Boolean) -> Unit)? = null,
+    onDeleteBillReminder: ((PaymentReminderRecord) -> Unit)? = null,
+    khataFriends: List<KhataFriendRecord> = emptyList(),
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val hud = LocalHudTheme.current
     val headingFont = LocalAppFontFamily.current
     val dailyLimit = max(50L, settings.dailyLimit)
@@ -172,24 +196,174 @@ fun HomeTab(
         else -> hud.accent
     }
 
-    val totalBalance = remember(expenses, dailyLimit, monthSpent) {
-        val totalIncome = expenses.filter { isIncomeTransaction(it) }.sumOf { it.amount }
-        val totalExpense = expenses.filter { !isIncomeTransaction(it) }.sumOf { it.amount }
-        if (totalIncome > 0L) {
-            totalIncome - totalExpense
+    val totalIncomeAll = remember(expenses) {
+        expenses.filter { isIncomeTransaction(it) }.sumOf { it.amount }
+    }
+    val totalExpenseAll = remember(expenses) {
+        expenses.filter { !isIncomeTransaction(it) }.sumOf { it.amount }
+    }
+    val totalBalance = remember(totalIncomeAll, totalExpenseAll, dailyLimit, monthSpent) {
+        if (totalIncomeAll > 0L) {
+            totalIncomeAll - totalExpenseAll
         } else {
             max(0L, (dailyLimit * 30L) - monthSpent)
         }
     }
 
+    val nowMillisTop = System.currentTimeMillis()
+    val monthlyNetDelta = remember(expenses, monthSpent, dailyLimit) {
+        val thisMonthIncome = expenses.filter { isIncomeTransaction(it) && isSameMonth(it.txEpochMillis, nowMillisTop) }.sumOf { it.amount }
+        if (thisMonthIncome > 0L || monthSpent > 0L) {
+            thisMonthIncome - monthSpent
+        } else {
+            0L
+        }
+    }
+    val monthlyBudgetTargetTop = max(1500L, dailyLimit * 30L)
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .background(ObsidianBlack)
+            .background(MaiDeepCanvas)
             .testTag("home_tab_list"),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // SECTION B. AVAILABLE BALANCE (Current Available Balance + Total Income + Total Expenses + Visibility Toggle)
+        item {
+            MaiScreenTotalBalanceHeroCard(
+                totalBalance = totalBalance,
+                totalIncome = totalIncomeAll,
+                totalExpense = totalExpenseAll,
+                monthlyNetDelta = monthlyNetDelta,
+                stealthMode = settings.stealthMode,
+                onToggleStealth = onToggleStealth,
+                onRequestClicked = onOpenAddIncome,
+                onTransferClicked = onOpenAddExpense,
+                onMoreClicked = onOpenFinanceTools
+            )
+        }
+
+        // SECTION C. QUICK ACTIONS (Add Expense, Add Income, Add Bill, View Khata)
+        item {
+            MaiScreenQuickActionsSection(
+                onScanAndPay = onOpenSnapAndTrack,
+                onAddExpense = onOpenAddExpense,
+                onAddIncome = onOpenAddIncome,
+                onOpenAnalytics = onNavigateToAnalytics,
+                onOpenSavingsGoals = onOpenAddGoal,
+                onOpenBills = onOpenSmartReminders,
+                onOpenVault = onNavigateToVault,
+                onOpenSettings = onOpenSettings,
+                onViewAllTools = onOpenFinanceTools
+            )
+        }
+
+        // SECTION D. FINANCIAL HEALTH SCORE (Premium Metallic Silver Card with KHARCHEE branding & engraved appearance)
+        item {
+            MaiScreenMetallicSilverHealthScoreCard(
+                disciplineScore = disciplineScore,
+                monthSpent = monthSpent,
+                monthlyBudgetTarget = monthlyBudgetTargetTop,
+                onCardClick = onNavigateToAnalytics
+            )
+        }
+
+        // SECTION E. SPENDING OVERVIEW (Monthly Spending Chart + Income vs Expense + Month Selector)
+        item {
+            MaiScreenSpendingOverviewCard(
+                expenses = expenses,
+                stealthMode = settings.stealthMode,
+                onOpenAnalytics = onNavigateToAnalytics
+            )
+        }
+
+        // SECTION F. BUDGET OVERVIEW (Monthly Budget + Spent + Remaining + Progress + Category-Wise Summary)
+        item {
+            MaiScreenBudgetOverviewCard(
+                monthSpent = monthSpent,
+                monthlyBudgetTarget = monthlyBudgetTargetTop,
+                expenses = expenses,
+                stealthMode = settings.stealthMode,
+                onEditBudgetClick = { showLimitEditor = !showLimitEditor }
+            )
+        }
+
+        // SECTION G. JARVIS INSIGHT (Compact Contextual Insight + Recommendation + Open JARVIS Screen)
+        item {
+            MaiScreenJarvisInsightBanner(
+                monthSpent = monthSpent,
+                monthlyBudgetTarget = monthlyBudgetTargetTop,
+                proactiveInsights = proactiveInsights,
+                onOpenJarvis = {
+                    if (proactiveInsights.isNotEmpty() && onOpenJarvisWithPrompt != null) {
+                        onOpenJarvisWithPrompt(proactiveInsights.first().suggestedPrompt)
+                    } else {
+                        onOpenJarvisTab()
+                    }
+                }
+            )
+        }
+
+        // SECTION H. UPCOMING BILLS (Paid/Pending status + Add Bill + Edit + Delete + Mark-as-Paid)
+        item {
+            MaiScreenUpcomingBillsCard(
+                paymentReminders = paymentReminders,
+                stealthMode = settings.stealthMode,
+                onOpenBillsManager = onOpenSmartReminders,
+                onCreateBill = onCreateBillReminder,
+                onToggleBillPaid = onToggleBillPaid,
+                onDeleteBill = onDeleteBillReminder
+            )
+        }
+
+        // SECTION I. RECENT TRANSACTIONS (Merchant, Category, Date, Amount + View All -> Passbook)
+        item {
+            MaiScreenRecentTransactionsCard(
+                expenses = expenses,
+                stealthMode = settings.stealthMode,
+                onSeeAllPassbook = onNavigateToPassbook,
+                onEditTransaction = onEditExpense,
+                onOpenAddExpense = onOpenAddExpense
+            )
+        }
+
+        // SECTION J. KHATA SUMMARY SECTION (Total Lena Hai, Total Dena Hai, Active People, Open Khata)
+        item {
+            DashboardKhataSummarySection(
+                userId = userId,
+                legacyFriends = khataFriends,
+                stealthMode = settings.stealthMode,
+                onOpenKhataScreen = onNavigateToVault
+            )
+        }
+
+        // SECTION K. UNIFIED RECENT HISTORY SECTION (Latest 5 across Income, Expenses, Bills, Khata Entries & Khata Payments)
+        item {
+            val unifiedActivities = remember(userId, expenses, paymentReminders, khataFriends) {
+                val audits = AdvancedKhataStore.loadAuditHistory(context, userId)
+                AdvancedKhataStore.buildUnifiedRecentHistory(
+                    expenses = expenses,
+                    paymentReminders = paymentReminders,
+                    khataAuditItems = audits
+                ).take(5)
+            }
+            DashboardUnifiedRecentHistorySection(
+                activities = unifiedActivities,
+                stealthMode = settings.stealthMode,
+                onViewAllHistory = onNavigateToPassbook
+            )
+        }
+
+        // Smart First-Time Onboarding & Personal Financial Profile Readiness Card
+        item {
+            PersonalFinancialProfileDashboardCard(
+                userId = userId,
+                actualRecordedTransactions = expenses,
+                onOpenOnboardingEditor = onOpenOnboardingProfileEditor
+            )
+        }
+
         // Live UPI Accountability Banner if present
         if (latestAlert != null) {
             item {
@@ -200,106 +374,330 @@ fun HomeTab(
             }
         }
 
-        // Proactive Autonomous Telemetry Insight Card (FEATURE 1)
-        if (proactiveInsights.isNotEmpty()) {
-            val primaryInsight = proactiveInsights.first()
-            item {
-                ProactiveInsightBannerCard(
-                    insight = primaryInsight,
-                    onAskJarvis = {
-                        onOpenJarvisWithPrompt?.invoke(primaryInsight.suggestedPrompt)
-                    }
-                )
-            }
-        }
-
-        // CRED-Style Dark Emerald Sovereign Titanium Card
+        // Net Worth, Monthly Income vs Expenses, Savings Rate & Budget Progress Card
         item {
-            CredBlackTitaniumCard(
-                totalBalance = totalBalance,
-                disciplineScore = disciplineScore,
-                streakDays = streakDays,
-                remainingToday = remainingToday,
-                stealthMode = settings.stealthMode,
-                isPro = settings.isPro,
-                proTier = settings.proTier
-            )
-        }
+            val nowMillis = System.currentTimeMillis()
+            val monthIncome = remember(expenses) {
+                val thisMonthInc = expenses.filter { isIncomeTransaction(it) && isSameMonth(it.txEpochMillis, nowMillis) }.sumOf { it.amount }
+                if (thisMonthInc > 0L) thisMonthInc else expenses.filter { isIncomeTransaction(it) }.sumOf { it.amount }
+            }
+            val savingsRatePct = remember(monthIncome, monthSpent) {
+                if (monthIncome > 0L) {
+                    (((monthIncome - monthSpent).toDouble() / monthIncome.toDouble()) * 100.0).toInt().coerceIn(-100, 100)
+                } else 0
+            }
+            val monthlyBudgetTarget = max(1500L, dailyLimit * 30L)
+            val monthlyBudgetRatio = (monthSpent.toFloat() / monthlyBudgetTarget.toFloat()).coerceIn(0f, 1f)
+            val incomeVsExpenseRatio = remember(monthIncome, monthSpent) {
+                val denom = max(1L, monthIncome + monthSpent).toFloat()
+                (monthIncome.toFloat() / denom).coerceIn(0.08f, 0.92f)
+            }
 
-        // Net Worth & Cashflow Velocity Strip
-        item {
-            val totalInflow = remember(expenses) {
-                expenses.filter { isIncomeTransaction(it) }.sumOf { it.amount }
-            }
-            val totalSavedInGoals = remember(savingsGoals) {
-                savingsGoals.sumOf { it.savedAmount }
-            }
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(RoundedCornerShape(20.dp))
                     .background(RichGraphite)
-                    .border(0.8.dp, HairlinePlatinum, RoundedCornerShape(18.dp))
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .border(0.8.dp, HairlinePlatinum, RoundedCornerShape(20.dp))
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "TOTAL INFLOW",
-                        fontFamily = JetBrainsMonoFontFamily,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Medium,
-                        letterSpacing = 0.8.sp,
-                        color = MutedIvory
-                    )
-                    Text(
-                        text = if (settings.stealthMode) "₹••••" else "+₹$totalInflow",
-                        fontFamily = headingFont,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = ChampagneGold
-                    )
-                }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "MONTH OUTFLOW",
-                        fontFamily = JetBrainsMonoFontFamily,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Medium,
-                        letterSpacing = 0.8.sp,
-                        color = MutedIvory
-                    )
-                    Text(
-                        text = if (settings.stealthMode) "₹••••" else "-₹$monthSpent",
-                        fontFamily = headingFont,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = WarmIvory
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "MONTHLY INCOME",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Medium,
+                            letterSpacing = 0.8.sp,
+                            color = MutedIvory
+                        )
+                        Text(
+                            text = if (settings.stealthMode) "₹••••" else "+₹$monthIncome",
+                            fontFamily = headingFont,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = SophisticatedEmerald
+                        )
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "MONTHLY EXPENSES",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Medium,
+                            letterSpacing = 0.8.sp,
+                            color = MutedIvory
+                        )
+                        Text(
+                            text = if (settings.stealthMode) "₹••••" else "-₹$monthSpent",
+                            fontFamily = headingFont,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = WarmIvory
+                        )
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.End
+                    ) {
+                        Text(
+                            text = "SAVINGS RATE",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Medium,
+                            letterSpacing = 0.8.sp,
+                            color = MutedIvory
+                        )
+                        Text(
+                            text = if (monthIncome > 0L) "$savingsRatePct%" else "${max(0, 100 - (monthlyBudgetRatio * 100).toInt())}%",
+                            fontFamily = headingFont,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (savingsRatePct >= 20 || monthIncome == 0L) SophisticatedEmerald else ChampagneGold
+                        )
+                    }
                 }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.End
+
+                // Income vs Expense Comparison Bar + Monthly Budget Progress
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "INCOME VS EXPENSE RATIO",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 9.sp,
+                            color = MutedPlatinum
+                        )
+                        Text(
+                            text = "Budget Progress: ${(monthlyBudgetRatio * 100).toInt()}% of ₹$monthlyBudgetTarget",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 9.sp,
+                            color = if (monthlyBudgetRatio > 0.9f) CrimsonRuby else ChampagneGold
+                        )
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(7.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(ElevatedGraphite)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(incomeVsExpenseRatio)
+                                .height(7.dp)
+                                .background(SophisticatedEmerald)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f - incomeVsExpenseRatio)
+                                .height(7.dp)
+                                .background(CrimsonRuby.copy(alpha = 0.85f))
+                        )
+                    }
+                }
+
+                // Category-Wise Expense Chart on Dashboard
+                val categoryTotals = remember(expenses) {
+                    expenses.filter { !isIncomeTransaction(it) }
+                        .groupBy { it.category }
+                        .mapValues { (_, list) -> list.sumOf { it.amount } }
+                        .entries
+                        .sortedByDescending { it.value }
+                        .take(4)
+                }
+                if (categoryTotals.isNotEmpty()) {
+                    val maxCatSpend = max(1L, categoryTotals.first().value)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(ObsidianBlack)
+                            .border(0.8.dp, HairlinePlatinum, RoundedCornerShape(14.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "CATEGORY-WISE EXPENSE CHART",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.9.sp,
+                            color = MetallicSilver
+                        )
+                        categoryTotals.forEach { (cat, amt) ->
+                            val catRatio = (amt.toFloat() / maxCatSpend.toFloat()).coerceIn(0.08f, 1f)
+                            val catColor = getCategoryColor(cat)
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(text = cat, fontSize = 11.sp, color = WarmIvory, fontWeight = FontWeight.Medium)
+                                    Text(
+                                        text = if (settings.stealthMode) "₹•••" else "₹$amt",
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontSize = 11.sp,
+                                        color = catColor,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                LinearProgressIndicator(
+                                    progress = { catRatio },
+                                    color = catColor,
+                                    trackColor = ElevatedGraphite,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(5.dp)
+                                        .clip(RoundedCornerShape(50))
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // SNAP & TRACK Camera Shortcut + JARVIS Daily Insight Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        text = "GOALS RESERVE",
-                        fontFamily = JetBrainsMonoFontFamily,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Medium,
-                        letterSpacing = 0.8.sp,
-                        color = MutedIvory
-                    )
-                    Text(
-                        text = if (settings.stealthMode) "₹••••" else "₹$totalSavedInGoals",
-                        fontFamily = headingFont,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = SophisticatedEmerald
-                    )
+                    Surface(
+                        color = SophisticatedEmerald.copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .border(1.dp, SophisticatedEmerald, RoundedCornerShape(14.dp))
+                            .clickable { onOpenSnapAndTrack() }
+                            .testTag("snap_and_track_button")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = "SNAP & TRACK",
+                                tint = SophisticatedEmerald,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = "SNAP & TRACK",
+                                    fontFamily = headingFont,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 12.sp,
+                                    color = WarmIvory
+                                )
+                                Text(
+                                    text = "Snap it. Track it. Done.",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 9.sp,
+                                    color = SophisticatedEmerald
+                                )
+                            }
+                        }
+                    }
+
+                    Surface(
+                        color = ObsidianBlack,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .border(1.dp, Color(0xFF00E5FF).copy(alpha = 0.65f), RoundedCornerShape(14.dp))
+                            .clickable { onOpenJarvisTab() }
+                            .testTag("jarvis_daily_insight_card")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Bolt,
+                                contentDescription = "JARVIS Daily Insight",
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = "JARVIS Daily Insight",
+                                    fontFamily = headingFont,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 12.sp,
+                                    color = WarmIvory
+                                )
+                                Text(
+                                    text = "Safe ₹$remainingToday · Open AI ➔",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 9.sp,
+                                    color = Color(0xFF00E5FF)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Finance Tools Hub Launcher Button
+                Surface(
+                    color = ElevatedGraphite,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(0.8.dp, SophisticatedEmerald.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+                        .clickable { onOpenFinanceTools() }
+                        .testTag("open_finance_tools_hub_button")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Build,
+                                contentDescription = "Finance Tools Hub",
+                                tint = SophisticatedEmerald,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = "FINANCE TOOLS HUB · SUBSCRIPTIONS, EMIs & WALLETS",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = WarmIvory
+                                )
+                                Text(
+                                    text = "Voice Expense Entry · Net Worth · Emergency Fund Planner",
+                                    fontSize = 11.sp,
+                                    color = MutedIvory
+                                )
+                            }
+                        }
+                        Text(
+                            text = "Open ➔",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = SophisticatedEmerald
+                        )
+                    }
                 }
             }
         }
@@ -986,13 +1384,21 @@ fun HomeTab(
                         val ratio = if (goal.targetAmount > 0) {
                             min(1f, goal.savedAmount.toFloat() / goal.targetAmount.toFloat())
                         } else 0f
+                        val isCompleted = goal.targetAmount > 0L && goal.savedAmount >= goal.targetAmount
+                        val targetDateLabel = remember(goal.title, userId) {
+                            KharcheeProfileAndToolsStore.getGoalTargetDate(context, userId, goal.title)
+                        }
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 6.dp)
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(ElevatedGraphite)
-                                .border(0.8.dp, HairlinePlatinum, RoundedCornerShape(14.dp))
+                                .border(
+                                    0.8.dp,
+                                    if (isCompleted) SophisticatedEmerald else HairlinePlatinum,
+                                    RoundedCornerShape(14.dp)
+                                )
                                 .padding(14.dp)
                         ) {
                             Row(
@@ -1000,12 +1406,41 @@ fun HomeTab(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = goal.title,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = WarmIvory,
-                                    fontSize = 14.sp
-                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = goal.title,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = WarmIvory,
+                                            fontSize = 14.sp
+                                        )
+                                        if (isCompleted) {
+                                            Surface(
+                                                color = SophisticatedEmerald.copy(alpha = 0.16f),
+                                                shape = RoundedCornerShape(50),
+                                                border = BorderStroke(0.6.dp, SophisticatedEmerald)
+                                            ) {
+                                                Text(
+                                                    text = "✓ COMPLETED",
+                                                    fontFamily = JetBrainsMonoFontFamily,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = SophisticatedEmerald,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Text(
+                                        text = "Target Date: $targetDateLabel",
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontSize = 10.sp,
+                                        color = MutedIvory
+                                    )
+                                }
                                 Text(
                                     text = if (settings.stealthMode) "₹••• / ₹•••" else "₹${goal.savedAmount} / ₹${goal.targetAmount}",
                                     fontFamily = headingFont,
@@ -1130,6 +1565,7 @@ fun HomeTab(
                 TransactionRowCard(
                     expense = item,
                     stealthMode = settings.stealthMode,
+                    onEdit = { onEditExpense(item) },
                     onDelete = { onDeleteExpense(item) }
                 )
             }
@@ -1416,7 +1852,7 @@ fun CredBlackTitaniumCard(
                             modifier = Modifier.size(13.dp)
                         )
                         Text(
-                            text = "DISCIPLINE",
+                            text = "BEHAVIOUR SCORE",
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 8.sp,
                             fontWeight = FontWeight.Medium,
@@ -1764,6 +2200,7 @@ fun TransactionRowCard(
     expense: ExpenseRecord,
     stealthMode: Boolean,
     onDelete: () -> Unit,
+    onEdit: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val isIncome = isIncomeTransaction(expense)
@@ -1847,9 +2284,22 @@ fun TransactionRowCard(
         )
 
         if (expense.id.isNotBlank()) {
+            if (onEdit != null) {
+                IconButton(
+                    onClick = onEdit,
+                    modifier = Modifier.size(34.dp).testTag("edit_tx_${expense.id}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Edit ${expense.title}",
+                        tint = ChampagneGold,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
             IconButton(
                 onClick = onDelete,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(34.dp).testTag("delete_tx_${expense.id}")
             ) {
                 Icon(
                     imageVector = Icons.Default.DeleteOutline,

@@ -30,9 +30,10 @@ fun KharcheeTheme(
 
     val hudTheme = getHudThemeById(themeId)
     val isLight = hudTheme.isLight
-    ObsidianThemeState.isLightMode = isLight
+    ObsidianThemeState.activeThemeId = hudTheme.id
     SideEffect {
-        ObsidianThemeState.isLightMode = isLight
+        ObsidianThemeState.activeThemeId = hudTheme.id
+        ThemePreferenceManager.saveThemePreference(context, hudTheme.id)
     }
 
     val savedFontId by FontPreferenceManager.selectedFontId.collectAsStateWithLifecycle()
@@ -65,19 +66,19 @@ fun KharcheeTheme(
     } else {
         darkColorScheme(
             primary = hudTheme.accent,
-            onPrimary = ObsidianDarkBackground,
+            onPrimary = hudTheme.background,
             secondary = hudTheme.secondaryAccent,
-            onSecondary = ObsidianDarkBackground,
-            tertiary = ObsidianDarkPositive,
+            onSecondary = hudTheme.background,
+            tertiary = SophisticatedEmerald,
             background = hudTheme.background,
-            onBackground = ObsidianDarkPrimaryText,
+            onBackground = WarmIvory,
             surface = hudTheme.surface,
-            onSurface = ObsidianDarkPrimaryText,
+            onSurface = WarmIvory,
             surfaceVariant = hudTheme.surfaceElevated,
-            onSurfaceVariant = ObsidianDarkSecondaryText,
-            outline = ObsidianDarkBorder,
-            error = ObsidianDarkNegative,
-            onError = ObsidianDarkPrimaryText
+            onSurfaceVariant = MutedPlatinum,
+            outline = hudTheme.borderGlow,
+            error = CrimsonRuby,
+            onError = WarmIvory
         )
     }
 

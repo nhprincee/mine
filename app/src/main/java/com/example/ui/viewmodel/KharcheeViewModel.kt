@@ -913,6 +913,25 @@ class KharcheeViewModel(
         }
     }
 
+    fun updateExistingExpense(expense: ExpenseRecord) {
+        viewModelScope.launch {
+            val res = repository.updateExpense(expense)
+            if (res.isSuccess) {
+                _toastMessage.value = "✏️ Updated ${expense.title} (₹${expense.amount})"
+            } else {
+                _toastMessage.value = res.exceptionOrNull()?.localizedMessage ?: "Failed to update transaction"
+            }
+        }
+    }
+
+    fun deleteUserAccountData(onComplete: () -> Unit) {
+        viewModelScope.launch {
+            repository.deleteAllUserData()
+            _toastMessage.value = "Account data wiped from vault."
+            onComplete()
+        }
+    }
+
     fun addKhataFriend(
         name: String,
         phone: String,

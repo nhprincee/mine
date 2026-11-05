@@ -1,5 +1,10 @@
 package com.example.ui.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,16 +26,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -44,6 +54,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -51,10 +62,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.EXPENSE_CATEGORIES
+import com.example.data.model.ExpenseRecord
 import com.example.data.model.INCOME_CATEGORIES
+import com.example.data.model.KharcheeProfileAndToolsStore
 import com.example.data.model.PAYMENT_MODES
 import com.example.data.model.SAMPLE_BANK_SMS_LIST
 import com.example.data.model.SmsTransactionParser
+import com.example.data.model.isIncomeTransaction
 import com.example.ui.theme.ChampagneGold
 import com.example.ui.theme.CrimsonRuby
 import com.example.ui.theme.ElevatedGraphite
@@ -70,6 +84,19 @@ import com.example.ui.theme.SophisticatedEmerald
 import com.example.ui.theme.WarmIvory
 import com.example.ui.theme.getCategoryIcon
 
+private val SUBCATEGORIES_BY_CATEGORY = mapOf(
+    "Food" to listOf("Dining Out", "Delivery", "Lunch", "Dinner"),
+    "Chai & Snacks" to listOf("Tapri Chai", "Coffee", "Bakery", "Evening Snack"),
+    "Transport" to listOf("Fuel / Petrol", "Metro", "Auto / Cab", "Parking"),
+    "Grocery" to listOf("Daily Milk & Bread", "Vegetables", "Supermarket", "Quick Commerce"),
+    "Entertainment" to listOf("Movies", "OTT Subscription", "Sports / Turf", "Gaming"),
+    "Bills" to listOf("WiFi / Broadband", "Electricity", "Mobile Recharge", "Rent / EMI"),
+    "Shopping" to listOf("Apparel", "Electronics", "Personal Care", "Home"),
+    "Salary" to listOf("Monthly Payroll", "Bonus", "Stipend"),
+    "Freelance" to listOf("Consulting", "Design / Dev", "Project Milestone"),
+    "Cashback" to listOf("UPI Reward", "Card Cashback", "Refund")
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddTransactionBottomSheet(
@@ -81,10 +108,22 @@ fun AddTransactionBottomSheet(
     var txType by remember { mutableStateOf(initialType) }
     val categories = if (txType == "income") INCOME_CATEGORIES else EXPENSE_CATEGORIES
     var selectedCategory by remember(txType) { mutableStateOf(categories.first()) }
+    val subcategories = SUBCATEGORIES_BY_CATEGORY[selectedCategory] ?: listOf("General")
+    var selectedSubcategory by remember(selectedCategory) { mutableStateOf(subcategories.first()) }
     var selectedMode by remember { mutableStateOf("UPI") }
     var title by remember { mutableStateOf("") }
     var amountStr by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
+    var isRecurring by remember { mutableStateOf(false) }
+    var attachedReceiptUri by remember { mutableStateOf<String?>(null) }
+
+    val receiptPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            attachedReceiptUri = uri.lastPathSegment ?: "Receipt_Attached"
+        }
+    }
 
     val fieldColors = OutlinedTextFieldDefaults.colors(
         focusedBorderColor = ChampagneGold,
@@ -107,7 +146,7 @@ fun AddTransactionBottomSheet(
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -116,7 +155,7 @@ fun AddTransactionBottomSheet(
             ) {
                 Column {
                     Text(
-                        text = if (txType == "income") "CAPITAL INFLOW" else "LEDGER OUTFLOW",
+                        text = if (txType == "income") "CAPITAL INFLOW · MANUAL ENTRY" else "LEDGER OUTFLOW · MANUAL ENTRY",
                         fontFamily = JetBrainsMonoFontFamily,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Medium,
@@ -167,6 +206,7 @@ fun AddTransactionBottomSheet(
                 onValueChange = { amountStr = it },
                 label = { Text("Amount in ₹") },
                 singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 colors = fieldColors,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth().testTag("modal_amount_input")
@@ -177,12 +217,13 @@ fun AddTransactionBottomSheet(
                 onValueChange = { title = it },
                 label = { Text(if (txType == "income") "Source (e.g. Monthly Salary)" else "Merchant / Item (e.g. Tapri Chai)") },
                 singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 colors = fieldColors,
                 modifier = Modifier.fillMaxWidth().testTag("modal_title_input")
             )
 
             Text(
-                text = "CATEGORY ALLOCATION",
+                text = "CATEGORY & SUBCATEGORY",
                 fontFamily = JetBrainsMonoFontFamily,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Medium,
@@ -226,8 +267,35 @@ fun AddTransactionBottomSheet(
                 }
             }
 
+            // Subcategory chips
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                subcategories.forEach { sub ->
+                    val active = selectedSubcategory == sub
+                    Surface(
+                        color = if (active) ElevatedGraphite else ObsidianBlack,
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier
+                            .border(0.6.dp, if (active) ChampagneGold else HairlinePlatinum, RoundedCornerShape(50))
+                            .clickable { selectedSubcategory = sub }
+                    ) {
+                        Text(
+                            text = sub,
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 10.sp,
+                            color = if (active) ChampagneGold else MutedIvory,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
+                }
+            }
+
             Text(
-                text = "PAYMENT CHANNEL",
+                text = "PAYMENT CHANNEL / WALLET",
                 fontFamily = JetBrainsMonoFontFamily,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Medium,
@@ -235,7 +303,7 @@ fun AddTransactionBottomSheet(
                 color = MutedPlatinum
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PAYMENT_MODES.forEach { mode ->
+                (PAYMENT_MODES + listOf("Bank")).forEach { mode ->
                     val active = selectedMode == mode
                     Surface(
                         color = if (active) ChampagneGold.copy(alpha = 0.16f) else ObsidianBlack,
@@ -248,7 +316,7 @@ fun AddTransactionBottomSheet(
                         Text(
                             text = mode,
                             fontFamily = JetBrainsMonoFontFamily,
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = if (active) ChampagneGold else MutedPlatinum,
                             textAlign = TextAlign.Center,
@@ -263,21 +331,74 @@ fun AddTransactionBottomSheet(
                 onValueChange = { note = it },
                 label = { Text("Note (optional)") },
                 singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 colors = fieldColors,
                 modifier = Modifier.fillMaxWidth()
             )
+
+            // Recurring & Receipt Attachment Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { isRecurring = !isRecurring }
+                ) {
+                    Checkbox(
+                        checked = isRecurring,
+                        onCheckedChange = { isRecurring = it },
+                        colors = CheckboxDefaults.colors(
+                            checkedColor = ChampagneGold,
+                            checkmarkColor = ObsidianBlack
+                        )
+                    )
+                    Icon(Icons.Default.Autorenew, contentDescription = null, tint = ChampagneGold, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Recurring Monthly", fontSize = 12.sp, color = WarmIvory)
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        receiptPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(0.8.dp, if (attachedReceiptUri != null) SophisticatedEmerald else HairlinePlatinum),
+                    modifier = Modifier.testTag("attach_receipt_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AttachFile,
+                        contentDescription = "Attach Receipt",
+                        tint = if (attachedReceiptUri != null) SophisticatedEmerald else MutedPlatinum,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (attachedReceiptUri != null) "Receipt Attached" else "Attach Receipt",
+                        fontSize = 11.sp,
+                        color = if (attachedReceiptUri != null) SophisticatedEmerald else WarmIvory
+                    )
+                }
+            }
 
             Button(
                 onClick = {
                     val amt = amountStr.toLongOrNull() ?: 0L
                     if (amt > 0L) {
+                        val tags = buildList {
+                            add("[$selectedSubcategory]")
+                            if (isRecurring) add("[RECURRING]")
+                            if (attachedReceiptUri != null) add("[RECEIPT:$attachedReceiptUri]")
+                            if (note.isNotBlank()) add(note.trim())
+                        }.joinToString(" ")
                         onSubmit(
                             title.ifBlank { selectedCategory },
                             selectedCategory,
                             amt,
                             selectedMode,
                             txType,
-                            note
+                            tags
                         )
                         onDismiss()
                     }
@@ -296,6 +417,187 @@ fun AddTransactionBottomSheet(
                     text = if (txType == "income") "Save Income Credit" else "Log Spend & Evaluate Reserve",
                     fontWeight = FontWeight.SemiBold
                 )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditTransactionBottomSheet(
+    expense: ExpenseRecord,
+    onDismiss: () -> Unit,
+    onSaveUpdated: (ExpenseRecord) -> Unit
+) {
+    val headingFont = LocalAppFontFamily.current
+    val isInc = isIncomeTransaction(expense)
+    var txType by remember(expense) { mutableStateOf(if (isInc) "income" else "expense") }
+    val categories = if (txType == "income") INCOME_CATEGORIES else EXPENSE_CATEGORIES
+    var selectedCategory by remember(expense, txType) {
+        mutableStateOf(if (expense.category in categories) expense.category else categories.first())
+    }
+    var selectedMode by remember(expense) { mutableStateOf(expense.paymentMode.ifBlank { "UPI" }) }
+    var title by remember(expense) { mutableStateOf(expense.title) }
+    var amountStr by remember(expense) { mutableStateOf(expense.amount.toString()) }
+    var note by remember(expense) { mutableStateOf(expense.note) }
+
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = ChampagneGold,
+        unfocusedBorderColor = HairlinePlatinum,
+        focusedContainerColor = ObsidianBlack,
+        unfocusedContainerColor = ObsidianBlack,
+        focusedTextColor = WarmIvory,
+        unfocusedTextColor = WarmIvory,
+        focusedLabelColor = ChampagneGold,
+        unfocusedLabelColor = MutedIvory
+    )
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = RichGraphite,
+        contentColor = WarmIvory
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 14.dp)
+                .testTag("edit_transaction_sheet"),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "EDIT PASSBOOK TRANSACTION",
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        letterSpacing = 1.2.sp,
+                        color = ChampagneGold
+                    )
+                    Text(
+                        text = "Update Merchant, Amount or Note",
+                        fontFamily = headingFont,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = WarmIvory
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = MutedPlatinum)
+                }
+            }
+
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it },
+                label = { Text("Merchant / Title") },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = fieldColors,
+                modifier = Modifier.fillMaxWidth().testTag("edit_tx_title_input")
+            )
+
+            OutlinedTextField(
+                value = amountStr,
+                onValueChange = { amountStr = it },
+                label = { Text("Amount (₹)") },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = fieldColors,
+                modifier = Modifier.fillMaxWidth().testTag("edit_tx_amount_input")
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                categories.forEach { cat ->
+                    val active = selectedCategory == cat
+                    Surface(
+                        color = if (active) ChampagneGold.copy(alpha = 0.16f) else ObsidianBlack,
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier
+                            .border(0.8.dp, if (active) ChampagneGold else HairlinePlatinum, RoundedCornerShape(50))
+                            .clickable { selectedCategory = cat }
+                    ) {
+                        Text(
+                            text = cat,
+                            fontSize = 12.sp,
+                            color = if (active) WarmIvory else MutedPlatinum,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                        )
+                    }
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                (PAYMENT_MODES + listOf("Bank")).forEach { mode ->
+                    val active = selectedMode == mode
+                    Surface(
+                        color = if (active) ChampagneGold.copy(alpha = 0.16f) else ObsidianBlack,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .border(0.8.dp, if (active) ChampagneGold else HairlinePlatinum, RoundedCornerShape(10.dp))
+                            .clickable { selectedMode = mode }
+                    ) {
+                        Text(
+                            text = mode,
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (active) ChampagneGold else MutedPlatinum,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    }
+                }
+            }
+
+            OutlinedTextField(
+                value = note,
+                onValueChange = { note = it },
+                label = { Text("Transaction Note / Subcategory / Receipt Tag") },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = fieldColors,
+                modifier = Modifier.fillMaxWidth().testTag("edit_tx_note_input")
+            )
+
+            Button(
+                onClick = {
+                    val amt = amountStr.toLongOrNull() ?: expense.amount
+                    if (amt > 0L) {
+                        onSaveUpdated(
+                            expense.copy(
+                                title = title.trim().ifBlank { selectedCategory },
+                                category = selectedCategory,
+                                amount = amt,
+                                paymentMode = selectedMode,
+                                type = txType,
+                                note = note.trim()
+                            )
+                        )
+                        onDismiss()
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = ChampagneGold, contentColor = ObsidianBlack),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .testTag("save_edited_tx_button")
+            ) {
+                Text("Save Updated Transaction", fontWeight = FontWeight.SemiBold)
             }
             Spacer(modifier = Modifier.height(16.dp))
         }
@@ -325,7 +627,7 @@ fun SmsUpiParserBottomSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "ON-DEVICE UPI & BANK SMS INTELLIGENCE",
+                text = "ON-DEVICE RECEIPT & UPI SMS SCANNER",
                 fontFamily = JetBrainsMonoFontFamily,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Medium,
@@ -340,7 +642,7 @@ fun SmsUpiParserBottomSheet(
                 color = WarmIvory
             )
             Text(
-                text = "100% on-device regex extraction for Google Pay, PhonePe, Paytm, BHIM & Indian bank alerts. Automatically blocks OTPs & collect requests.",
+                text = "100% on-device regex extraction for Google Pay, PhonePe, Paytm, BHIM, receipts & bank alerts. Automatically blocks OTPs & collect requests.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MutedIvory,
                 fontSize = 12.sp
@@ -380,7 +682,7 @@ fun SmsUpiParserBottomSheet(
             OutlinedTextField(
                 value = rawSms,
                 onValueChange = { rawSms = it },
-                label = { Text("Paste Bank SMS or UPI Notification Text") },
+                label = { Text("Paste Receipt Text, Bank SMS or UPI Notification") },
                 minLines = 3,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = ChampagneGold,
@@ -475,13 +777,16 @@ fun SmsUpiParserBottomSheet(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddSavingsGoalBottomSheet(
+    userId: String = "default",
     onDismiss: () -> Unit,
     onCreateGoal: (title: String, targetAmount: Long, savedAmount: Long) -> Unit
 ) {
+    val context = LocalContext.current
     val headingFont = LocalAppFontFamily.current
     var title by remember { mutableStateOf("") }
     var targetStr by remember { mutableStateOf("25000") }
     var savedStr by remember { mutableStateOf("2500") }
+    var targetDateStr by remember { mutableStateOf("31 Dec 2026") }
 
     val fieldColors = OutlinedTextFieldDefaults.colors(
         focusedBorderColor = SophisticatedEmerald,
@@ -504,7 +809,7 @@ fun AddSavingsGoalBottomSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "SOVEREIGN CAPITAL ALLOCATION",
+                text = "GOAL VAULT · CAPITAL ALLOCATION",
                 fontFamily = JetBrainsMonoFontFamily,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Medium,
@@ -512,7 +817,7 @@ fun AddSavingsGoalBottomSheet(
                 color = SophisticatedEmerald
             )
             Text(
-                text = "Establish Savings Reserve Goal",
+                text = "Establish Savings Goal & Target Date",
                 fontFamily = headingFont,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.ExtraBold,
@@ -521,8 +826,9 @@ fun AddSavingsGoalBottomSheet(
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
-                label = { Text("Goal Name (e.g. Emergency Reserve / Sovereign Travel)") },
+                label = { Text("Goal Name (e.g. Emergency Reserve / MacBook / Travel)") },
                 singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 colors = fieldColors,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -532,6 +838,7 @@ fun AddSavingsGoalBottomSheet(
                     onValueChange = { targetStr = it },
                     label = { Text("Target (₹)") },
                     singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
                     colors = fieldColors,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.weight(1f)
@@ -539,21 +846,34 @@ fun AddSavingsGoalBottomSheet(
                 OutlinedTextField(
                     value = savedStr,
                     onValueChange = { savedStr = it },
-                    label = { Text("Initial Allocation (₹)") },
+                    label = { Text("Initial Saved (₹)") },
                     singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
                     colors = fieldColors,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.weight(1f)
                 )
             }
+            OutlinedTextField(
+                value = targetDateStr,
+                onValueChange = { targetDateStr = it },
+                label = { Text("Target Completion Date (e.g. 31 Dec 2026)") },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = fieldColors,
+                modifier = Modifier.fillMaxWidth().testTag("goal_target_date_input")
+            )
             Button(
                 onClick = {
                     val target = targetStr.toLongOrNull() ?: 10000L
                     val saved = savedStr.toLongOrNull() ?: 0L
-                    onCreateGoal(title.ifBlank { "Sovereign Reserve" }, target, saved)
+                    val finalTitle = title.ifBlank { "Sovereign Reserve" }
+                    KharcheeProfileAndToolsStore.saveGoalTargetDate(context, userId, finalTitle, targetDateStr)
+                    onCreateGoal(finalTitle, target, saved)
                     onDismiss()
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = SophisticatedEmerald, contentColor = ObsidianBlack),
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth().height(50.dp)
             ) {
                 Text("Create Capital Goal", fontWeight = FontWeight.SemiBold)
