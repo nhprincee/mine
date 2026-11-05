@@ -462,7 +462,7 @@ fun attemptAutoSignIn(
     onUnauthenticated: () -> Unit,
     scope: CoroutineScope
 ) {
-    if (Firebase.auth.currentUser != null || IntroAuthPreferences.syncLocalSessionFromDisk(context) != null) {
+    if (Firebase.auth.currentUser != null) {
         onAuthSuccess()
         return
     }
@@ -587,26 +587,8 @@ fun signInWithEmailAndPasswordReal(
                 onError("Unable to establish an authenticated session. Please try again.")
             }
         } catch (e: Exception) {
-            if (isFirebaseProviderNotEnabledError(e)) {
-                val localResult = IntroAuthPreferences.authenticateVerifiedFallbackAccount(
-                    context = context,
-                    email = cleanEmail,
-                    password = password
-                )
-                localResult.fold(
-                    onSuccess = {
-                        IntroAuthPreferences.markWelcomeIntroCompleted(context)
-                        IntroAuthPreferences.saveRememberMeState(context, rememberMe, cleanEmail)
-                        onAuthSuccess()
-                    },
-                    onFailure = { err ->
-                        onError(err.message ?: "Invalid email or password.")
-                    }
-                )
-            } else {
-                Log.e("Auth", "Email sign-in failed", e)
-                onError(formatFirebaseAuthError(e))
-            }
+            Log.e("Auth", "Email sign-in failed", e)
+            onError(formatFirebaseAuthError(e))
         }
     }
 }
@@ -664,36 +646,8 @@ fun createAccountWithEmailAndPasswordReal(
                 onError("Account creation could not be completed. Please try again.")
             }
         } catch (e: Exception) {
-            if (isFirebaseProviderNotEnabledError(e)) {
-                val localResult = IntroAuthPreferences.registerVerifiedFallbackAccount(
-                    context = context,
-                    fullName = cleanName,
-                    email = cleanEmail,
-                    password = password
-                )
-                localResult.fold(
-                    onSuccess = { session ->
-                        KharcheeProfileAndToolsStore.saveProfileMetadata(
-                            context = context,
-                            userId = session.uid,
-                            displayName = cleanName,
-                            phone = "",
-                            profilePhotoUri = "",
-                            monthlyBudget = 15000L,
-                            primaryWallet = "UPI"
-                        )
-                        IntroAuthPreferences.markWelcomeIntroCompleted(context)
-                        IntroAuthPreferences.saveRememberMeState(context, true, cleanEmail)
-                        onAuthSuccess()
-                    },
-                    onFailure = { err ->
-                        onError(err.message ?: "Account creation failed.")
-                    }
-                )
-            } else {
-                Log.e("Auth", "Email registration failed", e)
-                onError(formatFirebaseAuthError(e))
-            }
+            Log.e("Auth", "Email registration failed", e)
+            onError(formatFirebaseAuthError(e))
         }
     }
 }
@@ -2101,16 +2055,6 @@ private fun LoginScreenContent(
                     .testTag("google_sign_in_button")
             )
 
-            IntroSocialProviderButton(
-                label = "Apple",
-                isGoogle = false,
-                enabled = !isLoading,
-                onClick = onAppleSignInClicked,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(50.dp)
-                    .testTag("apple_sign_in_button")
-            )
         }
 
         Spacer(modifier = Modifier.height(12.dp))
