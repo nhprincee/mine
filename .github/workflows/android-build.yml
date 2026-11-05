@@ -1,6 +1,8 @@
 name: Android build verification
 
 on:
+  push:
+    branches: [fix/firebase-auth-only]
   pull_request:
     branches: [main]
   workflow_dispatch:
