@@ -109,7 +109,6 @@ import com.example.ui.screens.EditTransactionBottomSheet
 import com.example.ui.screens.FakeMomCallOverlay
 import com.example.ui.screens.FinanceToolsBottomSheet
 import com.example.ui.screens.HistoryTab
-import com.example.ui.auth.IntroAuthPreferences
 import com.example.ui.screens.HomeTab
 import com.example.ui.screens.InsightsTab
 import com.example.ui.screens.KharcheeSnapBottomSheet
@@ -168,7 +167,6 @@ class MainActivity : ComponentActivity() {
         FontPreferenceManager.ensureInitialized(this)
         ThemePreferenceManager.ensureInitialized(this)
         KharcheeNotificationManager.ensureChannels(this)
-        IntroAuthPreferences.syncLocalSessionFromDisk(this)
         enableEdgeToEdge()
         setContent {
             AppNavigation()
@@ -188,17 +186,13 @@ internal fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
 fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
     val context = LocalContext.current
     val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
-    val localSession by IntroAuthPreferences.localSessionFlow.collectAsStateWithLifecycle()
     val user = currentUser
-    val fallbackSession = localSession
 
-    if (user == null && fallbackSession == null) {
+    if (user == null) {
         val savedThemeId = remember { ThemePreferenceManager.loadThemePreference(context) }
         KharcheeTheme(themeId = savedThemeId) {
             AuthScreen(
-                onAuthSuccess = {
-                    IntroAuthPreferences.syncLocalSessionFromDisk(context)
-                }
+                onAuthSuccess = {}
             )
         }
     } else if (user != null) {
@@ -208,14 +202,6 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
             userEmail = user.email ?: "",
             userPhone = user.phoneNumber ?: "",
             userCreationTimestamp = user.metadata?.creationTimestamp ?: 0L
-        )
-    } else if (fallbackSession != null) {
-        KharcheeMainShell(
-            currentUserId = fallbackSession.uid,
-            userDisplayName = fallbackSession.displayName.ifBlank { "Kharchee" },
-            userEmail = fallbackSession.email,
-            userPhone = "",
-            userCreationTimestamp = fallbackSession.creationTimestamp
         )
     }
 }
