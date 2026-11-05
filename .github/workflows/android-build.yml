@@ -35,7 +35,7 @@ jobs:
       - name: Install Android SDK packages
         run: |
           yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses
-          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install "platform-tools" "platforms;android-36" "platforms;android-36-ext1" "build-tools;36.0.0"
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install "platform-tools" "platforms;android-36" "platforms;android-36.1" "build-tools;36.0.0"
 
       - name: Run unit tests
         run: gradle --no-daemon :app:testDebugUnitTest
