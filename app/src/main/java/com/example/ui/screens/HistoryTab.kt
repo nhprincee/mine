@@ -55,11 +55,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.ALL_CATEGORIES
 import com.example.data.model.ExpenseRecord
+import com.example.data.model.InsightIntelligenceEngine
+import com.example.data.model.InsightPeriodFilter
 import com.example.data.model.PAYMENT_MODES
+import com.example.data.model.UserSettings
 import com.example.data.model.isIncomeTransaction
 import com.example.data.model.isSameDay
 import com.example.data.model.isSameMonth
 import com.example.ui.components.KharcheeCompactHeaderBranding
+import com.example.util.MonthlyFinancialPdfExporter
 import com.example.ui.theme.ChampagneGold
 import com.example.ui.theme.CrimsonRuby
 import com.example.ui.theme.ElevatedGraphite
@@ -123,11 +127,18 @@ fun HistoryTab(
         }
     }
 
+    var visiblePageSize by remember {
+        mutableStateOf(com.example.util.PerformancePreferences.DEFAULT_DASHBOARD_PAGE_SIZE)
+    }
+
     val totalFilteredExpense = remember(filtered) {
         filtered.filter { !isIncomeTransaction(it) }.sumOf { it.amount }
     }
     val totalFilteredIncome = remember(filtered) {
         filtered.filter { isIncomeTransaction(it) }.sumOf { it.amount }
+    }
+    val paginatedFiltered = remember(filtered, visiblePageSize) {
+        filtered.take(visiblePageSize)
     }
 
     LazyColumn(
@@ -138,7 +149,7 @@ fun HistoryTab(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item {
+        item(key = "history_header_card", contentType = "history_header") {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -174,53 +185,112 @@ fun HistoryTab(
                         )
                     }
 
-                    // CSV / Excel Export Button
-                    Surface(
-                        color = ElevatedGraphite,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .border(0.8.dp, SophisticatedEmerald.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
-                            .clickable {
-                                val csvFmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ENGLISH)
-                                val sb = StringBuilder()
-                                sb.appendLine("Date,Title,Category,Type,PaymentMode,Amount_INR,Notes")
-                                filtered.forEach { item ->
-                                    val dateStr = csvFmt.format(Date(item.txEpochMillis))
-                                    val cleanTitle = item.title.replace("\"", "\"\"")
-                                    val cleanNote = item.note.replace("\"", "\"\"")
-                                    val typeLabel = if (isIncomeTransaction(item)) "Income" else "Expense"
-                                    sb.appendLine("\"$dateStr\",\"$cleanTitle\",\"${item.category}\",\"$typeLabel\",\"${item.paymentMode}\",${item.amount},\"$cleanNote\"")
-                                }
-                                try {
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/csv"
-                                        putExtra(Intent.EXTRA_SUBJECT, "KHARCHEE Passbook Export ($selectedDateRange)")
-                                        putExtra(Intent.EXTRA_TEXT, sb.toString())
-                                    }
-                                    context.startActivity(Intent.createChooser(shareIntent, "Export Passbook CSV / Excel"))
-                                } catch (_: Exception) {
-                                }
-                            }
-                            .testTag("export_passbook_csv_button")
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        // Monthly PDF Statement Download Button
+                        Surface(
+                            color = ElevatedGraphite,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .border(0.8.dp, ChampagneGold.copy(alpha = 0.65f), RoundedCornerShape(12.dp))
+                                .clickable {
+                                    val reportBundle = InsightIntelligenceEngine.computeCompleteAnalytics(
+                                        expenses = filtered,
+                                        settings = UserSettings(dailyLimit = 1000L),
+                                        categoryBudgets = emptyMap(),
+                                        savingsGoals = emptyList(),
+                                        paymentReminders = emptyList(),
+                                        filter = InsightPeriodFilter.THIS_MONTH,
+                                        nowMillis = System.currentTimeMillis()
+                                    )
+                                    val exportedRes = MonthlyFinancialPdfExporter.downloadPdfToDevice(
+                                        context = context,
+                                        bundle = reportBundle,
+                                        expenses = filtered,
+                                        userDisplayName = "KHARCHEE Member"
+                                    )
+                                    exportedRes.onSuccess { exported ->
+                                        MonthlyFinancialPdfExporter.shareOrOpenPdf(
+                                            context = context,
+                                            result = exported,
+                                            periodLabel = reportBundle.timeWindow.displayRangeLabel,
+                                            openDirectly = false
+                                        )
+                                    }
+                                }
+                                .testTag("export_passbook_pdf_button")
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.FileDownload,
-                                contentDescription = "Export CSV",
-                                tint = SophisticatedEmerald,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = "CSV Export",
-                                fontFamily = JetBrainsMonoFontFamily,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = SophisticatedEmerald
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FileDownload,
+                                    contentDescription = "Export PDF Report",
+                                    tint = ChampagneGold,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = "PDF Report",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = ChampagneGold
+                                )
+                            }
+                        }
+
+                        // CSV / Excel Export Button
+                        Surface(
+                            color = ElevatedGraphite,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .border(0.8.dp, SophisticatedEmerald.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+                                .clickable {
+                                    val csvFmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ENGLISH)
+                                    val sb = StringBuilder()
+                                    sb.appendLine("Date,Title,Category,Type,PaymentMode,Amount_INR,Notes")
+                                    filtered.forEach { item ->
+                                        val dateStr = csvFmt.format(Date(item.txEpochMillis))
+                                        val cleanTitle = item.title.replace("\"", "\"\"")
+                                        val cleanNote = item.note.replace("\"", "\"\"")
+                                        val typeLabel = if (isIncomeTransaction(item)) "Income" else "Expense"
+                                        sb.appendLine("\"$dateStr\",\"$cleanTitle\",\"${item.category}\",\"$typeLabel\",\"${item.paymentMode}\",${item.amount},\"$cleanNote\"")
+                                    }
+                                    try {
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/csv"
+                                            putExtra(Intent.EXTRA_SUBJECT, "KHARCHEE Passbook Export ($selectedDateRange)")
+                                            putExtra(Intent.EXTRA_TEXT, sb.toString())
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Export Passbook CSV / Excel"))
+                                    } catch (_: Exception) {
+                                    }
+                                }
+                                .testTag("export_passbook_csv_button")
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FileDownload,
+                                    contentDescription = "Export CSV",
+                                    tint = SophisticatedEmerald,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = "CSV Export",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = SophisticatedEmerald
+                                )
+                            }
                         }
                     }
                 }
@@ -380,7 +450,7 @@ fun HistoryTab(
                             color = MutedIvory
                         )
                         Text(
-                            text = if (stealthMode) "Outflow: ₹•••" else "Outflow: -₹$totalFilteredExpense",
+                            text = if (stealthMode) "Outflow: ₹••••••" else "Outflow: -${com.example.util.PerformancePreferences.preFormatInr(totalFilteredExpense)}",
                             fontFamily = headingFont,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -397,7 +467,7 @@ fun HistoryTab(
                             color = MutedIvory
                         )
                         Text(
-                            text = if (stealthMode) "Inflow: ₹•••" else "Inflow: +₹$totalFilteredIncome",
+                            text = if (stealthMode) "Inflow: ₹••••••" else "Inflow: +${com.example.util.PerformancePreferences.preFormatInr(totalFilteredIncome)}",
                             fontFamily = headingFont,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -409,7 +479,7 @@ fun HistoryTab(
         }
 
         if (filtered.isEmpty()) {
-            item {
+            item(key = "history_empty_state", contentType = "empty_state") {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -427,13 +497,41 @@ fun HistoryTab(
                 }
             }
         } else {
-            items(filtered, key = { it.id.ifEmpty { it.title + it.txEpochMillis } }) { tx ->
+            items(
+                items = paginatedFiltered,
+                key = { it.id.ifEmpty { "${it.title}_${it.txEpochMillis}" } },
+                contentType = { "transaction_row" }
+            ) { tx ->
                 TransactionRowCard(
                     expense = tx,
                     stealthMode = stealthMode,
                     onEdit = { onEditExpense(tx) },
                     onDelete = { onDeleteExpense(tx) }
                 )
+            }
+
+            if (filtered.size > visiblePageSize) {
+                item(key = "history_load_more_footer", contentType = "pagination_footer") {
+                    OutlinedButton(
+                        onClick = {
+                            visiblePageSize += com.example.util.PerformancePreferences.DEFAULT_DASHBOARD_PAGE_SIZE
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(0.8.dp, ChampagneGold.copy(alpha = 0.6f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ChampagneGold),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .testTag("history_load_more_button")
+                    ) {
+                        Text(
+                            text = "Load Next 20 Transactions (${paginatedFiltered.size} of ${filtered.size} shown)",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             }
         }
     }

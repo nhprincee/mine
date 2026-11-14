@@ -205,6 +205,10 @@ object AdvancedKhataStore {
         _versionFlow.value = System.currentTimeMillis()
     }
 
+    fun notifyExternalRestore() {
+        bumpVersion()
+    }
+
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 

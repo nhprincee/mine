@@ -13,7 +13,7 @@ data class UserProfileMetadata(
     val email: String = "",
     val phone: String = "",
     val profilePhotoUri: String = "",
-    val monthlyBudget: Long = 15000L,
+    val monthlyBudget: Long = 0L,
     val primaryWallet: String = "UPI",
     val accountCreatedDate: String = "01 Nov 2026",
     val vaultPinProtectionEnabled: Boolean = true,
@@ -121,7 +121,7 @@ object KharcheeProfileAndToolsStore {
         val savedEmail = p.getString("${userId}_email", null)?.takeIf { it.isNotBlank() } ?: defaultEmail
         val savedPhone = p.getString("${userId}_phone", null)?.takeIf { it.isNotBlank() } ?: defaultPhone
         val savedPhoto = p.getString("${userId}_photo_uri", "") ?: ""
-        val savedMonthlyBudget = p.getLong("${userId}_monthly_budget", (dailyLimit * 30L).coerceAtLeast(3000L))
+        val savedMonthlyBudget = p.getLong("${userId}_monthly_budget", 0L)
         val savedWallet = p.getString("${userId}_primary_wallet", "UPI") ?: "UPI"
 
         val dateFmt = SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH)
@@ -152,6 +152,30 @@ object KharcheeProfileAndToolsStore {
         )
     }
 
+    fun isFirstTimeUser(context: Context, userId: String): Boolean {
+        val safeUid = userId.ifBlank { "default" }
+        return prefs(context).getBoolean("${safeUid}_is_first_time_user", true)
+    }
+
+    fun setFirstTimeUser(context: Context, userId: String, isFirstTime: Boolean) {
+        val safeUid = userId.ifBlank { "default" }
+        prefs(context).edit()
+            .putBoolean("${safeUid}_is_first_time_user", isFirstTime)
+            .apply()
+    }
+
+    fun getPreferredCurrency(context: Context, userId: String): String {
+        val safeUid = userId.ifBlank { "default" }
+        return prefs(context).getString("${safeUid}_preferred_currency", "INR (₹)") ?: "INR (₹)"
+    }
+
+    fun savePreferredCurrency(context: Context, userId: String, currency: String) {
+        val safeUid = userId.ifBlank { "default" }
+        prefs(context).edit()
+            .putString("${safeUid}_preferred_currency", currency.trim().ifBlank { "INR (₹)" })
+            .apply()
+    }
+
     fun saveProfileMetadata(
         context: Context,
         userId: String,
@@ -167,7 +191,7 @@ object KharcheeProfileAndToolsStore {
             .putString("${userId}_display_name", displayName.trim())
             .putString("${userId}_phone", phone.trim())
             .putString("${userId}_photo_uri", profilePhotoUri.trim())
-            .putLong("${userId}_monthly_budget", monthlyBudget.coerceAtLeast(1000L))
+            .putLong("${userId}_monthly_budget", monthlyBudget.coerceAtLeast(0L))
             .putString("${userId}_primary_wallet", primaryWallet)
             .putBoolean("${userId}_vault_pin_enabled", vaultPinProtectionEnabled)
             .putBoolean("${userId}_share_hide_balances", sharePrivacyHideBalances)

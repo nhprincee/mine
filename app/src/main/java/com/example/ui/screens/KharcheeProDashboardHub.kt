@@ -173,14 +173,14 @@ fun KharcheePro30ModuleHubSection(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
                     Text(
-                        text = "KHARCHEE PRO · 50-MODULE INTELLIGENCE SUITE",
+                        text = "KHARCHEE SOVEREIGN · 50-MODULE INTELLIGENCE SUITE",
                         fontFamily = JetBrainsMonoFontFamily,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = ObsidianDarkSilver
                     )
                     Text(
-                        text = if (isProUnlocked) "PRO Entitlement Verified · All 50 Modules Unlocked" else "Standard Tier · Interactive Pro Intelligence Workspace",
+                        text = "100% Core Uncapped · All 50 Modules Open & Free Forever",
                         fontFamily = headingFont,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 15.sp,

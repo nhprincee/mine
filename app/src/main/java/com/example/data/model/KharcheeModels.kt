@@ -149,6 +149,7 @@ val EXPENSE_CATEGORIES = listOf(
 )
 
 val INCOME_CATEGORIES = listOf(
+    "Opening Balance / Income",
     "Salary",
     "Freelance",
     "Cashback",

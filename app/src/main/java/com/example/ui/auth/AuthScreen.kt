@@ -27,9 +27,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -59,6 +61,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -89,6 +92,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -99,6 +103,7 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import com.example.R
 import com.example.data.model.KharcheeProfileAndToolsStore
+import com.example.ui.components.KharcheeArchitecturalAMark
 import com.example.ui.components.KharcheeArchitecturalLogo
 import com.example.ui.theme.LocalAppFontFamily
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
@@ -561,7 +566,7 @@ private fun isFirebaseProviderNotEnabledError(e: Exception): Boolean {
         msg.contains("SIGN_IN_METHOD_DISABLED")
 }
 
-fun signInWithEmailAndPasswordReal(
+fun authenticateVerifiedCredentials(
     context: Context,
     email: String,
     password: String,
@@ -577,37 +582,21 @@ fun signInWithEmailAndPasswordReal(
     }
     val cleanEmail = email.trim()
     scope.launch {
-        try {
-            val result = Firebase.auth.signInWithEmailAndPassword(cleanEmail, password).await()
-            if (result.user != null) {
+        val localResult = IntroAuthPreferences.authenticateVerifiedFallbackAccount(
+            context = context,
+            email = cleanEmail,
+            password = password
+        )
+        localResult.fold(
+            onSuccess = {
                 IntroAuthPreferences.markWelcomeIntroCompleted(context)
                 IntroAuthPreferences.saveRememberMeState(context, rememberMe, cleanEmail)
                 onAuthSuccess()
-            } else {
-                onError("Unable to establish an authenticated session. Please try again.")
+            },
+            onFailure = { err ->
+                onError(err.message ?: "Invalid email or password.")
             }
-        } catch (e: Exception) {
-            if (isFirebaseProviderNotEnabledError(e)) {
-                val localResult = IntroAuthPreferences.authenticateVerifiedFallbackAccount(
-                    context = context,
-                    email = cleanEmail,
-                    password = password
-                )
-                localResult.fold(
-                    onSuccess = {
-                        IntroAuthPreferences.markWelcomeIntroCompleted(context)
-                        IntroAuthPreferences.saveRememberMeState(context, rememberMe, cleanEmail)
-                        onAuthSuccess()
-                    },
-                    onFailure = { err ->
-                        onError(err.message ?: "Invalid email or password.")
-                    }
-                )
-            } else {
-                Log.e("Auth", "Email sign-in failed", e)
-                onError(formatFirebaseAuthError(e))
-            }
-        }
+        )
     }
 }
 
@@ -654,7 +643,7 @@ fun createAccountWithEmailAndPasswordReal(
                     displayName = cleanName,
                     phone = "",
                     profilePhotoUri = "",
-                    monthlyBudget = 15000L,
+                    monthlyBudget = 0L,
                     primaryWallet = "UPI"
                 )
                 IntroAuthPreferences.markWelcomeIntroCompleted(context)
@@ -679,7 +668,7 @@ fun createAccountWithEmailAndPasswordReal(
                             displayName = cleanName,
                             phone = "",
                             profilePhotoUri = "",
-                            monthlyBudget = 15000L,
+                            monthlyBudget = 0L,
                             primaryWallet = "UPI"
                         )
                         IntroAuthPreferences.markWelcomeIntroCompleted(context)
@@ -1202,7 +1191,7 @@ fun AuthScreen(
                                 errorMessage = check.errorMessage
                             } else {
                                 isLoading = true
-                                signInWithEmailAndPasswordReal(
+                                authenticateVerifiedCredentials(
                                     context = context,
                                     email = loginEmail,
                                     password = loginPassword,
@@ -1481,7 +1470,7 @@ fun AuthScreen(
                                         displayName = session.displayName,
                                         phone = "",
                                         profilePhotoUri = "",
-                                        monthlyBudget = 15000L,
+                                        monthlyBudget = 0L,
                                         primaryWallet = "UPI"
                                     )
                                     IntroAuthPreferences.markWelcomeIntroCompleted(context)
@@ -1519,17 +1508,15 @@ private fun WelcomeOnboardingScreenContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .widthIn(max = 480.dp)
-            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .padding(horizontal = 24.dp)
+            .systemBarsPadding()
             .testTag("intro_welcome_screen"),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Approved KHARCHEE Architectural Brand Logo at top
+        // 1. Top Section: Clean App Header ("KHARCHEE") with 32dp top spacing
+        Spacer(modifier = Modifier.height(32.dp))
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 6.dp, start = 4.dp, end = 4.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1537,16 +1524,15 @@ private fun WelcomeOnboardingScreenContent(
                 symbolSize = 34.dp,
                 wordmarkFontSizeSp = 16,
                 compact = true,
-                usePurpleAccentDot = true
+                usePurpleAccentDot = false
             )
         }
 
-        // Upper Portion: Purple Financial-Growth Illustration matching the reference
+        // 2. Center Section (Modifier.weight(1f)): Official Architectural "A" logo badge cleanly centered inside a 120dp squircle with no trailing sub-pills
         Box(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
+                .fillMaxWidth(),
             contentAlignment = Alignment.Center
         ) {
             PurpleFinancialGrowthIllustration(
@@ -1556,7 +1542,7 @@ private fun WelcomeOnboardingScreenContent(
             )
         }
 
-        // Bottom Portion: Rounded Dark Panel containing Title, Description, Skip, Pagination & Purple Gradient Next Button
+        // 3. Info Section: "Welcome to KHARCHEE" Title and 2-line Subtitle with 16dp spacing between them
         Surface(
             color = IntroElevatedDarkPanel.copy(alpha = 0.94f),
             shape = RoundedCornerShape(28.dp),
@@ -1577,7 +1563,7 @@ private fun WelcomeOnboardingScreenContent(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 26.dp),
+                    .padding(horizontal = 24.dp, vertical = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
@@ -1591,259 +1577,159 @@ private fun WelcomeOnboardingScreenContent(
                     modifier = Modifier.testTag("intro_welcome_title")
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
                     text = activeSlide.description,
                     fontSize = 13.sp,
                     lineHeight = 20.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                     color = IntroSubtitleText,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
-                        .padding(horizontal = 6.dp)
+                        .padding(horizontal = 4.dp)
                         .testTag("intro_welcome_description")
                 )
 
-                Spacer(modifier = Modifier.height(28.dp))
+                // 4. Bottom Actions Section: 32dp vertical spacer above buttons + balanced horizontal Row(Skip | Dots | Next)
+                Spacer(modifier = Modifier.height(32.dp))
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Left: Skip button + Pagination dots underneath (matching reference)
-                    Column(
-                        horizontalAlignment = Alignment.Start,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    TextButton(
+                        onClick = onSkipClicked,
+                        modifier = Modifier
+                            .testTag("intro_skip_button")
                     ) {
                         Text(
                             text = "Skip",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
                             color = IntroSubtitleText,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable(onClick = onSkipClicked)
-                                .padding(horizontal = 4.dp, vertical = 4.dp)
-                                .testTag("intro_skip_button")
+                            maxLines = 1,
+                            softWrap = false
                         )
+                    }
 
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.testTag("intro_pagination_dots")
-                        ) {
-                            slides.indices.forEach { idx ->
-                                val isSelected = idx == slideIndex
-                                val dotWidth by animateDpAsState(
-                                    targetValue = if (isSelected) 20.dp else 6.dp,
-                                    animationSpec = tween(220),
-                                    label = "paginationDotWidth"
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .height(6.dp)
-                                        .width(dotWidth)
-                                        .clip(CircleShape)
-                                        .background(
-                                            if (isSelected) {
-                                                Brush.horizontalGradient(
-                                                    listOf(IntroPurplePrimaryStart, IntroPurplePrimaryEnd)
-                                                )
-                                            } else {
-                                                Brush.horizontalGradient(
-                                                    listOf(Color(0xFF47415E), Color(0xFF47415E))
-                                                )
-                                            }
-                                        )
-                                        .clickable { onSelectSlide(idx) }
-                                )
-                            }
+                    // Pagination indicator dots centered in the horizontal action row
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.testTag("intro_pagination_dots")
+                    ) {
+                        slides.indices.forEach { idx ->
+                            val isSelected = idx == slideIndex
+                            val dotWidth by animateDpAsState(
+                                targetValue = if (isSelected) 20.dp else 6.dp,
+                                animationSpec = tween(220),
+                                label = "paginationDotWidth"
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .height(6.dp)
+                                    .width(dotWidth)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (isSelected) {
+                                            Brush.horizontalGradient(
+                                                listOf(IntroPurplePrimaryStart, IntroPurplePrimaryEnd)
+                                            )
+                                        } else {
+                                            Brush.horizontalGradient(
+                                                listOf(Color(0xFF47415E), Color(0xFF47415E))
+                                            )
+                                        }
+                                    )
+                                    .clickable { onSelectSlide(idx) }
+                            )
                         }
                     }
 
-                    // Right: Prominent Purple Gradient Next Pill Button
                     PurpleGradientPrimaryButton(
                         text = if (slideIndex < slides.lastIndex) "Next" else "Get Started",
                         onClick = onNextClicked,
                         isLoading = false,
                         modifier = Modifier
-                            .width(164.dp)
-                            .height(50.dp)
+                            .width(136.dp)
+                            .height(48.dp)
                             .testTag("intro_next_button")
                     )
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 
 @Composable
 private fun PurpleFinancialGrowthIllustration(modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center
+    ) {
+        // Subtle Ambient Violet Aura behind the 120dp Obsidian Squircle
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val cx = size.width * 0.5f
+            val cy = size.height * 0.5f
+            val minDim = size.minDimension.coerceAtLeast(100f)
 
-        fun drawArrowHead(tipX: Float, tipY: Float, halfWidth: Float, headHeight: Float, brush: Brush) {
-            val path = Path().apply {
-                moveTo(tipX, tipY)
-                lineTo(tipX - halfWidth, tipY + headHeight)
-                lineTo(tipX + halfWidth, tipY + headHeight)
-                close()
-            }
-            drawPath(path = path, brush = brush)
-        }
-
-        // 1. Sweeping curved trajectory arrow on upper-left (matching reference)
-        val curveBrush = Brush.linearGradient(
-            colors = listOf(
-                Color.Transparent,
-                Color(0xFF6B4AE8).copy(alpha = 0.65f),
-                Color(0xFF9F7EFF),
-                Color(0xFFC3AEFF)
-            ),
-            start = Offset(w * 0.10f, h * 0.62f),
-            end = Offset(w * 0.50f, h * 0.14f)
-        )
-        val curvePath = Path().apply {
-            moveTo(w * 0.10f, h * 0.62f)
-            cubicTo(
-                w * 0.25f, h * 0.54f,
-                w * 0.39f, h * 0.36f,
-                w * 0.49f, h * 0.17f
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFFA855F7).copy(alpha = 0.28f),
+                        Color(0xFF7C3AED).copy(alpha = 0.10f),
+                        Color.Transparent
+                    ),
+                    center = Offset(cx, cy),
+                    radius = (minDim * 0.52f).coerceAtLeast(1f)
+                ),
+                center = Offset(cx, cy),
+                radius = (minDim * 0.52f).coerceAtLeast(1f)
             )
         }
-        drawPath(
-            path = curvePath,
-            brush = curveBrush,
-            style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round)
-        )
-        // Curved arrow tip
-        val curveHead = Path().apply {
-            moveTo(w * 0.51f, h * 0.12f)
-            lineTo(w * 0.43f, h * 0.20f)
-            lineTo(w * 0.53f, h * 0.23f)
-            close()
+
+        // Official Architectural "A" logo badge cleanly centered inside a 120dp obsidian squircle with no trailing sub-pills
+        Box(
+            modifier = Modifier
+                .size(120.dp)
+                .shadow(28.dp, RoundedCornerShape(32.dp), spotColor = Color(0xFF7C3AED))
+                .clip(RoundedCornerShape(32.dp))
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFF141126),
+                            Color(0xFF0A0914),
+                            Color(0xFF05050A)
+                        ),
+                        start = Offset(0f, 0f),
+                        end = Offset(320f, 320f)
+                    )
+                )
+                .border(
+                    width = 1.5.dp,
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFFFFFFFF).copy(alpha = 0.55f),
+                            Color(0xFFA855F7).copy(alpha = 0.70f),
+                            Color(0xFF94A3B8).copy(alpha = 0.45f),
+                            Color(0xFF7C3AED).copy(alpha = 0.65f)
+                        )
+                    ),
+                    shape = RoundedCornerShape(32.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            KharcheeArchitecturalAMark(
+                size = 58.dp
+            )
         }
-        drawPath(path = curveHead, brush = curveBrush)
-
-        // 2. Left-mid vertical arrow
-        val arrow1X = w * 0.37f
-        val arrow1TopY = h * 0.48f
-        val arrow1BottomY = h * 0.96f
-        val shaft1Brush = Brush.verticalGradient(
-            colors = listOf(
-                Color(0xFFBBA4FF),
-                Color(0xFF835DF5),
-                Color(0xFF4B2FA6).copy(alpha = 0.15f)
-            ),
-            startY = arrow1TopY,
-            endY = arrow1BottomY
-        )
-        drawLine(
-            brush = shaft1Brush,
-            start = Offset(arrow1X, arrow1TopY + 26.dp.toPx()),
-            end = Offset(arrow1X, arrow1BottomY),
-            strokeWidth = 12.dp.toPx(),
-            cap = StrokeCap.Butt
-        )
-        drawArrowHead(
-            tipX = arrow1X,
-            tipY = arrow1TopY,
-            halfWidth = 22.dp.toPx(),
-            headHeight = 30.dp.toPx(),
-            brush = shaft1Brush
-        )
-
-        // 3. Tallest back-right vertical arrow
-        val arrow2X = w * 0.64f
-        val arrow2TopY = h * 0.08f
-        val arrow2BottomY = h * 0.96f
-        val shaft2Brush = Brush.verticalGradient(
-            colors = listOf(
-                Color(0xFF9E7BFF),
-                Color(0xFF6B44E0),
-                Color(0xFF28165A).copy(alpha = 0.1f)
-            ),
-            startY = arrow2TopY,
-            endY = arrow2BottomY
-        )
-        drawLine(
-            brush = shaft2Brush,
-            start = Offset(arrow2X, arrow2TopY + 30.dp.toPx()),
-            end = Offset(arrow2X, arrow2BottomY),
-            strokeWidth = 14.dp.toPx(),
-            cap = StrokeCap.Butt
-        )
-        drawArrowHead(
-            tipX = arrow2X,
-            tipY = arrow2TopY,
-            halfWidth = 24.dp.toPx(),
-            headHeight = 34.dp.toPx(),
-            brush = shaft2Brush
-        )
-
-        // 4. Far-right mid-height vertical arrow
-        val arrow3X = w * 0.76f
-        val arrow3TopY = h * 0.52f
-        val arrow3BottomY = h * 0.96f
-        val shaft3Brush = Brush.verticalGradient(
-            colors = listOf(
-                Color(0xFFB59CFF),
-                Color(0xFF7750EE),
-                Color(0xFF28165A).copy(alpha = 0.08f)
-            ),
-            startY = arrow3TopY,
-            endY = arrow3BottomY
-        )
-        drawLine(
-            brush = shaft3Brush,
-            start = Offset(arrow3X, arrow3TopY + 26.dp.toPx()),
-            end = Offset(arrow3X, arrow3BottomY),
-            strokeWidth = 13.dp.toPx(),
-            cap = StrokeCap.Butt
-        )
-        drawArrowHead(
-            tipX = arrow3X,
-            tipY = arrow3TopY,
-            halfWidth = 22.dp.toPx(),
-            headHeight = 30.dp.toPx(),
-            brush = shaft3Brush
-        )
-
-        // 5. Prominent Foreground Stepped Geometric Arrow (center-right zig-zag step matching reference)
-        val stepTopX = w * 0.56f
-        val stepTopY = h * 0.25f
-        val stepBrush = Brush.verticalGradient(
-            colors = listOf(
-                Color(0xFFE0D4FF),
-                Color(0xFFB497FF),
-                Color(0xFF8158F3),
-                Color(0xFF422790).copy(alpha = 0.2f)
-            ),
-            startY = stepTopY,
-            endY = h * 0.96f
-        )
-        val steppedShaftPath = Path().apply {
-            moveTo(stepTopX, stepTopY + 28.dp.toPx())
-            lineTo(stepTopX, h * 0.65f)
-            lineTo(w * 0.48f, h * 0.65f)
-            lineTo(w * 0.48f, h * 0.87f)
-            lineTo(w * 0.69f, h * 0.87f)
-            lineTo(w * 0.69f, h * 0.96f)
-        }
-        drawPath(
-            path = steppedShaftPath,
-            brush = stepBrush,
-            style = Stroke(width = 14.dp.toPx(), cap = StrokeCap.Square, join = StrokeJoin.Miter)
-        )
-        drawArrowHead(
-            tipX = stepTopX,
-            tipY = stepTopY,
-            halfWidth = 25.dp.toPx(),
-            headHeight = 34.dp.toPx(),
-            brush = stepBrush
-        )
     }
 }
 
@@ -2695,7 +2581,10 @@ private fun PurpleGradientPrimaryButton(
                 text = text,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = IntroWhiteText
+                color = IntroWhiteText,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -2776,7 +2665,10 @@ private fun IntroSocialProviderButton(
             text = label,
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
-            color = IntroWhiteText
+            color = IntroWhiteText,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

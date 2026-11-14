@@ -19,26 +19,36 @@ import com.example.data.model.isIncomeTransaction
 import com.example.data.model.isSameDay
 import com.example.data.model.isSameMonth
 import com.example.data.repository.KharcheeRepository
+import com.example.receiver.AutoExpenseDetectionStore
 import com.example.ui.jarvis.JarvisProposedAction
 import com.example.ui.jarvis.parseNaturalLanguageActionProposal
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.content
+import com.google.firebase.auth.auth
+import com.google.firebase.firestore.FirebaseFirestoreException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import com.example.util.PerformancePreferences
+import com.example.util.PreFormattedTransactionUiModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
@@ -64,89 +74,239 @@ class KharcheeViewModel(
         Firebase.ai.generativeModel("gemini-3.8-flash")
     }
 
-    val settingsState: StateFlow<UiState<UserSettings?>> = repository.observeUserSettings(currentUserId)
-        .map<UserSettings?, UiState<UserSettings?>> { UiState.Success(it) }
-        .catch { error ->
-            Log.w(TAG, "Error observing user settings", error)
-            emit(UiState.Error(error.message ?: "Failed to load settings"))
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = UiState.Loading
-        )
+    private fun isFirebaseAuthenticated(): Boolean {
+        return runCatching {
+            val uid = Firebase.auth.currentUser?.uid
+            !uid.isNullOrBlank() && uid == currentUserId
+        }.getOrDefault(false)
+    }
 
-    val expensesState: StateFlow<UiState<List<ExpenseRecord>>> = repository.observeExpenses(currentUserId)
-        .map<List<ExpenseRecord>, UiState<List<ExpenseRecord>>> { UiState.Success(it) }
-        .catch { error ->
-            Log.w(TAG, "Error observing expenses", error)
-            emit(UiState.Error(error.message ?: "Failed to load expenses"))
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = UiState.Loading
-        )
+    private val _localSettings = MutableStateFlow<UserSettings?>(UserSettings(id = currentUserId, userId = currentUserId))
+    private val _localExpenses = MutableStateFlow<List<ExpenseRecord>>(emptyList())
+    private val _localDeletedExpenseIds = MutableStateFlow<Set<String>>(emptySet())
+    private val _localKhataFriends = MutableStateFlow<List<KhataFriendRecord>>(emptyList())
+    private val _localSavingsGoals = MutableStateFlow<List<SavingsGoalRecord>>(emptyList())
+    private val _localPaymentReminders = MutableStateFlow<List<PaymentReminderRecord>>(emptyList())
+    private val _localNightGuardEvents = MutableStateFlow<List<NightGuardEventRecord>>(emptyList())
 
-    val khataFriendsState: StateFlow<UiState<List<KhataFriendRecord>>> = repository.observeKhataFriends(currentUserId)
-        .map<List<KhataFriendRecord>, UiState<List<KhataFriendRecord>>> { UiState.Success(it) }
-        .catch { error ->
-            Log.w(TAG, "Error observing khata friends", error)
-            emit(UiState.Error(error.message ?: "Failed to load Khata friends"))
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = UiState.Loading
-        )
+    private val remoteSettingsFlow: Flow<UserSettings?> = if (isFirebaseAuthenticated()) {
+        repository.observeUserSettings(currentUserId)
+            .onStart { emit(null) }
+            .catch { error ->
+                val firestoreError = error as? FirebaseFirestoreException ?: error.cause as? FirebaseFirestoreException
+                Log.w(TAG, "Error observing user settings: ${firestoreError?.code ?: error.message}")
+                emit(null)
+            }
+    } else {
+        flowOf(null)
+    }
 
-    val savingsGoalsState: StateFlow<UiState<List<SavingsGoalRecord>>> = repository.observeSavingsGoals(currentUserId)
-        .map<List<SavingsGoalRecord>, UiState<List<SavingsGoalRecord>>> { UiState.Success(it) }
-        .catch { error ->
-            Log.w(TAG, "Error observing savings goals", error)
-            emit(UiState.Error(error.message ?: "Failed to load savings goals"))
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = UiState.Loading
-        )
+    val settingsState: StateFlow<UiState<UserSettings?>> = combine(
+        remoteSettingsFlow,
+        _localSettings
+    ) { remote, local ->
+        UiState.Success(remote ?: local ?: UserSettings(id = currentUserId, userId = currentUserId)) as UiState<UserSettings?>
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = UiState.Success(UserSettings(id = currentUserId, userId = currentUserId))
+    )
 
-    val jarvisMessagesState: StateFlow<UiState<List<JarvisChatMessage>>> = repository.observeJarvisMessages(currentUserId)
-        .map<List<JarvisChatMessage>, UiState<List<JarvisChatMessage>>> { UiState.Success(it) }
-        .catch { error ->
-            Log.w(TAG, "Error observing JARVIS messages", error)
-            emit(UiState.Error(error.message ?: "Failed to load JARVIS history"))
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = UiState.Loading
-        )
+    private val remoteExpensesFlow: Flow<List<ExpenseRecord>> = if (isFirebaseAuthenticated()) {
+        repository.observeExpenses(currentUserId)
+            .onStart { emit(emptyList()) }
+            .catch { error ->
+                val firestoreError = error as? FirebaseFirestoreException ?: error.cause as? FirebaseFirestoreException
+                Log.w(TAG, "Error observing expenses: ${firestoreError?.code ?: error.message}")
+                emit(emptyList())
+            }
+    } else {
+        flowOf(emptyList())
+    }
 
-    val paymentRemindersState: StateFlow<UiState<List<PaymentReminderRecord>>> = repository.observePaymentReminders(currentUserId)
-        .map<List<PaymentReminderRecord>, UiState<List<PaymentReminderRecord>>> { UiState.Success(it) }
-        .catch { error ->
-            Log.w(TAG, "Error observing payment reminders", error)
-            emit(UiState.Error(error.message ?: "Failed to load payment reminders"))
+    val expensesState: StateFlow<UiState<List<ExpenseRecord>>> = combine(
+        remoteExpensesFlow,
+        _localExpenses,
+        AutoExpenseDetectionStore.autoExpensesFlow,
+        _localDeletedExpenseIds
+    ) { remoteList, localList, autoSmsList, deletedIds ->
+        val filteredAutoSms = autoSmsList.filter {
+            it.userId == currentUserId || it.userId == "local_user" || it.userId.isBlank()
         }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = UiState.Loading
-        )
+        val merged = (localList + filteredAutoSms + remoteList)
+            .filterNot { it.id in deletedIds }
+            .distinctBy { rec ->
+                if (rec.id.isNotBlank() && !rec.id.startsWith("local_tx_") && !rec.id.startsWith("auto_sms_")) {
+                    rec.id
+                } else {
+                    "${rec.title.trim().lowercase()}:${rec.amount}:${rec.txEpochMillis / 2000L}"
+                }
+            }
+            .sortedByDescending { it.txEpochMillis }
+        UiState.Success(merged) as UiState<List<ExpenseRecord>>
+    }.flowOn(Dispatchers.IO).stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = UiState.Success(emptyList())
+    )
 
-    val nightGuardEventsState: StateFlow<UiState<List<NightGuardEventRecord>>> = repository.observeNightGuardEvents(currentUserId)
-        .map<List<NightGuardEventRecord>, UiState<List<NightGuardEventRecord>>> { UiState.Success(it) }
-        .catch { error ->
-            Log.w(TAG, "Error observing Night Guard events", error)
-            emit(UiState.Error(error.message ?: "Failed to load Night Guard events"))
+    private val _dashboardPageSize = MutableStateFlow(PerformancePreferences.DEFAULT_DASHBOARD_PAGE_SIZE)
+    val dashboardPageSize: StateFlow<Int> = _dashboardPageSize.asStateFlow()
+
+    /**
+     * Paginated top-20 dashboard slice + pre-formatted currency/date strings computed on Dispatchers.IO
+     * so @Composable draw phases never execute heavy formatting or iterate thousands of items.
+     */
+    val paginatedPreFormattedExpensesState: StateFlow<List<PreFormattedTransactionUiModel>> = combine(
+        expensesState,
+        _dashboardPageSize
+    ) { uiState, pageLimit ->
+        val raw = (uiState as? UiState.Success)?.data ?: emptyList()
+        raw.take(pageLimit.coerceAtLeast(20)).map { tx ->
+            val isInc = isIncomeTransaction(tx)
+            val inrStr = PerformancePreferences.preFormatInr(tx.amount)
+            PreFormattedTransactionUiModel(
+                id = tx.id.ifBlank { "${tx.title}_${tx.txEpochMillis}" },
+                title = tx.title.ifBlank { tx.category },
+                category = tx.category,
+                amount = tx.amount,
+                formattedInrAmount = inrStr,
+                signedFormattedAmount = "${if (isInc) "+" else "-"}$inrStr",
+                formattedDateLabel = PerformancePreferences.preFormatDate(tx.txEpochMillis),
+                isIncome = isInc,
+                paymentMode = tx.paymentMode,
+                txEpochMillis = tx.txEpochMillis
+            )
         }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = UiState.Loading
-        )
+    }.flowOn(Dispatchers.IO).stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = emptyList()
+    )
+
+    fun loadMoreDashboardTransactions() {
+        _dashboardPageSize.value = (_dashboardPageSize.value + 20).coerceAtMost(1000)
+    }
+
+    private val remoteKhataFlow: Flow<List<KhataFriendRecord>> = if (isFirebaseAuthenticated()) {
+        repository.observeKhataFriends(currentUserId)
+            .onStart { emit(emptyList()) }
+            .catch { error ->
+                val firestoreError = error as? FirebaseFirestoreException ?: error.cause as? FirebaseFirestoreException
+                Log.w(TAG, "Error observing khata friends: ${firestoreError?.code ?: error.message}")
+                emit(emptyList())
+            }
+    } else {
+        flowOf(emptyList())
+    }
+
+    val khataFriendsState: StateFlow<UiState<List<KhataFriendRecord>>> = combine(
+        remoteKhataFlow,
+        _localKhataFriends
+    ) { remote, local ->
+        val merged = (local + remote).distinctBy { it.id.ifBlank { it.name.lowercase() } }
+        UiState.Success(merged) as UiState<List<KhataFriendRecord>>
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = UiState.Success(emptyList())
+    )
+
+    private val remoteGoalsFlow: Flow<List<SavingsGoalRecord>> = if (isFirebaseAuthenticated()) {
+        repository.observeSavingsGoals(currentUserId)
+            .onStart { emit(emptyList()) }
+            .catch { error ->
+                val firestoreError = error as? FirebaseFirestoreException ?: error.cause as? FirebaseFirestoreException
+                Log.w(TAG, "Error observing savings goals: ${firestoreError?.code ?: error.message}")
+                emit(emptyList())
+            }
+    } else {
+        flowOf(emptyList())
+    }
+
+    val savingsGoalsState: StateFlow<UiState<List<SavingsGoalRecord>>> = combine(
+        remoteGoalsFlow,
+        _localSavingsGoals
+    ) { remote, local ->
+        val merged = (local + remote).distinctBy { it.id.ifBlank { it.title.lowercase() } }
+        UiState.Success(merged) as UiState<List<SavingsGoalRecord>>
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = UiState.Success(emptyList())
+    )
+
+    private val _localJarvisMessages = MutableStateFlow<List<JarvisChatMessage>>(emptyList())
+
+    private val remoteJarvisFlow: Flow<List<JarvisChatMessage>> = if (isFirebaseAuthenticated()) {
+        repository.observeJarvisMessages(currentUserId)
+            .onStart { emit(emptyList()) }
+            .catch { emit(emptyList()) }
+    } else {
+        flowOf(emptyList())
+    }
+
+    val jarvisMessagesState: StateFlow<UiState<List<JarvisChatMessage>>> = combine(
+        remoteJarvisFlow,
+        _localJarvisMessages
+    ) { remoteList, localList ->
+        val merged = (remoteList + localList)
+            .distinctBy { "${it.role}:${it.txEpochMillis}:${it.text.hashCode()}" }
+            .sortedBy { it.txEpochMillis }
+        UiState.Success(merged) as UiState<List<JarvisChatMessage>>
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = UiState.Success(emptyList())
+    )
+
+    private val remotePaymentRemindersFlow: Flow<List<PaymentReminderRecord>> = if (isFirebaseAuthenticated()) {
+        repository.observePaymentReminders(currentUserId)
+            .onStart { emit(emptyList()) }
+            .catch { error ->
+                val firestoreError = error as? FirebaseFirestoreException ?: error.cause as? FirebaseFirestoreException
+                Log.w(TAG, "Error observing payment reminders: ${firestoreError?.code ?: error.message}")
+                emit(emptyList())
+            }
+    } else {
+        flowOf(emptyList())
+    }
+
+    val paymentRemindersState: StateFlow<UiState<List<PaymentReminderRecord>>> = combine(
+        remotePaymentRemindersFlow,
+        _localPaymentReminders
+    ) { remote, local ->
+        val merged = (local + remote).distinctBy { it.id.ifBlank { "${it.title}:${it.dueEpochMillis}" } }
+        UiState.Success(merged) as UiState<List<PaymentReminderRecord>>
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = UiState.Success(emptyList())
+    )
+
+    private val remoteNightGuardFlow: Flow<List<NightGuardEventRecord>> = if (isFirebaseAuthenticated()) {
+        repository.observeNightGuardEvents(currentUserId)
+            .onStart { emit(emptyList()) }
+            .catch { error ->
+                val firestoreError = error as? FirebaseFirestoreException ?: error.cause as? FirebaseFirestoreException
+                Log.w(TAG, "Error observing Night Guard events: ${firestoreError?.code ?: error.message}")
+                emit(emptyList())
+            }
+    } else {
+        flowOf(emptyList())
+    }
+
+    val nightGuardEventsState: StateFlow<UiState<List<NightGuardEventRecord>>> = combine(
+        remoteNightGuardFlow,
+        _localNightGuardEvents
+    ) { remote, local ->
+        val merged = (local + remote).distinctBy { it.id.ifBlank { "${it.title}:${it.eventEpochMillis}" } }
+        UiState.Success(merged) as UiState<List<NightGuardEventRecord>>
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = UiState.Success(emptyList())
+    )
 
     val proactiveInsights: StateFlow<List<ProactiveFinancialInsight>> = combine(
         expensesState,
@@ -202,8 +362,10 @@ class KharcheeViewModel(
     val pendingProposedAction: StateFlow<JarvisProposedAction?> = _pendingProposedAction.asStateFlow()
 
     init {
-        viewModelScope.launch {
-            repository.seedInitialDataIfNeeded()
+        if (isFirebaseAuthenticated()) {
+            viewModelScope.launch {
+                repository.seedInitialDataIfNeeded()
+            }
         }
     }
 
@@ -336,233 +498,151 @@ class KharcheeViewModel(
         val expenses = currentExpensesOrEmpty()
         val khata = currentKhataOrEmpty()
         val goals = currentSavingsGoalsOrEmpty()
-        val now = System.currentTimeMillis()
-        val dateFormat = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.US)
-
-        val todayExpenses = expenses.filter { !isIncomeTransaction(it) && isSameDay(it.txEpochMillis, now) }
-        val monthExpenses = expenses.filter { !isIncomeTransaction(it) && isSameMonth(it.txEpochMillis, now) }
-        val monthIncomes = expenses.filter { isIncomeTransaction(it) && isSameMonth(it.txEpochMillis, now) }
-
-        val todaySpent = todayExpenses.sumOf { it.amount }
-        val monthSpent = monthExpenses.sumOf { it.amount }
-        val monthIncomeTotal = monthIncomes.sumOf { it.amount }
-        val monthlyBudget = settings.dailyLimit * 30L
-        val dailyRemaining = (settings.dailyLimit - todaySpent).coerceAtLeast(0L)
-
-        var streak = 0
-        for (i in 0 until 30) {
-            val dayTarget = now - i * 86_400_000L
-            val daySum = expenses
-                .filter { !isIncomeTransaction(it) && isSameDay(it.txEpochMillis, dayTarget) }
-                .sumOf { it.amount }
-            if (daySum <= settings.dailyLimit) streak += 1 else break
-        }
-
-        var disciplineScore = 740 + min(streak * 8, 96)
-        if (settings.dailyLimit > 0L) {
-            val ratio = todaySpent.toDouble() / settings.dailyLimit.toDouble()
-            disciplineScore += when {
-                ratio <= 0.7 -> 35
-                ratio <= 1.0 -> 15
-                else -> -min(((ratio - 1.0) * 150.0).roundToInt(), 120)
-            }
-        }
-        val clampedScore = disciplineScore.coerceIn(300, 900)
-
-        val categoryBreakdown = monthExpenses
-            .groupBy { it.category }
-            .mapValues { (_, list) -> list.sumOf { it.amount } }
-            .entries
-            .sortedByDescending { it.value }
-            .joinToString("; ") { "${it.key}: ₹${it.value}" }
-            .ifEmpty { "No expenses logged this month" }
-
-        val recentTxLines = expenses.take(12).joinToString("\n") { tx ->
-            val dir = if (isIncomeTransaction(tx)) "INCOME (+)" else "EXPENSE (-)"
-            val dateStr = dateFormat.format(Date(tx.txEpochMillis))
-            "- [$dir] ₹${tx.amount} | ${tx.title} | Category: ${tx.category} | Mode: ${tx.paymentMode} | Note: ${tx.note.ifBlank { "None" }} | Date: $dateStr"
-        }.ifEmpty { "- No transactions recorded yet." }
-
-        val khataSummary = khata.joinToString("; ") { friend ->
-            when {
-                friend.balance > 0 -> "${friend.name} owes user ₹${friend.balance} (Lena Hai - ${friend.lastDescription})"
-                friend.balance < 0 -> "User owes ${friend.name} ₹${-friend.balance} (Dena Hai - ${friend.lastDescription})"
-                else -> "${friend.name}: Settled (₹0)"
-            }
-        }.ifEmpty { "No Khata split records." }
-
-        val goalsSummary = goals.joinToString("; ") { goal ->
-            val pct = if (goal.targetAmount > 0) ((goal.savedAmount * 100) / goal.targetAmount) else 0
-            "${goal.title}: Saved ₹${goal.savedAmount} / Target ₹${goal.targetAmount} ($pct%)"
-        }.ifEmpty { "No savings goals configured." }
-
-        val proactiveInsightsText = generateProactiveFinancialInsights(expenses, settings, khata)
-            .joinToString("\n") { "- [AUTONOMOUS TELEMETRY INSIGHT] ${it.title}: ${it.message}" }
-            .ifEmpty { "- No anomalies detected." }
-
-        val proStatusStr = if (settings.isPro) "PRO TITANIUM (${settings.proTier.uppercase()})" else "STANDARD MEMBER"
-
-        return """
-            === KHARCHEE LIVE USER FINANCIAL TELEMETRY (AUTHORIZED REAL DATA) ===
-            User Name: $userDisplayName
-            Membership Tier: $proStatusStr
-            Daily Spending Limit: ₹${settings.dailyLimit}
-            Monthly Budget Target (30x Daily): ₹$monthlyBudget
-            Today's Total Expense: ₹$todaySpent (Remaining today: ₹$dailyRemaining)
-            This Month's Total Expense: ₹$monthSpent
-            This Month's Total Income: ₹$monthIncomeTotal
-            Net Monthly Cashflow: ₹${monthIncomeTotal - monthSpent}
-            Lockdown Shield Active: ${settings.lockdownActive}
-            Discipline Score: $clampedScore / 900 (Streak: ${streak} days under daily limit)
-            Monthly Category Spend Breakdown: $categoryBreakdown
-            Khata Split Ledger Balances: $khataSummary
-            Savings Goals: $goalsSummary
-            Detected Autonomous Insights:
-            $proactiveInsightsText
-            Recent Transactions (Latest 12):
-            $recentTxLines
-            ======================================================================
-        """.trimIndent()
+        return buildLiveFinancialContextSnapshotFromData(
+            userDisplayName = userDisplayName,
+            expenses = expenses,
+            settings = settings,
+            khata = khata,
+            goals = goals
+        )
     }
 
     fun sendJarvisMessage(
         rawPrompt: String,
-        userDisplayName: String = "Commander"
+        userDisplayName: String = "Commander",
+        extraKhataRecords: List<KhataFriendRecord> = emptyList()
     ) {
         val cleanPrompt = rawPrompt.trim()
-        if (cleanPrompt.isEmpty() || _jarvisIsGenerating.value) return
+        if (cleanPrompt.isEmpty()) return
 
         val activeMode = _jarvisMode.value
         val activeLang = _jarvisLanguage.value
-        val allMessages = currentJarvisMessagesOrEmpty()
-        val previousMessages = allMessages.takeLast(10)
-        val earlierConversationDigest = buildConversationContextSummary(allMessages)
-
-        // Check if the user prompt also requests a confirmation-gated action
-        val detectedProposal = parseNaturalLanguageActionProposal(cleanPrompt)
-        if (detectedProposal != null) {
-            _pendingProposedAction.value = detectedProposal
-        }
 
         _jarvisError.value = null
-        _jarvisIsGenerating.value = true
         _jarvisStreamingReply.value = ""
 
-        viewModelScope.launch {
-            val now = System.currentTimeMillis()
-            repository.saveJarvisMessage(
-                role = "user",
-                text = cleanPrompt,
+        val now = System.currentTimeMillis()
+        val userMsg = JarvisChatMessage(
+            id = "local_user_$now",
+            userId = currentUserId,
+            role = "user",
+            text = cleanPrompt,
+            mode = activeMode,
+            language = activeLang,
+            txEpochMillis = now
+        )
+
+        // 1. Check if user typed a natural quick-add command (e.g., "Add 150 Chai", "spent 200 uber", "milla 500 bonus", "debt 300 Rahul")
+        val quickAddCmd = parseQuickAddExpenseCommand(cleanPrompt)
+        val deterministicReply: String
+        if (quickAddCmd != null) {
+            _pendingProposedAction.value = null
+            when (quickAddCmd.actionKind) {
+                "income" -> {
+                    addTransaction(
+                        title = quickAddCmd.title,
+                        category = "Salary",
+                        amount = quickAddCmd.amount,
+                        paymentMode = "UPI",
+                        type = "income",
+                        note = "Logged via Jarvis CFO",
+                        triggerUpiGuard = false
+                    )
+                    deterministicReply = "Transaction logged instantly! ₹${quickAddCmd.amount} ${quickAddCmd.title} added to income."
+                }
+                "debt" -> {
+                    addKhataFriend(
+                        name = quickAddCmd.title,
+                        phone = "",
+                        upiId = "",
+                        amount = quickAddCmd.amount,
+                        description = "Logged via Jarvis CFO"
+                    )
+                    deterministicReply = "Transaction logged instantly! ₹${quickAddCmd.amount} ${quickAddCmd.title} recorded in Khata ledger."
+                }
+                else -> {
+                    addTransaction(
+                        title = quickAddCmd.title,
+                        category = quickAddCmd.category,
+                        amount = quickAddCmd.amount,
+                        paymentMode = "UPI",
+                        type = "expense",
+                        note = "Logged via Jarvis CFO"
+                    )
+                    deterministicReply = "Transaction logged instantly! ₹${quickAddCmd.amount} ${quickAddCmd.title} added to spends."
+                }
+            }
+        } else {
+            // Check if the user prompt requests a navigation/settings confirmation-gated action
+            val detectedProposal = parseNaturalLanguageActionProposal(cleanPrompt)
+            if (detectedProposal != null && detectedProposal.actionType != "LOG_EXPENSE") {
+                _pendingProposedAction.value = detectedProposal
+            }
+
+            val mergedKhata = (currentKhataOrEmpty() + extraKhataRecords)
+                .distinctBy { it.name.trim().lowercase() }
+
+            deterministicReply = buildDeterministicJarvisFallbackReply(
+                prompt = cleanPrompt,
+                userDisplayName = userDisplayName,
                 mode = activeMode,
                 language = activeLang,
-                txEpochMillis = now
+                expenses = currentExpensesOrEmpty(),
+                settings = currentSettingsOrDefault(),
+                khata = mergedKhata,
+                goals = currentSavingsGoalsOrEmpty()
             )
+        }
 
-            val languageInstruction = when (activeLang) {
-                "hindi" -> "Respond primarily in natural, conversational Hindi (Devanagari script: हिंदी) with clear ₹ numbers."
-                "english" -> "Respond in crisp, witty, articulate English."
-                else -> "Respond in natural Indian Hinglish (a lively mix of Hindi in Roman script and English, e.g., 'Bhai aaj ₹250 ka खर्चा ho gaya!'). If the user writes in Devanagari Hindi or pure English, adapt smoothly."
-            }
+        val replyTimestamp = now + 1L
+        val jarvisMsg = JarvisChatMessage(
+            id = "local_jarvis_$replyTimestamp",
+            userId = currentUserId,
+            role = "jarvis",
+            text = deterministicReply,
+            mode = activeMode,
+            language = activeLang,
+            txEpochMillis = replyTimestamp
+        )
 
-            val personaInstruction = if (activeMode == "roast") {
-                "PERSONA: You are J.A.R.V.I.S. (Roast Mode 🔥) inside Kharchee — Tony Stark's tactical AI fused with a sharp, witty Indian finance bro. Gently roast impulse spending (like repeat Chai, food delivery, or overshooting daily limits) while quoting the user's ACTUAL ₹ numbers, merchants, and categories. End with 1-2 concrete money-saving moves."
-            } else {
-                "PERSONA: You are J.A.R.V.I.S. (Wealth & Budget Coach Mode 🧠) inside Kharchee — an empathetic, analytical personal finance strategist. Provide structured expense analysis, spending summaries, 50/30/20 or daily budget optimizations, and Khata recovery reminders using the user's ACTUAL ₹ data."
-            }
+        // Immediately publish both messages to the UI with zero blocking wait
+        _localJarvisMessages.value = _localJarvisMessages.value + userMsg + jarvisMsg
+        _latestSpokenJarvisText.value = deterministicReply
+        _jarvisIsGenerating.value = false
 
-            val financialContext = buildLiveFinancialContextSnapshot(userDisplayName)
-            val memorySection = if (earlierConversationDigest.isNotBlank()) {
-                "\n=== EARLIER CONVERSATION MEMORY DIGEST ===\n$earlierConversationDigest\n==========================================\n"
-            } else ""
-
-            val systemAndUserPrompt = """
-                You are J.A.R.V.I.S., the built-in AI financial assistant for the Kharchee Android app.
-                $personaInstruction
-                LANGUAGE RULE: $languageInstruction
-                GROUNDING RULE: Always use the user's real Kharchee financial data provided below. Never invent fake transactions or mock balances. Keep responses concise (under 160 words), well-structured with bullet points where helpful, and easy to read or listen to via Text-to-Speech.
-
-                $financialContext
-                $memorySection
-                User's Message:
-                $cleanPrompt
-            """.trimIndent()
-
-            val chatHistory = previousMessages.map { msg ->
-                content(role = if (msg.role == "user") "user" else "model") {
-                    text(msg.text)
+        // Non-blocking background sync to Firestore (safe against offline/timeout)
+        viewModelScope.launch {
+            runCatching {
+                withTimeout(2_500L) {
+                    repository.saveJarvisMessage(
+                        role = "user",
+                        text = cleanPrompt,
+                        mode = activeMode,
+                        language = activeLang,
+                        txEpochMillis = now
+                    )
+                    repository.saveJarvisMessage(
+                        role = "jarvis",
+                        text = deterministicReply,
+                        mode = activeMode,
+                        language = activeLang,
+                        txEpochMillis = replyTimestamp
+                    )
                 }
-            }
-
-            try {
-                var accumulatedText = ""
-                withTimeout(60_000L) {
-                    val chat = generativeModel.startChat(history = chatHistory)
-                    chat.sendMessageStream(systemAndUserPrompt).collect { chunk ->
-                        val part = chunk.text.orEmpty()
-                        if (part.isNotEmpty()) {
-                            accumulatedText += part
-                            _jarvisStreamingReply.value = accumulatedText
-                        }
-                    }
-                }
-
-                val finalReply = accumulatedText.trim().ifEmpty {
-                    "Jarvis telemetry online, Commander. I analyzed your ₹${currentExpensesOrEmpty().sumOf { it.amount }} ledger—ask me for a spending breakdown or budget plan!"
-                }
-
-                _jarvisStreamingReply.value = ""
-                repository.saveJarvisMessage(
-                    role = "jarvis",
-                    text = finalReply,
-                    mode = activeMode,
-                    language = activeLang,
-                    txEpochMillis = System.currentTimeMillis()
-                )
-                _latestSpokenJarvisText.value = finalReply
-            } catch (e: TimeoutCancellationException) {
-                Log.w(TAG, "JARVIS request timed out", e)
-                _jarvisStreamingReply.value = ""
-                _jarvisError.value = JarvisErrorState(
-                    message = "J.A.R.V.I.S. neural link timed out after 60s. Please check your connection and tap Retry.",
-                    isRateLimit = false,
-                    lastFailedPrompt = cleanPrompt
-                )
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(TAG, "JARVIS inference error", e)
-                _jarvisStreamingReply.value = ""
-                val rawMsg = e.localizedMessage ?: e.message ?: "Unknown AI error"
-                val isRateLimited = rawMsg.contains("429") ||
-                    rawMsg.contains("quota", ignoreCase = true) ||
-                    rawMsg.contains("rate limit", ignoreCase = true) ||
-                    rawMsg.contains("RESOURCE_EXHAUSTED", ignoreCase = true)
-
-                val friendlyMsg = if (isRateLimited) {
-                    "⚡ API Rate Limit Reached (429 / Quota). Please wait 15–30 seconds before sending your next query to J.A.R.V.I.S."
-                } else {
-                    "Unable to reach J.A.R.V.I.S. AI core ($rawMsg). Please verify network connectivity and retry."
-                }
-                _jarvisError.value = JarvisErrorState(
-                    message = friendlyMsg,
-                    isRateLimit = isRateLimited,
-                    lastFailedPrompt = cleanPrompt
-                )
-            } finally {
-                _jarvisIsGenerating.value = false
             }
         }
     }
 
     fun clearJarvisConversation() {
+        _localJarvisMessages.value = emptyList()
+        _jarvisError.value = null
+        _jarvisStreamingReply.value = ""
+        _toastMessage.value = "🧹 Cleared J.A.R.V.I.S. conversation history"
         viewModelScope.launch {
-            val res = repository.clearJarvisMessages()
-            if (res.isSuccess) {
-                _jarvisError.value = null
-                _jarvisStreamingReply.value = ""
-                _toastMessage.value = "🧹 Cleared J.A.R.V.I.S. conversation history"
-            } else {
-                _toastMessage.value = res.exceptionOrNull()?.localizedMessage ?: "Failed to clear chat"
+            runCatching {
+                withTimeout(2_500L) {
+                    repository.clearJarvisMessages()
+                }
             }
         }
     }
@@ -587,36 +667,77 @@ class KharcheeViewModel(
         toastText: String? = null
     ) {
         val current = currentSettingsOrDefault()
-        viewModelScope.launch {
-            val result = repository.upsertUserSettings(
-                dailyLimit = dailyLimit ?: current.dailyLimit,
-                lockdownActive = lockdownActive ?: current.lockdownActive,
-                autoLockdownAt90 = autoLockdownAt90 ?: current.autoLockdownAt90,
-                stealthMode = stealthMode ?: current.stealthMode,
-                themeId = themeId ?: current.themeId,
-                myUpiId = myUpiId ?: current.myUpiId,
-                upiGuardTone = upiGuardTone ?: current.upiGuardTone,
-                isPro = current.isPro,
-                proTier = current.proTier,
-                proExpiryMillis = current.proExpiryMillis,
-                nightGuardEnabled = nightGuardEnabled ?: current.nightGuardEnabled,
-                nightGuardStartHour = nightGuardStartHour ?: current.nightGuardStartHour,
-                nightGuardStartMinute = nightGuardStartMinute ?: current.nightGuardStartMinute,
-                nightGuardEndHour = nightGuardEndHour ?: current.nightGuardEndHour,
-                nightGuardEndMinute = nightGuardEndMinute ?: current.nightGuardEndMinute,
-                nightGuardCooldownEndMillis = current.nightGuardCooldownEndMillis,
-                lastChallengeId = current.lastChallengeId,
-                enablePreSpendConfirm = enablePreSpendConfirm ?: current.enablePreSpendConfirm,
-                notifyPaymentReminders = notifyPaymentReminders ?: current.notifyPaymentReminders,
-                notifyNightGuardAlert = notifyNightGuardAlert ?: current.notifyNightGuardAlert,
-                notifyMorningReview = notifyMorningReview ?: current.notifyMorningReview
-            )
-            if (result.isSuccess && toastText != null) {
-                _toastMessage.value = toastText
-            } else if (result.isFailure) {
-                _toastMessage.value = result.exceptionOrNull()?.localizedMessage ?: "Failed to update settings"
-            }
+        val updatedLocal = current.copy(
+            dailyLimit = dailyLimit ?: current.dailyLimit,
+            lockdownActive = lockdownActive ?: current.lockdownActive,
+            autoLockdownAt90 = autoLockdownAt90 ?: current.autoLockdownAt90,
+            stealthMode = stealthMode ?: current.stealthMode,
+            themeId = themeId ?: current.themeId,
+            myUpiId = myUpiId ?: current.myUpiId,
+            upiGuardTone = upiGuardTone ?: current.upiGuardTone,
+            nightGuardEnabled = nightGuardEnabled ?: current.nightGuardEnabled,
+            nightGuardStartHour = nightGuardStartHour ?: current.nightGuardStartHour,
+            nightGuardStartMinute = nightGuardStartMinute ?: current.nightGuardStartMinute,
+            nightGuardEndHour = nightGuardEndHour ?: current.nightGuardEndHour,
+            nightGuardEndMinute = nightGuardEndMinute ?: current.nightGuardEndMinute,
+            enablePreSpendConfirm = enablePreSpendConfirm ?: current.enablePreSpendConfirm,
+            notifyPaymentReminders = notifyPaymentReminders ?: current.notifyPaymentReminders,
+            notifyNightGuardAlert = notifyNightGuardAlert ?: current.notifyNightGuardAlert,
+            notifyMorningReview = notifyMorningReview ?: current.notifyMorningReview
+        )
+        _localSettings.value = updatedLocal
+        if (toastText != null) {
+            _toastMessage.value = toastText
         }
+        if (!isFirebaseAuthenticated()) return
+
+        viewModelScope.launch {
+            repository.upsertUserSettings(
+                dailyLimit = updatedLocal.dailyLimit,
+                lockdownActive = updatedLocal.lockdownActive,
+                autoLockdownAt90 = updatedLocal.autoLockdownAt90,
+                stealthMode = updatedLocal.stealthMode,
+                themeId = updatedLocal.themeId,
+                myUpiId = updatedLocal.myUpiId,
+                upiGuardTone = updatedLocal.upiGuardTone,
+                isPro = updatedLocal.isPro,
+                proTier = updatedLocal.proTier,
+                proExpiryMillis = updatedLocal.proExpiryMillis,
+                nightGuardEnabled = updatedLocal.nightGuardEnabled,
+                nightGuardStartHour = updatedLocal.nightGuardStartHour,
+                nightGuardStartMinute = updatedLocal.nightGuardStartMinute,
+                nightGuardEndHour = updatedLocal.nightGuardEndHour,
+                nightGuardEndMinute = updatedLocal.nightGuardEndMinute,
+                nightGuardCooldownEndMillis = updatedLocal.nightGuardCooldownEndMillis,
+                lastChallengeId = updatedLocal.lastChallengeId,
+                enablePreSpendConfirm = updatedLocal.enablePreSpendConfirm,
+                notifyPaymentReminders = updatedLocal.notifyPaymentReminders,
+                notifyNightGuardAlert = updatedLocal.notifyNightGuardAlert,
+                notifyMorningReview = updatedLocal.notifyMorningReview
+            )
+        }
+    }
+
+    /**
+     * Zero-friction 1-Tap Expense Logging (bypasses confirmation dialogs and Night Guard modals).
+     * Used by the 1-Tap Quick Repeating Spend Strip and Smart Clipboard Auto-Detection "Log Now" button.
+     */
+    fun instantOneTapLogExpense(
+        title: String,
+        category: String,
+        amount: Long,
+        paymentMode: String = "UPI",
+        note: String = "1-Tap Instant Log"
+    ) {
+        addTransaction(
+            title = title,
+            category = category,
+            amount = amount,
+            paymentMode = paymentMode,
+            type = "expense",
+            note = note,
+            triggerUpiGuard = true
+        )
     }
 
     fun requestAddTransaction(
@@ -673,6 +794,12 @@ class KharcheeViewModel(
     }
 
     fun triggerNightGuardCooldown(cooldownEndMillis: Long, lastChallengeId: String) {
+        val current = currentSettingsOrDefault()
+        _localSettings.value = current.copy(
+            nightGuardCooldownEndMillis = cooldownEndMillis,
+            lastChallengeId = lastChallengeId
+        )
+        if (!isFirebaseAuthenticated()) return
         viewModelScope.launch {
             repository.updateNightGuardCooldown(cooldownEndMillis, lastChallengeId)
         }
@@ -681,6 +808,21 @@ class KharcheeViewModel(
     fun onNightGuardCancelPurchase(challengeCategory: String) {
         val req = _pendingNightGuardSpend.value ?: return
         _pendingNightGuardSpend.value = null
+        val now = System.currentTimeMillis()
+        _localNightGuardEvents.value = listOf(
+            NightGuardEventRecord(
+                id = "local_ng_$now",
+                userId = currentUserId,
+                title = req.title,
+                category = req.category,
+                amount = req.amount,
+                outcome = "cancelled",
+                challengeCategory = challengeCategory,
+                eventEpochMillis = now
+            )
+        ) + _localNightGuardEvents.value
+        _toastMessage.value = "🛡️ Ruko Zara: Cancelled '${req.title}' · Saved ₹${req.amount}!"
+        if (!isFirebaseAuthenticated()) return
         viewModelScope.launch {
             repository.recordNightGuardEvent(
                 title = req.title,
@@ -689,13 +831,35 @@ class KharcheeViewModel(
                 outcome = "cancelled",
                 challengeCategory = challengeCategory
             )
-            _toastMessage.value = "🛡️ Ruko Zara: Cancelled '${req.title}' · Saved ₹${req.amount}!"
         }
     }
 
     fun onNightGuardSaveForTomorrow(challengeCategory: String) {
         val req = _pendingNightGuardSpend.value ?: return
         _pendingNightGuardSpend.value = null
+        val now = System.currentTimeMillis()
+        _localNightGuardEvents.value = listOf(
+            NightGuardEventRecord(
+                id = "local_ng_$now",
+                userId = currentUserId,
+                title = req.title,
+                category = req.category,
+                amount = req.amount,
+                outcome = "postponed",
+                challengeCategory = challengeCategory,
+                eventEpochMillis = now
+            )
+        ) + _localNightGuardEvents.value
+        createPaymentReminder(
+            title = "${req.title} (Postponed from Night Guard)",
+            amount = req.amount,
+            category = req.category,
+            dueEpochMillis = now + 86_400_000L,
+            intervalType = "same_day",
+            note = "Postponed late-night expense — review with fresh mind"
+        )
+        _toastMessage.value = "🌅 Saved '${req.title}' (₹${req.amount}) for tomorrow morning review"
+        if (!isFirebaseAuthenticated()) return
         viewModelScope.launch {
             repository.recordNightGuardEvent(
                 title = req.title,
@@ -704,29 +868,35 @@ class KharcheeViewModel(
                 outcome = "postponed",
                 challengeCategory = challengeCategory
             )
-            repository.createPaymentReminder(
-                title = "${req.title} (Postponed from Night Guard)",
-                amount = req.amount,
-                category = req.category,
-                dueEpochMillis = System.currentTimeMillis() + 86_400_000L,
-                intervalType = "same_day",
-                note = "Postponed late-night expense — review with fresh mind"
-            )
-            _toastMessage.value = "🌅 Saved '${req.title}' (₹${req.amount}) for tomorrow morning review"
         }
     }
 
     fun onNightGuardContinueProceed(challengeCategory: String) {
         val req = _pendingNightGuardSpend.value ?: return
         _pendingNightGuardSpend.value = null
-        viewModelScope.launch {
-            repository.recordNightGuardEvent(
+        val now = System.currentTimeMillis()
+        _localNightGuardEvents.value = listOf(
+            NightGuardEventRecord(
+                id = "local_ng_$now",
+                userId = currentUserId,
                 title = req.title,
                 category = req.category,
                 amount = req.amount,
                 outcome = "proceeded",
-                challengeCategory = challengeCategory
+                challengeCategory = challengeCategory,
+                eventEpochMillis = now
             )
+        ) + _localNightGuardEvents.value
+        if (isFirebaseAuthenticated()) {
+            viewModelScope.launch {
+                repository.recordNightGuardEvent(
+                    title = req.title,
+                    category = req.category,
+                    amount = req.amount,
+                    outcome = "proceeded",
+                    challengeCategory = challengeCategory
+                )
+            }
         }
         addTransaction(
             title = req.title,
@@ -742,14 +912,29 @@ class KharcheeViewModel(
     fun onNightGuardEssentialBypass(bypassReason: String) {
         val req = _pendingNightGuardSpend.value ?: return
         _pendingNightGuardSpend.value = null
-        viewModelScope.launch {
-            repository.recordNightGuardEvent(
+        val now = System.currentTimeMillis()
+        _localNightGuardEvents.value = listOf(
+            NightGuardEventRecord(
+                id = "local_ng_$now",
+                userId = currentUserId,
                 title = req.title,
                 category = req.category,
                 amount = req.amount,
                 outcome = "essential_bypass",
-                bypassReason = bypassReason
+                bypassReason = bypassReason,
+                eventEpochMillis = now
             )
+        ) + _localNightGuardEvents.value
+        if (isFirebaseAuthenticated()) {
+            viewModelScope.launch {
+                repository.recordNightGuardEvent(
+                    title = req.title,
+                    category = req.category,
+                    amount = req.amount,
+                    outcome = "essential_bypass",
+                    bypassReason = bypassReason
+                )
+            }
         }
         addTransaction(
             title = req.title,
@@ -773,17 +958,15 @@ class KharcheeViewModel(
     fun onPreSpendSaveForTomorrow() {
         val req = _pendingPreSpendConfirm.value ?: return
         _pendingPreSpendConfirm.value = null
-        viewModelScope.launch {
-            repository.createPaymentReminder(
-                title = "${req.title} (Postponed)",
-                amount = req.amount,
-                category = req.category,
-                dueEpochMillis = System.currentTimeMillis() + 86_400_000L,
-                intervalType = "same_day",
-                note = "Postponed via Pre-Spend Reflection"
-            )
-            _toastMessage.value = "🌅 Postponed '${req.title}' (₹${req.amount}) until tomorrow"
-        }
+        createPaymentReminder(
+            title = "${req.title} (Postponed)",
+            amount = req.amount,
+            category = req.category,
+            dueEpochMillis = System.currentTimeMillis() + 86_400_000L,
+            intervalType = "same_day",
+            note = "Postponed via Pre-Spend Reflection"
+        )
+        _toastMessage.value = "🌅 Postponed '${req.title}' (₹${req.amount}) until tomorrow"
     }
 
     fun onPreSpendConfirmProceed() {
@@ -808,8 +991,24 @@ class KharcheeViewModel(
         intervalType: String,
         note: String
     ) {
+        val now = System.currentTimeMillis()
+        val localReminder = PaymentReminderRecord(
+            id = "local_rem_$now",
+            userId = currentUserId,
+            title = title,
+            amount = amount,
+            category = category,
+            dueEpochMillis = dueEpochMillis,
+            intervalType = intervalType,
+            isPaid = false,
+            note = note
+        )
+        _localPaymentReminders.value = listOf(localReminder) + _localPaymentReminders.value
+        _toastMessage.value = "🔔 Scheduled reminder: $title (₹$amount)"
+        if (!isFirebaseAuthenticated()) return
+
         viewModelScope.launch {
-            val res = repository.createPaymentReminder(
+            repository.createPaymentReminder(
                 title = title,
                 amount = amount,
                 category = category,
@@ -817,28 +1016,42 @@ class KharcheeViewModel(
                 intervalType = intervalType,
                 note = note
             )
-            if (res.isSuccess) {
-                _toastMessage.value = "🔔 Scheduled reminder: $title (₹$amount)"
-            } else {
-                _toastMessage.value = res.exceptionOrNull()?.localizedMessage ?: "Failed to create reminder"
-            }
         }
     }
 
     fun markPaymentReminderPaid(reminder: PaymentReminderRecord, isPaid: Boolean) {
+        _localPaymentReminders.value = _localPaymentReminders.value.map {
+            if (it.id == reminder.id) it.copy(isPaid = isPaid) else it
+        }
+        _toastMessage.value = if (isPaid) "✅ Marked '${reminder.title}' as Paid" else "Reopened '${reminder.title}'"
+        if (!isFirebaseAuthenticated()) return
         viewModelScope.launch {
-            val res = repository.markPaymentReminderPaid(reminder.id, isPaid)
-            if (res.isSuccess) {
-                _toastMessage.value = if (isPaid) "✅ Marked '${reminder.title}' as Paid" else "Reopened '${reminder.title}'"
-            }
+            repository.markPaymentReminderPaid(reminder.id, isPaid)
         }
     }
 
     fun deletePaymentReminder(reminder: PaymentReminderRecord) {
+        _localPaymentReminders.value = _localPaymentReminders.value.filterNot { it.id == reminder.id }
+        _toastMessage.value = "🗑️ Removed reminder '${reminder.title}'"
+        if (!isFirebaseAuthenticated()) return
         viewModelScope.launch {
             repository.deletePaymentReminder(reminder.id)
-            _toastMessage.value = "🗑️ Removed reminder '${reminder.title}'"
         }
+    }
+
+    fun addExpense(
+        title: String,
+        category: String = "Food",
+        amount: Long
+    ) {
+        addTransaction(
+            title = title,
+            category = category,
+            amount = amount,
+            paymentMode = "UPI",
+            type = "expense",
+            note = "Logged via Jarvis Quick Command"
+        )
     }
 
     fun addTransaction(
@@ -883,8 +1096,25 @@ class KharcheeViewModel(
             }
         }
 
+        val localRecord = ExpenseRecord(
+            id = "local_tx_$now",
+            userId = currentUserId,
+            title = title,
+            category = category,
+            amount = amount,
+            paymentMode = paymentMode,
+            type = type,
+            note = note,
+            txEpochMillis = now
+        )
+        _localExpenses.value = listOf(localRecord) + _localExpenses.value
+        val prefix = if (type == "income") "💰 Logged Income" else "⚡ Logged"
+        _toastMessage.value = "$prefix ₹$amount · $title"
+
+        if (!isFirebaseAuthenticated()) return
+
         viewModelScope.launch {
-            val res = repository.createExpense(
+            repository.createExpense(
                 title = title,
                 category = category,
                 amount = amount,
@@ -893,43 +1123,86 @@ class KharcheeViewModel(
                 note = note,
                 txEpochMillis = now
             )
-            if (res.isSuccess) {
-                val prefix = if (type == "income") "💰 Logged Income" else "⚡ Logged"
-                _toastMessage.value = "$prefix ₹$amount · $title"
-            } else {
-                _toastMessage.value = res.exceptionOrNull()?.localizedMessage ?: "Failed to save transaction"
-            }
         }
     }
 
     fun deleteExpense(expenseId: String, title: String) {
+        _localDeletedExpenseIds.value = _localDeletedExpenseIds.value + expenseId
+        _localExpenses.value = _localExpenses.value.filterNot { it.id == expenseId }
+        _toastMessage.value = "🗑️ Deleted $title"
+        if (!isFirebaseAuthenticated()) return
         viewModelScope.launch {
-            val res = repository.deleteExpense(expenseId)
-            if (res.isSuccess) {
-                _toastMessage.value = "🗑️ Deleted $title"
-            } else {
-                _toastMessage.value = res.exceptionOrNull()?.localizedMessage ?: "Failed to delete"
-            }
+            repository.deleteExpense(expenseId)
         }
     }
 
     fun updateExistingExpense(expense: ExpenseRecord) {
+        val currentLocal = _localExpenses.value
+        val idx = currentLocal.indexOfFirst { it.id == expense.id }
+        if (idx >= 0) {
+            val mutable = currentLocal.toMutableList()
+            mutable[idx] = expense
+            _localExpenses.value = mutable
+        } else {
+            _localExpenses.value = listOf(expense) + currentLocal.filterNot { it.id == expense.id }
+        }
+        _toastMessage.value = "✏️ Updated ${expense.title} (₹${expense.amount})"
+        if (!isFirebaseAuthenticated()) return
         viewModelScope.launch {
-            val res = repository.updateExpense(expense)
-            if (res.isSuccess) {
-                _toastMessage.value = "✏️ Updated ${expense.title} (₹${expense.amount})"
-            } else {
-                _toastMessage.value = res.exceptionOrNull()?.localizedMessage ?: "Failed to update transaction"
-            }
+            repository.updateExpense(expense)
         }
     }
 
     fun deleteUserAccountData(onComplete: () -> Unit) {
+        _localExpenses.value = emptyList()
+        _localKhataFriends.value = emptyList()
+        _localSavingsGoals.value = emptyList()
+        _localPaymentReminders.value = emptyList()
+        _localNightGuardEvents.value = emptyList()
+        _localJarvisMessages.value = emptyList()
+        if (!isFirebaseAuthenticated()) {
+            _toastMessage.value = "Account data wiped from vault."
+            onComplete()
+            return
+        }
         viewModelScope.launch {
             repository.deleteAllUserData()
             _toastMessage.value = "Account data wiped from vault."
             onComplete()
         }
+    }
+
+    /**
+     * Populates the live ViewModel flows and syncs with Firestore when a user restores
+     * from an encrypted `kharchee_secure_backup.enc` file or Google Drive AppData backup.
+     */
+    fun applyRestoredBackupSnapshot(
+        snapshot: com.example.util.BackupVaultSnapshot,
+        mergeWithExisting: Boolean = true
+    ) {
+        if (mergeWithExisting) {
+            _localExpenses.value = (snapshot.expenses + _localExpenses.value)
+                .distinctBy { "${it.title.trim().lowercase()}:${it.amount}:${it.txEpochMillis / 2000L}" }
+                .sortedByDescending { it.txEpochMillis }
+            _localSavingsGoals.value = (snapshot.savingsGoals + _localSavingsGoals.value)
+                .distinctBy { it.title.trim().lowercase() }
+            _localKhataFriends.value = (snapshot.khataFriends + _localKhataFriends.value)
+                .distinctBy { it.name.trim().lowercase() }
+            _localPaymentReminders.value = (snapshot.paymentReminders + _localPaymentReminders.value)
+                .distinctBy { "${it.title.trim().lowercase()}:${it.dueEpochMillis}" }
+        } else {
+            _localDeletedExpenseIds.value = emptySet()
+            _localExpenses.value = snapshot.expenses.sortedByDescending { it.txEpochMillis }
+            _localSavingsGoals.value = snapshot.savingsGoals
+            _localKhataFriends.value = snapshot.khataFriends
+            _localPaymentReminders.value = snapshot.paymentReminders
+        }
+        _localSettings.value = snapshot.settings.copy(
+            id = currentUserId,
+            userId = currentUserId,
+            dailyLimit = snapshot.dailyLimit.coerceAtLeast(50L)
+        )
+        _toastMessage.value = "✅ Restored ₹${snapshot.netBalanceAmount} balance & ${snapshot.expenses.size} transactions!"
     }
 
     fun addKhataFriend(
@@ -939,19 +1212,30 @@ class KharcheeViewModel(
         amount: Long,
         description: String
     ) {
+        val now = System.currentTimeMillis()
+        val initials = name.trim().split(Regex("\\s+")).take(2).mapNotNull { it.firstOrNull()?.uppercaseChar() }.joinToString("").ifBlank { "FR" }
+        val localFriend = KhataFriendRecord(
+            id = "local_khata_$now",
+            userId = currentUserId,
+            name = name,
+            phone = phone,
+            avatarInitials = initials,
+            upiId = upiId,
+            balance = amount,
+            lastDescription = description,
+            settled = amount == 0L
+        )
+        _localKhataFriends.value = listOf(localFriend) + _localKhataFriends.value
+        _toastMessage.value = "🤝 Added $name to Khata Ledger"
+        if (!isFirebaseAuthenticated()) return
         viewModelScope.launch {
-            val res = repository.createKhataFriend(
+            repository.createKhataFriend(
                 name = name,
                 phone = phone,
                 upiId = upiId,
                 initialBalance = amount,
                 description = description
             )
-            if (res.isSuccess) {
-                _toastMessage.value = "🤝 Added $name to Khata Ledger"
-            } else {
-                _toastMessage.value = res.exceptionOrNull()?.localizedMessage ?: "Failed to add friend"
-            }
         }
     }
 
@@ -960,25 +1244,26 @@ class KharcheeViewModel(
         deltaAmount: Long,
         description: String
     ) {
+        val nextBalance = friend.balance + deltaAmount
+        _localKhataFriends.value = _localKhataFriends.value.map {
+            if (it.id == friend.id) it.copy(balance = nextBalance, lastDescription = description, settled = nextBalance == 0L) else it
+        }
+        val label = if (deltaAmount >= 0) "Lena Hai +₹$deltaAmount" else "Dena Hai -₹${-deltaAmount}"
+        _toastMessage.value = "📒 Updated ${friend.name}: $label"
+        if (!isFirebaseAuthenticated()) return
         viewModelScope.launch {
-            val res = repository.addKhataEntry(friend, deltaAmount, description)
-            if (res.isSuccess) {
-                val label = if (deltaAmount >= 0) "Lena Hai +₹$deltaAmount" else "Dena Hai -₹${-deltaAmount}"
-                _toastMessage.value = "📒 Updated ${friend.name}: $label"
-            } else {
-                _toastMessage.value = res.exceptionOrNull()?.localizedMessage ?: "Failed to update Khata"
-            }
+            repository.addKhataEntry(friend, deltaAmount, description)
         }
     }
 
     fun settleFriend(friend: KhataFriendRecord) {
+        _localKhataFriends.value = _localKhataFriends.value.map {
+            if (it.id == friend.id) it.copy(balance = 0L, settled = true, lastDescription = "Settled up") else it
+        }
+        _toastMessage.value = "✅ Settled up with ${friend.name}!"
+        if (!isFirebaseAuthenticated()) return
         viewModelScope.launch {
-            val res = repository.settleKhataFriend(friend.id)
-            if (res.isSuccess) {
-                _toastMessage.value = "✅ Settled up with ${friend.name}!"
-            } else {
-                _toastMessage.value = res.exceptionOrNull()?.localizedMessage ?: "Failed to settle"
-            }
+            repository.settleKhataFriend(friend.id)
         }
     }
 
@@ -988,42 +1273,59 @@ class KharcheeViewModel(
         description: String,
         includeSelf: Boolean
     ) {
-        viewModelScope.launch {
-            val res = repository.splitBillAmongFriends(friends, totalBill, description, includeSelf)
-            if (res.isSuccess) {
-                _toastMessage.value = "🍕 Split ₹$totalBill across ${friends.size} friends!"
+        if (friends.isEmpty() || totalBill <= 0L) return
+        val divisor = if (includeSelf) friends.size + 1 else friends.size
+        val share = totalBill / max(1, divisor)
+        val targetIds = friends.map { it.id }.toSet()
+        _localKhataFriends.value = _localKhataFriends.value.map {
+            if (it.id in targetIds) {
+                val nb = it.balance + share
+                it.copy(balance = nb, settled = nb == 0L, lastDescription = description)
             } else {
-                _toastMessage.value = res.exceptionOrNull()?.localizedMessage ?: "Failed to split bill"
+                it
             }
+        }
+        _toastMessage.value = "🍕 Split ₹$totalBill across ${friends.size} friends!"
+        if (!isFirebaseAuthenticated()) return
+        viewModelScope.launch {
+            repository.splitBillAmongFriends(friends, totalBill, description, includeSelf)
         }
     }
 
     fun createSavingsGoal(title: String, targetAmount: Long, savedAmount: Long) {
+        val now = System.currentTimeMillis()
+        val localGoal = SavingsGoalRecord(
+            id = "local_goal_$now",
+            userId = currentUserId,
+            title = title,
+            targetAmount = targetAmount,
+            savedAmount = savedAmount
+        )
+        _localSavingsGoals.value = listOf(localGoal) + _localSavingsGoals.value
+        _toastMessage.value = "🎯 Created Savings Goal: $title"
+        if (!isFirebaseAuthenticated()) return
         viewModelScope.launch {
-            val res = repository.createSavingsGoal(title, targetAmount, savedAmount)
-            if (res.isSuccess) {
-                _toastMessage.value = "🎯 Created Savings Goal: $title"
-            } else {
-                _toastMessage.value = res.exceptionOrNull()?.localizedMessage ?: "Failed to create goal"
-            }
+            repository.createSavingsGoal(title, targetAmount, savedAmount)
         }
     }
 
     fun addSavingsProgress(goal: SavingsGoalRecord, addAmount: Long) {
+        _localSavingsGoals.value = _localSavingsGoals.value.map {
+            if (it.id == goal.id) it.copy(savedAmount = it.savedAmount + addAmount) else it
+        }
+        _toastMessage.value = "💎 Added ₹$addAmount to ${goal.title}!"
+        if (!isFirebaseAuthenticated()) return
         viewModelScope.launch {
-            val res = repository.addFundsToSavingsGoal(goal, addAmount)
-            if (res.isSuccess) {
-                _toastMessage.value = "💎 Added ₹$addAmount to ${goal.title}!"
-            } else {
-                _toastMessage.value = res.exceptionOrNull()?.localizedMessage ?: "Failed to update goal"
-            }
+            repository.addFundsToSavingsGoal(goal, addAmount)
         }
     }
 
     fun deleteSavingsGoal(goalId: String) {
+        _localSavingsGoals.value = _localSavingsGoals.value.filterNot { it.id == goalId }
+        _toastMessage.value = "Removed savings goal"
+        if (!isFirebaseAuthenticated()) return
         viewModelScope.launch {
             repository.deleteSavingsGoal(goalId)
-            _toastMessage.value = "Removed savings goal"
         }
     }
 
@@ -1218,5 +1520,354 @@ class KharcheeViewModel(
 
             return insights
         }
+
+        /**
+         * Builds the full live financial context telemetry string from real user data,
+         * including Current Total Balance, Monthly Inflow/Outflow, Top Spending Category, and Remaining Budget.
+         */
+        fun buildLiveFinancialContextSnapshotFromData(
+            userDisplayName: String,
+            expenses: List<ExpenseRecord>,
+            settings: UserSettings,
+            khata: List<KhataFriendRecord> = emptyList(),
+            goals: List<SavingsGoalRecord> = emptyList()
+        ): String {
+            val now = System.currentTimeMillis()
+            val dateFormat = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.US)
+
+            val allIncomes = expenses.filter { isIncomeTransaction(it) }
+            val allExpenses = expenses.filter { !isIncomeTransaction(it) }
+            val todayExpenses = allExpenses.filter { isSameDay(it.txEpochMillis, now) }
+            val monthExpenses = allExpenses.filter { isSameMonth(it.txEpochMillis, now) }
+            val monthIncomes = allIncomes.filter { isSameMonth(it.txEpochMillis, now) }
+
+            val todaySpent = todayExpenses.sumOf { it.amount }
+            val monthSpent = monthExpenses.sumOf { it.amount }
+            val monthIncomeTotal = monthIncomes.sumOf { it.amount }
+            val totalIncomeAll = allIncomes.sumOf { it.amount }
+            val totalExpenseAll = allExpenses.sumOf { it.amount }
+            val monthlyBudget = max(1500L, settings.dailyLimit * 30L)
+            val remainingMonthlyBudget = (monthlyBudget - monthSpent).coerceAtLeast(0L)
+            val dailyRemaining = (settings.dailyLimit - todaySpent).coerceAtLeast(0L)
+            val totalBalance = totalIncomeAll - totalExpenseAll
+
+            val sortedCategories = monthExpenses
+                .groupBy { it.category.ifBlank { "General" } }
+                .mapValues { (_, list) -> list.sumOf { it.amount } }
+                .entries
+                .sortedByDescending { it.value }
+
+            val topCategoryEntry = sortedCategories.firstOrNull()
+            val topCategorySummary = if (topCategoryEntry != null) {
+                val sharePct = if (monthSpent > 0L) ((topCategoryEntry.value * 100L) / monthSpent) else 0L
+                "${topCategoryEntry.key} (₹${topCategoryEntry.value} · $sharePct% of monthly outflow)"
+            } else {
+                "None logged this month (₹0)"
+            }
+
+            var streak = 0
+            for (i in 0 until 30) {
+                val dayTarget = now - i * 86_400_000L
+                val daySum = allExpenses
+                    .filter { isSameDay(it.txEpochMillis, dayTarget) }
+                    .sumOf { it.amount }
+                if (daySum <= settings.dailyLimit) streak += 1 else break
+            }
+
+            var disciplineScore = 740 + min(streak * 8, 96)
+            if (settings.dailyLimit > 0L) {
+                val ratio = todaySpent.toDouble() / settings.dailyLimit.toDouble()
+                disciplineScore += when {
+                    ratio <= 0.7 -> 35
+                    ratio <= 1.0 -> 15
+                    else -> -min(((ratio - 1.0) * 150.0).roundToInt(), 120)
+                }
+            }
+            val clampedScore = disciplineScore.coerceIn(300, 900)
+
+            val categoryBreakdown = sortedCategories
+                .joinToString("; ") { "${it.key}: ₹${it.value}" }
+                .ifEmpty { "No expenses logged this month" }
+
+            val recentTxLines = expenses.take(12).joinToString("\n") { tx ->
+                val dir = if (isIncomeTransaction(tx)) "INCOME (+)" else "EXPENSE (-)"
+                val dateStr = dateFormat.format(Date(tx.txEpochMillis))
+                "- [$dir] ₹${tx.amount} | ${tx.title} | Category: ${tx.category} | Mode: ${tx.paymentMode} | Note: ${tx.note.ifBlank { "None" }} | Date: $dateStr"
+            }.ifEmpty { "- No transactions recorded yet." }
+
+            val khataSummary = khata.joinToString("; ") { friend ->
+                when {
+                    friend.balance > 0 -> "${friend.name} owes user ₹${friend.balance} (Lena Hai - ${friend.lastDescription})"
+                    friend.balance < 0 -> "User owes ${friend.name} ₹${-friend.balance} (Dena Hai - ${friend.lastDescription})"
+                    else -> "${friend.name}: Settled (₹0)"
+                }
+            }.ifEmpty { "No Khata split records." }
+
+            val goalsSummary = goals.joinToString("; ") { goal ->
+                val pct = if (goal.targetAmount > 0) ((goal.savedAmount * 100) / goal.targetAmount) else 0
+                "${goal.title}: Saved ₹${goal.savedAmount} / Target ₹${goal.targetAmount} ($pct%)"
+            }.ifEmpty { "No savings goals configured." }
+
+            val proactiveInsightsText = generateProactiveFinancialInsights(expenses, settings, khata)
+                .joinToString("\n") { "- [AUTONOMOUS TELEMETRY INSIGHT] ${it.title}: ${it.message}" }
+                .ifEmpty { "- No anomalies detected." }
+
+            val proStatusStr = if (settings.isPro) "PRO TITANIUM (${settings.proTier.uppercase()})" else "STANDARD MEMBER"
+
+            return """
+                === KHARCHEE LIVE USER FINANCIAL TELEMETRY (AUTHORIZED REAL DATA) ===
+                User Name: $userDisplayName
+                Membership Tier: $proStatusStr
+                Current Total Balance: ₹$totalBalance
+                Monthly Inflow (Income): ₹$monthIncomeTotal
+                Monthly Outflow (Expenses): ₹$monthSpent
+                Net Monthly Cashflow: ₹${monthIncomeTotal - monthSpent}
+                Top Spending Category: $topCategorySummary
+                Monthly Budget Target (30x Daily): ₹$monthlyBudget
+                Remaining Monthly Budget: ₹$remainingMonthlyBudget
+                Daily Spending Limit: ₹${settings.dailyLimit}
+                Today's Total Expense: ₹$todaySpent (Remaining today: ₹$dailyRemaining)
+                Lockdown Shield Active: ${settings.lockdownActive}
+                Discipline Score: $clampedScore / 900 (Streak: $streak days under daily limit)
+                Monthly Category Spend Breakdown: $categoryBreakdown
+                Khata Split Ledger Balances: $khataSummary
+                Savings Goals: $goalsSummary
+                Detected Autonomous Insights:
+                $proactiveInsightsText
+                Recent Transactions (Latest 12):
+                $recentTxLines
+                ======================================================================
+            """.trimIndent()
+        }
+
+        data class JarvisQuickExpenseCommand(
+            val title: String,
+            val category: String,
+            val amount: Long,
+            val actionKind: String = "expense" // "expense" | "income" | "debt"
+        )
+
+        /**
+         * Parses natural language quick commands like:
+         * - "Add 150 Chai" -> category = "Food", amount = 150, title = "Chai", actionKind = "expense"
+         * - "spent ₹250 uber" -> category = "Travel", amount = 250, title = "Uber", actionKind = "expense"
+         * - "milla 500 cashback" -> category = "Income", amount = 500, title = "Cashback", actionKind = "income"
+         * - "debt 300 Rahul" -> category = "Khata", amount = 300, title = "Rahul", actionKind = "debt"
+         */
+        fun parseQuickAddExpenseCommand(rawPrompt: String): JarvisQuickExpenseCommand? {
+            val clean = rawPrompt.trim()
+            val lower = clean.lowercase()
+            if (lower.contains("limit") || lower.contains("lockdown") || lower.contains("goal")) {
+                return null
+            }
+
+            // Pattern 1: "Add 150 chai", "add ₹150 for chai", "spent 250 on uber", "milla 500 bonus", "debt 300 rahul"
+            val amountFirstRegex = Regex(
+                """^(?:(add|log|spent|spend|record|milla|mila|received|debt|udhar|udhaar))(?:\s+expense|\s+income)?\s+(?:₹|rs\.?|inr)?\s*(\d{1,7})\s+(?:for\s+|on\s+|in\s+|from\s+|to\s+|ka\s+|ke\s+liye\s+)?(.+)$""",
+                RegexOption.IGNORE_CASE
+            )
+            // Pattern 2: "Add chai 150", "spent coffee ₹120", "milla salary 5000", "debt rahul 300"
+            val titleFirstRegex = Regex(
+                """^(?:(add|log|spent|spend|record|milla|mila|received|debt|udhar|udhaar))(?:\s+expense|\s+income)?\s+([a-zA-Z][a-zA-Z0-9\s]{1,30}?)\s+(?:₹|rs\.?|inr)?\s*(\d{1,7})$""",
+                RegexOption.IGNORE_CASE
+            )
+            // Pattern 3: "150 chai add karo" or "500 cashback milla"
+            val suffixAddRegex = Regex(
+                """^(?:₹|rs\.?|inr)?\s*(\d{1,7})\s+([a-zA-Z][a-zA-Z0-9\s]{1,30}?)\s+(add|log|spent|milla|mila|debt|udhar)(?:\s+karo|\s+kar\s+do)?$""",
+                RegexOption.IGNORE_CASE
+            )
+
+            var verbToken: String? = null
+            var parsedAmount: Long? = null
+            var rawTitlePart: String? = null
+
+            amountFirstRegex.find(clean)?.let { match ->
+                verbToken = match.groupValues[1].lowercase()
+                parsedAmount = match.groupValues[2].toLongOrNull()
+                rawTitlePart = match.groupValues[3]
+            } ?: titleFirstRegex.find(clean)?.let { match ->
+                verbToken = match.groupValues[1].lowercase()
+                rawTitlePart = match.groupValues[2]
+                parsedAmount = match.groupValues[3].toLongOrNull()
+            } ?: suffixAddRegex.find(clean)?.let { match ->
+                parsedAmount = match.groupValues[1].toLongOrNull()
+                rawTitlePart = match.groupValues[2]
+                verbToken = match.groupValues[3].lowercase()
+            }
+
+            val amt = parsedAmount ?: return null
+            if (amt <= 0L) return null
+
+            val actionKind = when (verbToken) {
+                "milla", "mila", "received" -> "income"
+                "debt", "udhar", "udhaar" -> "debt"
+                else -> "expense"
+            }
+
+            val cleanItem = rawTitlePart
+                ?.replace(Regex("""(?i)\b(ke naam par|add karo|kar do|please|jarvis|sir|chief)\b"""), "")
+                ?.trim()
+                ?.ifBlank { if (actionKind == "income") "Income" else if (actionKind == "debt") "Contact" else "Expense" }
+                ?: "Expense"
+
+            val formattedTitle = cleanItem.split(Regex("\\s+")).joinToString(" ") { word ->
+                word.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase(Locale.getDefault()) else ch.toString() }
+            }
+
+            val itemLower = formattedTitle.lowercase()
+            val inferredCategory = when {
+                actionKind == "income" -> "Income"
+                actionKind == "debt" -> "Khata"
+                itemLower.contains("chai") || itemLower.contains("tea") || itemLower.contains("coffee") ||
+                    itemLower.contains("samosa") || itemLower.contains("snack") || itemLower.contains("food") ||
+                    itemLower.contains("zomato") || itemLower.contains("swiggy") || itemLower.contains("dinner") ||
+                    itemLower.contains("lunch") || itemLower.contains("breakfast") || itemLower.contains("pizza") ||
+                    itemLower.contains("burger") || itemLower.contains("biryani") || itemLower.contains("momos") -> "Food"
+                itemLower.contains("uber") || itemLower.contains("ola") || itemLower.contains("rapido") ||
+                    itemLower.contains("auto") || itemLower.contains("cab") || itemLower.contains("metro") ||
+                    itemLower.contains("bus") || itemLower.contains("train") || itemLower.contains("petrol") ||
+                    itemLower.contains("fuel") || itemLower.contains("travel") -> "Travel"
+                itemLower.contains("grocery") || itemLower.contains("milk") || itemLower.contains("blinkit") ||
+                    itemLower.contains("zepto") || itemLower.contains("instamart") || itemLower.contains("mart") ||
+                    itemLower.contains("vegetable") || itemLower.contains("fruit") -> "Grocery"
+                itemLower.contains("bill") || itemLower.contains("recharge") || itemLower.contains("wifi") ||
+                    itemLower.contains("electricity") || itemLower.contains("rent") || itemLower.contains("emi") ||
+                    itemLower.contains("jio") || itemLower.contains("airtel") -> "Bills"
+                itemLower.contains("shopping") || itemLower.contains("amazon") || itemLower.contains("flipkart") ||
+                    itemLower.contains("myntra") || itemLower.contains("clothes") || itemLower.contains("shoes") -> "Shopping"
+                else -> "Food"
+            }
+
+            return JarvisQuickExpenseCommand(
+                title = formattedTitle,
+                category = inferredCategory,
+                amount = amt,
+                actionKind = actionKind
+            )
+        }
+
+        /**
+         * Dynamic AI Financial CFO Intent & Keyword Router connected directly to live KharcheeViewModel state:
+         * - Quick Action ("Add 150 Chai", "spent", "milla", "debt")
+         * - SPEND / EXPENSE / AAJ KA KHARCHA ("How much did I spend today?" / "Aaj ka kharcha")
+         * - BUDGET / RUNWAY / KITNA BACHA ("How much budget is left?" / "Kitna bacha")
+         * - ROAST / AUDIT MY SPEND ("Roast Me / Audit my spend" with >70% vs <=70% dynamic CFO logic)
+         * - KHATA / LENA DENA / DUES
+         */
+        fun buildDeterministicJarvisFallbackReply(
+            prompt: String,
+            userDisplayName: String,
+            mode: String,
+            language: String,
+            expenses: List<ExpenseRecord>,
+            settings: UserSettings,
+            khata: List<KhataFriendRecord> = emptyList(),
+            goals: List<SavingsGoalRecord> = emptyList()
+        ): String {
+            // 1. Check Quick Action first
+            val quickCmd = parseQuickAddExpenseCommand(prompt)
+            if (quickCmd != null) {
+                return when (quickCmd.actionKind) {
+                    "income" -> "Transaction logged instantly! ₹${quickCmd.amount} ${quickCmd.title} added to income."
+                    "debt" -> "Transaction logged instantly! ₹${quickCmd.amount} ${quickCmd.title} recorded in Khata ledger."
+                    else -> "Transaction logged instantly! ₹${quickCmd.amount} ${quickCmd.title} added to spends."
+                }
+            }
+
+            val now = System.currentTimeMillis()
+            val allIncomes = expenses.filter { isIncomeTransaction(it) }
+            val allExpenses = expenses.filter { !isIncomeTransaction(it) }
+            val todayExpenses = allExpenses.filter { isSameDay(it.txEpochMillis, now) }
+            val monthExpenses = allExpenses.filter { isSameMonth(it.txEpochMillis, now) }
+            val monthIncomes = allIncomes.filter { isSameMonth(it.txEpochMillis, now) }
+
+            val todaySpent = todayExpenses.sumOf { it.amount }
+            val monthSpent = monthExpenses.sumOf { it.amount }
+            val monthInflow = monthIncomes.sumOf { it.amount }
+            val totalIncomeAll = allIncomes.sumOf { it.amount }
+            val totalExpenseAll = allExpenses.sumOf { it.amount }
+            val dailyLimit = max(50L, settings.dailyLimit)
+            val monthlyBudget = max(1500L, dailyLimit * 30L)
+            val remainingMonthlyBudget = (monthlyBudget - monthSpent).coerceAtLeast(0L)
+            val totalBalance = totalIncomeAll - totalExpenseAll
+
+            val cal = java.util.Calendar.getInstance()
+            val maxDayInMonth = cal.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+            val currentDayOfMonth = cal.get(java.util.Calendar.DAY_OF_MONTH)
+            val daysLeftInMonth = (maxDayInMonth - currentDayOfMonth + 1).coerceAtLeast(1)
+            val dailySafeLimit = (remainingMonthlyBudget / daysLeftInMonth).coerceAtLeast(0L)
+
+            val topTodayCategoryEntry = todayExpenses
+                .groupBy { it.category.ifBlank { "Food" } }
+                .mapValues { (_, list) -> list.sumOf { it.amount } }
+                .entries
+                .maxByOrNull { it.value }
+
+            val topMonthCategoryEntry = monthExpenses
+                .groupBy { it.category.ifBlank { "General" } }
+                .mapValues { (_, list) -> list.sumOf { it.amount } }
+                .entries
+                .maxByOrNull { it.value }
+
+            val topCategoryName = topMonthCategoryEntry?.key ?: topTodayCategoryEntry?.key ?: "General"
+            val topTodayOrMonthCategory = topTodayCategoryEntry?.key ?: topMonthCategoryEntry?.key ?: "None"
+
+            val totalLeneHai = khata.filter { it.balance > 0 }.sumOf { it.balance }
+            val totalDeneHai = khata.filter { it.balance < 0 }.sumOf { -it.balance }
+            val pendingPersonName = khata.firstOrNull { it.balance != 0L }?.name ?: "Contact"
+
+            val lowerPrompt = prompt.trim().lowercase()
+
+            val isKhataIntent = Regex(
+                """\b(khata|lena|dena|dues|udhar|udhaar|settlement|hisab|baki)\b""",
+                RegexOption.IGNORE_CASE
+            ).containsMatchIn(lowerPrompt)
+
+            val isRoastOrAdviceIntent = Regex(
+                """\b(roast|advice|paisa kahan|sach batao|ambani|audit|discipline|health)\b""",
+                RegexOption.IGNORE_CASE
+            ).containsMatchIn(lowerPrompt)
+
+            val isBudgetRunwayIntent = Regex(
+                """\b(budget|runway|kitna bacha|how much budget|left|balance|safe limit|days left|mahine ka)\b""",
+                RegexOption.IGNORE_CASE
+            ).containsMatchIn(lowerPrompt)
+
+            val isSpendIntent = Regex(
+                """\b(spend|spent|expense|expenses|aaj|today|kharcha|kharch)\b""",
+                RegexOption.IGNORE_CASE
+            ).containsMatchIn(lowerPrompt)
+
+            val primaryReply = when {
+                isKhataIntent -> {
+                    if (totalLeneHai > 0L || totalDeneHai > 0L) {
+                        "Market me ₹$totalLeneHai lene bache hain aur ₹$totalDeneHai chukane hain. $pendingPersonName se settlement pending hai."
+                    } else {
+                        "Khata clean hai Sir, kisi ka udhar baki nahi hai."
+                    }
+                }
+                isRoastOrAdviceIntent -> {
+                    val isOverspending = monthSpent > (monthlyBudget * 70L) / 100L
+                    if (isOverspending) {
+                        "Aapka budget critical stage par hai! Swiggy aur luxury offline sprees band kijiye, varna month-end par water-only diet pe jaana padega. 💀"
+                    } else {
+                        "Discipline bohot badhiya hai, Chief. You are in the green zone. Backed by solid budgeting!"
+                    }
+                }
+                isBudgetRunwayIntent -> {
+                    "Balance ₹$totalBalance bacha hai. Month-end tak smooth chalne ke liye, aapka daily spending limit ₹$dailySafeLimit se upar nahi jana chahiye."
+                }
+                isSpendIntent -> {
+                    "Aaj aapne total ₹$todaySpent kharch kiye hain, Chief. $topTodayOrMonthCategory par sabse zyada spent hua hai."
+                }
+                else -> {
+                    "Aaj aapne total ₹$todaySpent kharch kiye hain, Chief. $topTodayOrMonthCategory par sabse zyada spent hua hai."
+                }
+            }
+
+            val liveTelemetryLine = "📊 Live Sync ($userDisplayName) — Current Total Balance: ₹$totalBalance | Inflow: +₹$monthInflow | Outflow: -₹$monthSpent | Top: $topCategoryName | Remaining Budget: ₹$remainingMonthlyBudget"
+            return "$primaryReply\n\n$liveTelemetryLine"
+        }
     }
 }
+

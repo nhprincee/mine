@@ -2,11 +2,17 @@ package com.example.ui.screens
 
 import android.app.DatePickerDialog
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -121,11 +127,15 @@ import com.example.ui.theme.SophisticatedEmerald
 import com.example.ui.theme.WarmIvory
 import com.example.ui.theme.getCategoryColor
 import com.example.ui.theme.getCategoryIcon
+import com.example.util.ExportedPdfReportResult
+import com.example.util.MonthlyFinancialPdfExporter
+import com.example.util.MonthlyReportPeriodOption
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -251,6 +261,61 @@ fun InsightsTab(
     val rangeDays = bundle.timeWindow.durationDays
     val totalSpent = bundle.overview.totalExpenses
     val totalIncome = bundle.overview.totalIncome
+
+    // Monthly PDF Report state & options
+    val monthlyPdfOptions = remember {
+        MonthlyFinancialPdfExporter.buildMonthlyReportOptions()
+    }
+    var selectedMonthlyOption by remember {
+        mutableStateOf(monthlyPdfOptions.first())
+    }
+    var useCustomFilterForPdf by remember { mutableStateOf(false) }
+    var lastExportedPdfResult by remember { mutableStateOf<ExportedPdfReportResult?>(null) }
+
+    val pdfTargetBundle = remember(
+        useCustomFilterForPdf,
+        selectedMonthlyOption,
+        bundle,
+        expenses,
+        effectiveSettings,
+        categoryBudgets,
+        savingsGoals,
+        paymentReminders
+    ) {
+        if (useCustomFilterForPdf) {
+            bundle
+        } else {
+            MonthlyFinancialPdfExporter.computeBundleForMonthlyOption(
+                option = selectedMonthlyOption,
+                activeBundle = bundle,
+                expenses = expenses,
+                settings = effectiveSettings,
+                categoryBudgets = categoryBudgets,
+                savingsGoals = savingsGoals,
+                paymentReminders = paymentReminders
+            )
+        }
+    }
+
+    val savePdfDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/pdf")
+    ) { targetUri ->
+        if (targetUri != null) {
+            val res = MonthlyFinancialPdfExporter.writePdfToUri(
+                context = context,
+                targetUri = targetUri,
+                bundle = pdfTargetBundle,
+                expenses = expenses,
+                userDisplayName = userDisplayName
+            )
+            res.onSuccess { exported ->
+                lastExportedPdfResult = exported
+                onShowToast("Saved PDF report: ${exported.fileName} (${exported.pageCount} page(s))")
+            }.onFailure { err ->
+                onShowToast("Failed to save PDF: ${err.localizedMessage ?: "Unknown error"}")
+            }
+        }
+    }
 
     val categoryStats = remember(bundle.categories) {
         bundle.categories.categories.mapIndexed { idx, detail ->
@@ -536,60 +601,142 @@ fun InsightsTab(
             }
         }
 
-        // ====================================================================
-        // 2. MAIN BALANCE & FINANCIAL OVERVIEW SUMMARY CARD (MATCHES RIGHT SCREEN OF REFERENCE)
-        // ====================================================================
-        if (activeSection == InsightSectionView.OVERVIEW ||
-            activeSection == InsightSectionView.EARNINGS ||
-            activeSection == InsightSectionView.SPENDING ||
-            activeSection == InsightSectionView.SAVINGS
-        ) {
+        val recordedExpenseCount = expenses.count { !isIncomeTransaction(it) }
+        if (recordedExpenseCount < 3) {
             item {
-                InsightOverviewGlassCard(
-                    bundle = bundle,
-                    stealthMode = stealthMode,
-                    onSelectSection = { activeSection = it }
-                )
-            }
-        }
-
-        // ====================================================================
-        // 3. ANALYTICS OVERVIEW: MULTI-SEGMENT DONUT + INTERACTIVE SPLINE CHART WITH FLOATING TOOLTIP
-        //    (MATCHES LEFT SCREEN OF UPLOADED REFERENCE IMAGE)
-        // ====================================================================
-        if (activeSection == InsightSectionView.OVERVIEW ||
-            activeSection == InsightSectionView.SPENDING ||
-            activeSection == InsightSectionView.CATEGORIES
-        ) {
-            item {
-                InsightReferenceDonutAndSplineCard(
-                    bundle = bundle,
-                    categoryStats = categoryStats,
-                    stealthMode = stealthMode,
-                    selectedDonutCategory = selectedDonutCategory,
-                    onSelectDonutCategory = { clickedCat ->
-                        selectedDonutCategory = if (selectedDonutCategory == clickedCat) null else clickedCat
-                        val detail = bundle.categories.categories.find { it.category == clickedCat }
-                        if (detail != null) {
-                            inspectingCategoryDetail = detail
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shadow(16.dp, RoundedCornerShape(22.dp), spotColor = MaiPrimaryPurpleStart)
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0xFF1A1136),
+                                    Color(0xFF100B22),
+                                    Color(0xFF160E2E)
+                                )
+                            )
+                        )
+                        .border(1.2.dp, Color(0xFF7C3AED).copy(alpha = 0.65f), RoundedCornerShape(22.dp))
+                        .padding(18.dp)
+                        .testTag("insight_cold_start_empty_state_card"),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF7C3AED).copy(alpha = 0.22f))
+                                    .border(1.dp, Color(0xFFA855F7), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = "Insight Cold Start",
+                                    tint = Color(0xFFD8B4FE),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Text(
+                                text = "Analytics will generate once you record your first 3 expenses.",
+                                fontFamily = headingFont,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
+                                lineHeight = 19.sp
+                            )
                         }
-                    },
-                    selectedDailyIndex = selectedDailyPointIndex,
-                    onSelectDailyIndex = { selectedDailyPointIndex = it }
-                )
+                        Surface(
+                            color = Color(0xFF281A4D),
+                            shape = RoundedCornerShape(50),
+                            border = BorderStroke(0.8.dp, Color(0xFFA855F7))
+                        ) {
+                            Text(
+                                text = "$recordedExpenseCount / 3 Logged",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFE9D5FF),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    LinearProgressIndicator(
+                        progress = { (recordedExpenseCount.toFloat() / 3f).coerceIn(0.05f, 1f) },
+                        color = Color(0xFFA855F7),
+                        trackColor = Color(0xFF231742),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(50))
+                    )
+                }
             }
         }
 
         // ====================================================================
-        // 4. AI-POWERED JARVIS FINANCIAL INTELLIGENCE CARD (MATCHES REFERENCE GLASS CARD)
+        // 2. "3-SECOND CLARITY" TOP METRIC CARDS (NO CLUTTERED MULTI-AXIS GRAPHS)
+        //    Card 1: "Where Your Money Went" (Top 4 Categories: Food, Travel, Bills, Shopping)
+        //    Card 2: "Month-over-Month Pace" (Emerald/Amber comparison pill)
+        //    Card 3: "Month-End Forecast" (Linear daily average & projected savings)
         // ====================================================================
-        if (activeSection == InsightSectionView.OVERVIEW ||
-            activeSection == InsightSectionView.SPENDING ||
-            activeSection == InsightSectionView.BUDGET
-        ) {
+        item {
+            ThreeSecondClarityWhereMoneyWentCard(
+                categoryDetails = bundle.categories.categories,
+                totalSpent = totalSpent,
+                stealthMode = stealthMode,
+                onInspectCategory = { detail ->
+                    inspectingCategoryDetail = detail
+                }
+            )
+        }
+
+        item {
+            ThreeSecondClarityMonthOverMonthPaceCard(
+                expenses = expenses,
+                bundle = bundle,
+                stealthMode = stealthMode
+            )
+        }
+
+        item {
+            ThreeSecondClarityMonthEndForecastCard(
+                expenses = expenses,
+                dailyLimit = dailyLimit,
+                stealthMode = stealthMode
+            )
+        }
+
+        // ====================================================================
+        // 3. WEEKLY SPENDING HEATMAP / BAR STRIP (MON–SUN WITH TAP INSPECTION)
+        // ====================================================================
+        item {
+            WeeklySpendingHeatmapBarStripCard(
+                expenses = expenses,
+                dailyLimit = dailyLimit,
+                stealthMode = stealthMode
+            )
+        }
+
+        // ====================================================================
+        // 4. AI-POWERED JARVIS ACTIONABLE BRIEFING (COMPACT)
+        // ====================================================================
+        if (bundle.jarvisInsights.isNotEmpty()) {
             item {
                 InsightJarvisIntelligenceCard(
-                    insights = bundle.jarvisInsights,
+                    insights = bundle.jarvisInsights.take(2),
                     periodLabel = bundle.timeWindow.displayRangeLabel,
                     onAskJarvis = { prompt ->
                         if (onOpenJarvisWithPrompt != null) {
@@ -603,191 +750,72 @@ fun InsightsTab(
         }
 
         // ====================================================================
-        // 5. DEDICATED EARNINGS INSIGHTS VIEW (#4)
+        // 5. ONE-TAP EXPORT STATEMENT ("Download Monthly Summary (PDF / CSV)")
         // ====================================================================
-        if (activeSection == InsightSectionView.EARNINGS || activeSection == InsightSectionView.OVERVIEW) {
-            item {
-                EarningsInsightsSectionCard(
-                    bundle = bundle,
-                    stealthMode = stealthMode,
-                    selectedBarIndex = selectedEarningsBarIndex,
-                    onSelectBarIndex = { selectedEarningsBarIndex = it }
-                )
-            }
-        }
-
-        // ====================================================================
-        // 6. DEDICATED SPENDING INSIGHTS VIEW (#5)
-        // ====================================================================
-        if (activeSection == InsightSectionView.SPENDING || activeSection == InsightSectionView.OVERVIEW) {
-            item {
-                SpendingInsightsDetailedCard(
-                    bundle = bundle,
-                    dailyLimit = dailyLimit,
-                    stealthMode = stealthMode,
-                    selectedWeeklyIndex = selectedSpendingWeeklyIndex,
-                    onSelectWeeklyIndex = { selectedSpendingWeeklyIndex = it },
-                    selectedMonthlyIndex = selectedSpendingMonthlyIndex,
-                    onSelectMonthlyIndex = { selectedSpendingMonthlyIndex = it }
-                )
-            }
-        }
-
-        // ====================================================================
-        // 7. CATEGORY BREAKDOWN & INTERACTIVE INSPECTOR (#6)
-        // ====================================================================
-        if (activeSection == InsightSectionView.CATEGORIES || activeSection == InsightSectionView.OVERVIEW) {
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "PORTFOLIO CATEGORY BREAKDOWN (${categoryStats.size})",
-                        fontFamily = JetBrainsMonoFontFamily,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.1.sp,
-                        color = Color(0xFFD8B4FE)
+        item {
+            OneTapMonthlyStatementExportCard(
+                periodLabel = pdfTargetBundle.timeWindow.displayRangeLabel,
+                lastExportedPdf = lastExportedPdfResult,
+                onDownloadAndSharePdf = {
+                    val res = MonthlyFinancialPdfExporter.downloadPdfToDevice(
+                        context = context,
+                        bundle = pdfTargetBundle,
+                        expenses = expenses,
+                        userDisplayName = userDisplayName
                     )
-                    bundle.categories.topCategory?.let { top ->
-                        Text(
-                            text = "Top: ${top.category} (${top.percentOfTotal}%)",
-                            fontFamily = JetBrainsMonoFontFamily,
-                            fontSize = 10.sp,
-                            color = MaiPositiveEmerald
+                    res.onSuccess { exported ->
+                        lastExportedPdfResult = exported
+                        onShowToast("📄 Downloaded ${exported.fileName} (${exported.pageCount} page(s))")
+                        MonthlyFinancialPdfExporter.shareOrOpenPdf(
+                            context = context,
+                            result = exported,
+                            periodLabel = pdfTargetBundle.timeWindow.displayRangeLabel,
+                            openDirectly = false
                         )
+                    }.onFailure { err ->
+                        onShowToast("Could not generate PDF: ${err.localizedMessage ?: "Error"}")
                     }
-                }
-            }
-
-            if (bundle.categories.categories.isEmpty()) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(MaiCardSurface)
-                            .border(1.dp, MaiCardBorder, RoundedCornerShape(18.dp))
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = "No expense categories recorded in ${bundle.timeWindow.filter.label} (${rangeDays}d).",
-                                color = Color.White,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 13.sp,
-                                textAlign = TextAlign.Center
-                            )
-                            Text(
-                                text = "Add an expense or select another period filter above to inspect category trends.",
-                                color = MaiLavenderSubtext,
-                                fontSize = 11.sp,
-                                textAlign = TextAlign.Center
-                            )
+                },
+                onSavePdfAs = {
+                    val suggestedName = MonthlyFinancialPdfExporter.buildSuggestedFileName(pdfTargetBundle)
+                    runCatching {
+                        savePdfDocumentLauncher.launch(suggestedName)
+                    }.onFailure {
+                        val res = MonthlyFinancialPdfExporter.downloadPdfToDevice(
+                            context = context,
+                            bundle = pdfTargetBundle,
+                            expenses = expenses,
+                            userDisplayName = userDisplayName
+                        )
+                        res.onSuccess { exported ->
+                            lastExportedPdfResult = exported
+                            onShowToast("Downloaded ${exported.fileName} to ${exported.savedLocationLabel}")
                         }
                     }
-                }
-            } else {
-                items(bundle.categories.categories, key = { it.category }) { detail ->
-                    val colorIndex = bundle.categories.categories.indexOf(detail).coerceAtLeast(0)
-                    val itemColor = resolveInsightCategoryColor(detail.category, colorIndex)
-                    val changeText = detail.changePercent?.let { pct ->
-                        if (pct > 0) "+$pct% vs prior" else if (pct < 0) "$pct% vs prior" else "0% vs prior"
-                    } ?: "New in period"
-
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(MaiCardSurface)
-                            .border(1.dp, MaiCardBorder, RoundedCornerShape(18.dp))
-                            .clickable { inspectingCategoryDetail = detail }
-                            .padding(16.dp)
-                            .testTag("insight_category_card_${detail.category}")
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(itemColor.copy(alpha = 0.16f))
-                                    .border(1.dp, itemColor.copy(alpha = 0.5f), RoundedCornerShape(12.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = getCategoryIcon(detail.category),
-                                    contentDescription = detail.category,
-                                    tint = itemColor,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Text(
-                                        text = detail.category,
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp
-                                    )
-                                    Surface(
-                                        color = Color(0xFF221642),
-                                        shape = RoundedCornerShape(50)
-                                    ) {
-                                        Text(
-                                            text = changeText,
-                                            fontFamily = JetBrainsMonoFontFamily,
-                                            fontSize = 9.sp,
-                                            color = Color(0xFFD8B4FE),
-                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-                                Text(
-                                    text = "${detail.transactionCount} entries · ${detail.percentOfTotal}% of spending · Tap for transactions",
-                                    fontSize = 11.sp,
-                                    color = MaiLavenderSubtext
-                                )
-                            }
-                            Text(
-                                text = if (stealthMode) "₹••••" else "₹${formatIndianAmount(detail.amount)}",
-                                fontFamily = headingFont,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 15.sp,
-                                color = itemColor
+                },
+                onExportCsv = {
+                    val csv = InsightIntelligenceEngine.generateStructuredReportCsv(pdfTargetBundle)
+                    try {
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/csv"
+                            putExtra(
+                                Intent.EXTRA_SUBJECT,
+                                "KHARCHEE_Monthly_Statement_${pdfTargetBundle.timeWindow.filter.id}.csv"
                             )
+                            putExtra(Intent.EXTRA_TEXT, csv)
                         }
-                        Spacer(modifier = Modifier.height(10.dp))
-                        LinearProgressIndicator(
-                            progress = { (detail.percentOfTotal / 100f).coerceIn(0.03f, 1f) },
-                            color = itemColor,
-                            trackColor = Color(0xFF1E1438),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(50))
-                        )
+                        context.startActivity(Intent.createChooser(shareIntent, "Export Monthly CSV Statement"))
+                    } catch (_: Exception) {
                     }
+                    onShowToast("📊 Exported CSV statement for ${pdfTargetBundle.timeWindow.displayRangeLabel}")
                 }
-            }
+            )
         }
 
         // ====================================================================
-        // 8. BUDGET INTELLIGENCE & SMART BUDGET COACH (#7)
+        // 6. OPTIONAL DEEP-DIVE SECTION VIEW (WHEN USER SELECTS SPECIFIC SECTION PILL)
         // ====================================================================
-        if (activeSection == InsightSectionView.BUDGET || activeSection == InsightSectionView.OVERVIEW) {
+        if (activeSection == InsightSectionView.BUDGET) {
             item {
                 BudgetIntelligenceSectionCard(
                     bundle = bundle,
@@ -818,26 +846,7 @@ fun InsightsTab(
                     }
                 )
             }
-        }
-
-        // ====================================================================
-        // 9. METALLIC SILVER FINANCIAL HEALTH SCORE SECTION (#8)
-        // ====================================================================
-        if (activeSection == InsightSectionView.OVERVIEW ||
-            activeSection == InsightSectionView.BUDGET ||
-            activeSection == InsightSectionView.SAVINGS
-        ) {
-            item {
-                InsightMetallicHealthScoreSection(
-                    evaluation = bundle.healthScore
-                )
-            }
-        }
-
-        // ====================================================================
-        // 10. SAVINGS ANALYTICS SECTION (#9)
-        // ====================================================================
-        if (activeSection == InsightSectionView.SAVINGS || activeSection == InsightSectionView.OVERVIEW) {
+        } else if (activeSection == InsightSectionView.SAVINGS) {
             item {
                 SavingsAnalyticsSectionCard(
                     savings = bundle.savings,
@@ -845,40 +854,116 @@ fun InsightsTab(
                     stealthMode = stealthMode
                 )
             }
-        }
-
-        // ====================================================================
-        // 11. FINANCIAL REPORTS & EXPORT SECTION (#13)
-        // ====================================================================
-        if (activeSection == InsightSectionView.REPORTS || activeSection == InsightSectionView.OVERVIEW) {
+        } else if (activeSection == InsightSectionView.EARNINGS) {
+            item {
+                EarningsInsightsSectionCard(
+                    bundle = bundle,
+                    stealthMode = stealthMode,
+                    selectedBarIndex = selectedEarningsBarIndex,
+                    onSelectBarIndex = { selectedEarningsBarIndex = it }
+                )
+            }
+        } else if (activeSection == InsightSectionView.SPENDING) {
+            item {
+                SpendingInsightsDetailedCard(
+                    bundle = bundle,
+                    dailyLimit = dailyLimit,
+                    stealthMode = stealthMode,
+                    selectedWeeklyIndex = selectedSpendingWeeklyIndex,
+                    onSelectWeeklyIndex = { selectedSpendingWeeklyIndex = it },
+                    selectedMonthlyIndex = selectedSpendingMonthlyIndex,
+                    onSelectMonthlyIndex = { selectedSpendingMonthlyIndex = it }
+                )
+            }
+        } else if (activeSection == InsightSectionView.REPORTS) {
             item {
                 FinancialReportsActionCard(
-                    bundle = bundle,
+                    bundle = pdfTargetBundle,
+                    monthlyOptions = monthlyPdfOptions,
+                    selectedMonthlyOption = selectedMonthlyOption,
+                    useActiveFilter = useCustomFilterForPdf,
+                    activeFilterLabel = "${bundle.timeWindow.filter.label} (${bundle.timeWindow.displayRangeLabel})",
+                    lastExportedPdf = lastExportedPdfResult,
+                    stealthMode = stealthMode,
+                    onSelectMonthlyOption = { option ->
+                        selectedMonthlyOption = option
+                        useCustomFilterForPdf = false
+                    },
+                    onSelectActiveFilter = {
+                        useCustomFilterForPdf = true
+                    },
+                    onDownloadPdf = {
+                        val res = MonthlyFinancialPdfExporter.downloadPdfToDevice(
+                            context = context,
+                            bundle = pdfTargetBundle,
+                            expenses = expenses,
+                            userDisplayName = userDisplayName
+                        )
+                        res.onSuccess { exported ->
+                            lastExportedPdfResult = exported
+                            onShowToast("Downloaded ${exported.fileName} to ${exported.savedLocationLabel}")
+                        }.onFailure { err ->
+                            onShowToast("Could not generate PDF: ${err.localizedMessage ?: "Error"}")
+                        }
+                    },
+                    onSavePdfAs = {
+                        val suggestedName = MonthlyFinancialPdfExporter.buildSuggestedFileName(pdfTargetBundle)
+                        runCatching {
+                            savePdfDocumentLauncher.launch(suggestedName)
+                        }.onFailure {
+                            val res = MonthlyFinancialPdfExporter.downloadPdfToDevice(
+                                context = context,
+                                bundle = pdfTargetBundle,
+                                expenses = expenses,
+                                userDisplayName = userDisplayName
+                            )
+                            res.onSuccess { exported ->
+                                lastExportedPdfResult = exported
+                                onShowToast("Downloaded ${exported.fileName} to ${exported.savedLocationLabel}")
+                            }
+                        }
+                    },
+                    onOpenExportedPdf = { exported ->
+                        MonthlyFinancialPdfExporter.shareOrOpenPdf(
+                            context = context,
+                            result = exported,
+                            periodLabel = pdfTargetBundle.timeWindow.displayRangeLabel,
+                            openDirectly = true
+                        )
+                    },
+                    onShareExportedPdf = { exported ->
+                        MonthlyFinancialPdfExporter.shareOrOpenPdf(
+                            context = context,
+                            result = exported,
+                            periodLabel = pdfTargetBundle.timeWindow.displayRangeLabel,
+                            openDirectly = false
+                        )
+                    },
                     onOpenReportPreview = { showReportPreviewDialog = true },
                     onExportCsv = {
-                        val csv = InsightIntelligenceEngine.generateStructuredReportCsv(bundle)
+                        val csv = InsightIntelligenceEngine.generateStructuredReportCsv(pdfTargetBundle)
                         try {
                             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                 type = "text/csv"
                                 putExtra(
                                     Intent.EXTRA_SUBJECT,
-                                    "KHARCHEE_Insight_Report_${bundle.timeWindow.filter.id}.csv"
+                                    "KHARCHEE_Insight_Report_${pdfTargetBundle.timeWindow.filter.id}.csv"
                                 )
                                 putExtra(Intent.EXTRA_TEXT, csv)
                             }
                             context.startActivity(Intent.createChooser(shareIntent, "Export Insight CSV"))
                         } catch (_: Exception) {
                         }
-                        onShowToast("Prepared CSV report for ${bundle.timeWindow.displayRangeLabel}")
+                        onShowToast("Prepared CSV report for ${pdfTargetBundle.timeWindow.displayRangeLabel}")
                     },
                     onShareSummary = {
-                        val text = InsightIntelligenceEngine.generateStructuredReportText(bundle)
+                        val text = InsightIntelligenceEngine.generateStructuredReportText(pdfTargetBundle)
                         try {
                             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                 type = "text/plain"
                                 putExtra(
                                     Intent.EXTRA_SUBJECT,
-                                    "KHARCHEE Financial Report (${bundle.timeWindow.displayRangeLabel})"
+                                    "KHARCHEE Financial Report (${pdfTargetBundle.timeWindow.displayRangeLabel})"
                                 )
                                 putExtra(Intent.EXTRA_TEXT, text)
                             }
@@ -888,152 +973,6 @@ fun InsightsTab(
                     }
                 )
             }
-        }
-
-        // ====================================================================
-        // 12. PRESERVED EXISTING FEATURES (NIGHT SPENDING, WHERE DID MY MONEY GO, ASK YOUR MONEY, WRAPPED)
-        // ====================================================================
-        item {
-            val nightSummary = remember(expenses, nightGuardEvents, settings) {
-                NightSpendingAnalytics.computeSummary(
-                    expenses = expenses,
-                    nightGuardEvents = nightGuardEvents,
-                    settings = settings
-                )
-            }
-            val windowLabel = NightGuardSchedule.formatTimeWindow(
-                settings.nightGuardStartHour,
-                settings.nightGuardStartMinute,
-                settings.nightGuardEndHour,
-                settings.nightGuardEndMinute
-            )
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .shadow(16.dp, RoundedCornerShape(24.dp))
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(MaiCardSurface)
-                    .border(1.dp, MaiCardBorder, RoundedCornerShape(24.dp))
-                    .padding(20.dp)
-                    .testTag("night_spending_insights_section"),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = "NIGHT SPENDING INSIGHTS · RUKO ZARA",
-                            fontFamily = JetBrainsMonoFontFamily,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 1.2.sp,
-                            color = Color(0xFFC084FC)
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Late-Night Window ($windowLabel)",
-                            fontFamily = headingFont,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color.White
-                        )
-                    }
-
-                    Surface(
-                        color = MaiPrimaryPurpleEnd.copy(alpha = 0.25f),
-                        shape = RoundedCornerShape(50),
-                        border = BorderStroke(0.8.dp, Color(0xFFA855F7))
-                    ) {
-                        Text(
-                            text = if (settings.nightGuardEnabled) "GUARD ARMED" else "GUARD OFF",
-                            fontFamily = JetBrainsMonoFontFamily,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFE9D5FF),
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    InsightStatBox(
-                        title = "NIGHT SPENT (ALL)",
-                        value = if (stealthMode) "₹•••" else "₹${nightSummary.totalNightSpentAllTime}",
-                        color = Color.White,
-                        modifier = Modifier.weight(1f)
-                    )
-                    InsightStatBox(
-                        title = "SAVED (CANCELLED)",
-                        value = if (stealthMode) "₹•••" else "₹${nightSummary.savedFromCancelledAmount}",
-                        color = MaiPositiveEmerald,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    InsightStatBox(
-                        title = "CANCELLED",
-                        value = "${nightSummary.cancelledCount} purchases",
-                        color = MaiPositiveEmerald,
-                        modifier = Modifier.weight(1f)
-                    )
-                    InsightStatBox(
-                        title = "POSTPONED",
-                        value = "${nightSummary.postponedCount} purchases",
-                        color = Color(0xFFD8B4FE),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
-
-        item {
-            val subs = remember(userIdKey) { KharcheeProfileAndToolsStore.getSubscriptions(context, userIdKey) }
-            WhereDidMyMoneyGoCardSection(
-                userId = userIdKey,
-                expenses = expenses,
-                subscriptions = subs,
-                onShowToast = onShowToast
-            )
-        }
-
-        item {
-            val subs = remember(userIdKey) { KharcheeProfileAndToolsStore.getSubscriptions(context, userIdKey) }
-            val askFieldColors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Color(0xFFA855F7),
-                unfocusedBorderColor = MaiCardBorder,
-                focusedContainerColor = MaiDeepCanvas,
-                unfocusedContainerColor = MaiDeepCanvas,
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                focusedLabelColor = Color(0xFFD8B4FE),
-                unfocusedLabelColor = MaiLavenderSubtext
-            )
-            AskYourMoneyCardSection(
-                userId = userIdKey,
-                expenses = expenses,
-                subscriptions = subs,
-                savingsGoals = savingsGoals,
-                fieldColors = askFieldColors
-            )
-        }
-
-        item {
-            KharcheeWrappedCardSection(
-                expenses = expenses,
-                savingsGoals = savingsGoals,
-                streakDays = streakDays
-            )
         }
     }
 
@@ -1065,11 +1004,856 @@ fun InsightsTab(
 
     if (showReportPreviewDialog) {
         FinancialReportPreviewDialog(
-            bundle = bundle,
+            bundle = pdfTargetBundle,
+            onDownloadPdf = {
+                val res = MonthlyFinancialPdfExporter.downloadPdfToDevice(
+                    context = context,
+                    bundle = pdfTargetBundle,
+                    expenses = expenses,
+                    userDisplayName = userDisplayName
+                )
+                res.onSuccess { exported ->
+                    lastExportedPdfResult = exported
+                    onShowToast("Downloaded ${exported.fileName} to ${exported.savedLocationLabel}")
+                }.onFailure { err ->
+                    onShowToast("Could not generate PDF: ${err.localizedMessage ?: "Error"}")
+                }
+            },
             onDismiss = { showReportPreviewDialog = false }
         )
     }
 }
+
+// ============================================================================
+// 3-SECOND CLARITY CARD 1: "WHERE YOUR MONEY WENT" (TOP 4 CATEGORIES)
+// ============================================================================
+private data class TopFourCategoryDisplay(
+    val category: String,
+    val amount: Long,
+    val percentShare: Int,
+    val color: Color,
+    val detail: InsightCategoryDetail?
+)
+
+@Composable
+private fun ThreeSecondClarityWhereMoneyWentCard(
+    categoryDetails: List<InsightCategoryDetail>,
+    totalSpent: Long,
+    stealthMode: Boolean,
+    onInspectCategory: (InsightCategoryDetail) -> Unit
+) {
+    val headingFont = LocalAppFontFamily.current
+
+    val topFour = remember(categoryDetails, totalSpent) {
+        val defaults = listOf("Food", "Travel", "Bills", "Shopping")
+        val existingByCat = categoryDetails.sortedByDescending { it.amount }
+        val chosen = mutableListOf<TopFourCategoryDisplay>()
+
+        existingByCat.take(4).forEachIndexed { idx, item ->
+            val pct = if (totalSpent > 0L) {
+                ((item.amount.toDouble() / totalSpent.toDouble()) * 100.0).roundToInt().coerceIn(0, 100)
+            } else 0
+            chosen.add(
+                TopFourCategoryDisplay(
+                    category = item.category,
+                    amount = item.amount,
+                    percentShare = pct,
+                    color = resolveInsightCategoryColor(item.category, idx),
+                    detail = item
+                )
+            )
+        }
+
+        var fallbackIdx = chosen.size
+        for (defCat in defaults) {
+            if (chosen.size >= 4) break
+            if (chosen.none { it.category.equals(defCat, ignoreCase = true) }) {
+                chosen.add(
+                    TopFourCategoryDisplay(
+                        category = defCat,
+                        amount = 0L,
+                        percentShare = 0,
+                        color = resolveInsightCategoryColor(defCat, fallbackIdx++),
+                        detail = null
+                    )
+                )
+            }
+        }
+        chosen
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(16.dp, RoundedCornerShape(22.dp), spotColor = MaiPrimaryPurpleStart)
+            .clip(RoundedCornerShape(22.dp))
+            .background(MaiCardSurface)
+            .border(1.dp, MaiCardBorderBright.copy(alpha = 0.4f), RoundedCornerShape(22.dp))
+            .padding(18.dp)
+            .testTag("where_your_money_went_card"),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "1 · WHERE YOUR MONEY WENT",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.1.sp,
+                    color = Color(0xFFD8B4FE)
+                )
+                Text(
+                    text = "Top 4 Spending Categories",
+                    fontFamily = headingFont,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White
+                )
+            }
+            Surface(
+                color = Color(0xFF1F163D),
+                shape = RoundedCornerShape(50),
+                border = BorderStroke(0.8.dp, MaiCardBorder)
+            ) {
+                Text(
+                    text = if (stealthMode) "Total: ₹••••" else "Total: ₹${formatIndianAmount(totalSpent)}",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFE9D5FF),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                )
+            }
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            topFour.forEach { item ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFF120D24))
+                        .border(0.8.dp, Color(0xFF261C47), RoundedCornerShape(14.dp))
+                        .clickable(enabled = item.detail != null) {
+                            item.detail?.let(onInspectCategory)
+                        }
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                        .testTag("top4_category_row_${item.category.lowercase(Locale.ENGLISH)}"),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(item.color.copy(alpha = 0.18f))
+                                    .border(0.7.dp, item.color.copy(alpha = 0.55f), RoundedCornerShape(8.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = getCategoryIcon(item.category),
+                                    contentDescription = item.category,
+                                    tint = item.color,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                            Text(
+                                text = item.category,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+
+                        Text(
+                            text = if (stealthMode) {
+                                "₹•••• · ${item.percentShare}%"
+                            } else {
+                                "₹${formatIndianAmount(item.amount)} · ${item.percentShare}%"
+                            },
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
+                    }
+
+                    LinearProgressIndicator(
+                        progress = { (item.percentShare / 100f).coerceIn(if (item.amount > 0L) 0.04f else 0f, 1f) },
+                        color = item.color,
+                        trackColor = Color(0xFF231842),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(7.dp)
+                            .clip(RoundedCornerShape(50))
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// 3-SECOND CLARITY CARD 2: "MONTH-OVER-MONTH PACE"
+// ============================================================================
+@Composable
+private fun ThreeSecondClarityMonthOverMonthPaceCard(
+    expenses: List<ExpenseRecord>,
+    bundle: CompleteInsightAnalyticsBundle,
+    stealthMode: Boolean
+) {
+    val headingFont = LocalAppFontFamily.current
+
+    val paceStats = remember(expenses, bundle) {
+        val nowCal = Calendar.getInstance()
+        val curYear = nowCal.get(Calendar.YEAR)
+        val curMonth = nowCal.get(Calendar.MONTH)
+
+        val prevCal = Calendar.getInstance().apply {
+            add(Calendar.MONTH, -1)
+        }
+        val prevYear = prevCal.get(Calendar.YEAR)
+        val prevMonth = prevCal.get(Calendar.MONTH)
+
+        var thisMonthTotal = 0L
+        var lastMonthTotal = 0L
+
+        val txCal = Calendar.getInstance()
+        expenses.forEach { tx ->
+            if (!isIncomeTransaction(tx)) {
+                txCal.timeInMillis = tx.txEpochMillis
+                val y = txCal.get(Calendar.YEAR)
+                val m = txCal.get(Calendar.MONTH)
+                if (y == curYear && m == curMonth) {
+                    thisMonthTotal += tx.amount
+                } else if (y == prevYear && m == prevMonth) {
+                    lastMonthTotal += tx.amount
+                }
+            }
+        }
+
+        val deltaPct: Int = when {
+            lastMonthTotal > 0L -> {
+                (((thisMonthTotal - lastMonthTotal).toDouble() / lastMonthTotal.toDouble()) * 100.0).roundToInt()
+            }
+            bundle.overview.expenseChangePercent != null -> bundle.overview.expenseChangePercent
+            else -> 0
+        }
+
+        Triple(thisMonthTotal, lastMonthTotal, deltaPct)
+    }
+
+    val thisMonthSpent = paceStats.first
+    val lastMonthSpent = paceStats.second
+    val deltaPct = paceStats.third
+    val isLowerOrEqual = deltaPct <= 0
+    val absPct = abs(deltaPct)
+
+    val pillColor = if (isLowerOrEqual) MaiPositiveEmerald else MaiWarningAmber
+    val pillText = when {
+        lastMonthSpent == 0L && thisMonthSpent == 0L -> "↓ 0% vs last month — Clean slate!"
+        isLowerOrEqual -> "↓ ${absPct}% less spent than last month — Great pace!"
+        else -> "↑ ${absPct}% higher than last month"
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(16.dp, RoundedCornerShape(22.dp), spotColor = MaiPrimaryPurpleStart)
+            .clip(RoundedCornerShape(22.dp))
+            .background(MaiCardSurface)
+            .border(1.dp, pillColor.copy(alpha = 0.45f), RoundedCornerShape(22.dp))
+            .padding(18.dp)
+            .testTag("month_over_month_pace_card"),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = "2 · MONTH-OVER-MONTH PACE",
+            fontFamily = JetBrainsMonoFontFamily,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 1.1.sp,
+            color = Color(0xFFD8B4FE)
+        )
+
+        // Clear Comparison Pill
+        Surface(
+            color = pillColor.copy(alpha = 0.14f),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, pillColor.copy(alpha = 0.65f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("month_over_month_pace_pill")
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector = if (isLowerOrEqual) Icons.Default.TrendingDown else Icons.Default.TrendingUp,
+                    contentDescription = "Month-over-Month Pace",
+                    tint = pillColor,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = pillText,
+                    fontFamily = headingFont,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = pillColor,
+                    lineHeight = 19.sp
+                )
+            }
+        }
+
+        // Side-by-side This Month vs Last Month comparison
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF120D24))
+                    .border(0.8.dp, Color(0xFF261C47), RoundedCornerShape(12.dp))
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text = "THIS MONTH",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 9.sp,
+                    color = MaiLavenderSubtext
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = if (stealthMode) "₹••••" else "₹${formatIndianAmount(thisMonthSpent)}",
+                    fontFamily = headingFont,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 16.sp,
+                    color = Color.White
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF120D24))
+                    .border(0.8.dp, Color(0xFF261C47), RoundedCornerShape(12.dp))
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text = "LAST MONTH",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 9.sp,
+                    color = MaiLavenderSubtext
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = if (stealthMode) "₹••••" else "₹${formatIndianAmount(lastMonthSpent)}",
+                    fontFamily = headingFont,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 16.sp,
+                    color = MaiLavenderSubtext
+                )
+            }
+        }
+    }
+}
+
+// ============================================================================
+// 3-SECOND CLARITY CARD 3: "MONTH-END FORECAST"
+// ============================================================================
+@Composable
+private fun ThreeSecondClarityMonthEndForecastCard(
+    expenses: List<ExpenseRecord>,
+    dailyLimit: Long,
+    stealthMode: Boolean
+) {
+    val headingFont = LocalAppFontFamily.current
+
+    val forecastData = remember(expenses, dailyLimit) {
+        val cal = Calendar.getInstance()
+        val curYear = cal.get(Calendar.YEAR)
+        val curMonth = cal.get(Calendar.MONTH)
+        val daysElapsed = cal.get(Calendar.DAY_OF_MONTH).coerceAtLeast(1)
+        val daysInMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH).coerceAtLeast(28)
+
+        var monthSpent = 0L
+        var monthIncome = 0L
+        val txCal = Calendar.getInstance()
+        expenses.forEach { tx ->
+            txCal.timeInMillis = tx.txEpochMillis
+            if (txCal.get(Calendar.YEAR) == curYear && txCal.get(Calendar.MONTH) == curMonth) {
+                if (isIncomeTransaction(tx)) {
+                    monthIncome += tx.amount
+                } else {
+                    monthSpent += tx.amount
+                }
+            }
+        }
+
+        val dailyAvg = monthSpent / daysElapsed.toLong()
+        val projectedMonthSpend = dailyAvg * daysInMonth.toLong()
+        val monthlyTargetPool = max(monthIncome, max(500L, dailyLimit) * daysInMonth.toLong())
+        val projectedSavings = max(0L, monthlyTargetPool - projectedMonthSpend)
+
+        Triple(dailyAvg, projectedSavings, projectedMonthSpend to monthlyTargetPool)
+    }
+
+    val dailyAvg = forecastData.first
+    val projectedSavings = forecastData.second
+    val projectedMonthSpend = forecastData.third.first
+    val monthlyTargetPool = forecastData.third.second
+
+    val dailyAvgFormatted = if (stealthMode) "••••" else formatIndianAmount(dailyAvg)
+    val projectedSavingsFormatted = if (stealthMode) "••••" else formatIndianAmount(projectedSavings)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(16.dp, RoundedCornerShape(22.dp), spotColor = MaiPrimaryPurpleStart)
+            .clip(RoundedCornerShape(22.dp))
+            .background(MaiCardSurface)
+            .border(1.dp, MaiPositiveEmerald.copy(alpha = 0.45f), RoundedCornerShape(22.dp))
+            .padding(18.dp)
+            .testTag("month_end_forecast_card"),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "3 · MONTH-END FORECAST",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.1.sp,
+                color = MaiPositiveEmerald
+            )
+            Surface(
+                color = MaiPositiveEmerald.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(50),
+                border = BorderStroke(0.8.dp, MaiPositiveEmerald.copy(alpha = 0.5f))
+            ) {
+                Text(
+                    text = "LINEAR PROJECTION",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaiPositiveEmerald,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
+                )
+            }
+        }
+
+        Text(
+            text = "At your current daily average of ₹$dailyAvgFormatted, you will save ₹$projectedSavingsFormatted by month-end",
+            fontFamily = headingFont,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = Color.White,
+            lineHeight = 21.sp,
+            modifier = Modifier.testTag("month_end_forecast_text")
+        )
+
+        LinearProgressIndicator(
+            progress = {
+                if (monthlyTargetPool > 0L) {
+                    (projectedMonthSpend.toFloat() / monthlyTargetPool.toFloat()).coerceIn(0.05f, 1f)
+                } else 0.1f
+            },
+            color = if (projectedSavings > 0L) MaiPositiveEmerald else MaiWarningAmber,
+            trackColor = Color(0xFF1F163A),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(7.dp)
+                .clip(RoundedCornerShape(50))
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "Daily Avg: ₹$dailyAvgFormatted/day",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontSize = 10.sp,
+                color = MaiLavenderSubtext
+            )
+            Text(
+                text = "Projected Save: ₹$projectedSavingsFormatted",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaiPositiveEmerald
+            )
+        }
+    }
+}
+
+// ============================================================================
+// WEEKLY SPENDING HEATMAP / BAR STRIP (MON–SUN WITH TAP INSPECTION)
+// ============================================================================
+private data class WeeklyDaySlot(
+    val dayShortLabel: String, // Mon, Tue, Wed, Thu, Fri, Sat, Sun
+    val dateFormatted: String, // e.g. "14 Nov"
+    val totalSpend: Long,
+    val topMerchant: String,
+    val topMerchantAmount: Long
+)
+
+@Composable
+private fun WeeklySpendingHeatmapBarStripCard(
+    expenses: List<ExpenseRecord>,
+    dailyLimit: Long,
+    stealthMode: Boolean
+) {
+    val headingFont = LocalAppFontFamily.current
+
+    val weekSlots = remember(expenses) {
+        val dayLabels = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+        val dateFmt = SimpleDateFormat("dd MMM", Locale.ENGLISH)
+
+        // Anchor to current week's Monday..Sunday
+        val mondayCal = Calendar.getInstance().apply {
+            firstDayOfWeek = Calendar.MONDAY
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            val dow = get(Calendar.DAY_OF_WEEK)
+            val diffToMonday = if (dow == Calendar.SUNDAY) -6 else (Calendar.MONDAY - dow)
+            add(Calendar.DAY_OF_YEAR, diffToMonday)
+        }
+
+        dayLabels.mapIndexed { idx, label ->
+            val dayStart = (mondayCal.clone() as Calendar).apply {
+                add(Calendar.DAY_OF_YEAR, idx)
+            }
+            val startMs = dayStart.timeInMillis
+            val endMs = startMs + 86_400_000L - 1L
+
+            val dayExpenses = expenses.filter { tx ->
+                !isIncomeTransaction(tx) && tx.txEpochMillis in startMs..endMs
+            }
+            val sum = dayExpenses.sumOf { it.amount }
+            val topMerchantEntry = dayExpenses
+                .groupBy { it.title.ifBlank { it.category.ifBlank { "Spend" } } }
+                .maxByOrNull { entry -> entry.value.sumOf { it.amount } }
+
+            WeeklyDaySlot(
+                dayShortLabel = label,
+                dateFormatted = dateFmt.format(Date(startMs)),
+                totalSpend = sum,
+                topMerchant = topMerchantEntry?.key ?: "No spend",
+                topMerchantAmount = topMerchantEntry?.value?.sumOf { it.amount } ?: 0L
+            )
+        }
+    }
+
+    val defaultSelectedIdx = remember(weekSlots) {
+        val todayDow = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+        when (todayDow) {
+            Calendar.MONDAY -> 0
+            Calendar.TUESDAY -> 1
+            Calendar.WEDNESDAY -> 2
+            Calendar.THURSDAY -> 3
+            Calendar.FRIDAY -> 4
+            Calendar.SATURDAY -> 5
+            Calendar.SUNDAY -> 6
+            else -> 0
+        }
+    }
+
+    var selectedDayIndex by remember { mutableIntStateOf(defaultSelectedIdx) }
+    val selectedSlot = weekSlots.getOrElse(selectedDayIndex) { weekSlots.first() }
+    val maxDaySpend = remember(weekSlots, dailyLimit) {
+        max(weekSlots.maxOfOrNull { it.totalSpend } ?: 0L, max(500L, dailyLimit))
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(16.dp, RoundedCornerShape(22.dp), spotColor = MaiPrimaryPurpleStart)
+            .clip(RoundedCornerShape(22.dp))
+            .background(MaiCardSurface)
+            .border(1.dp, MaiCardBorder, RoundedCornerShape(22.dp))
+            .padding(18.dp)
+            .testTag("weekly_spending_heatmap_card"),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "WEEKLY SPENDING HEATMAP · MON–SUN",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.1.sp,
+                    color = Color(0xFFD8B4FE)
+                )
+                Text(
+                    text = "Tap any day for spend & top merchant",
+                    fontFamily = headingFont,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White
+                )
+            }
+        }
+
+        // 7-Day Bar Chart Strip (Mon–Sun)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(126.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Bottom
+        ) {
+            weekSlots.forEachIndexed { idx, slot ->
+                val isSelected = selectedDayIndex == idx
+                val ratio = if (maxDaySpend > 0L) {
+                    (slot.totalSpend.toFloat() / maxDaySpend.toFloat()).coerceIn(
+                        if (slot.totalSpend > 0L) 0.14f else 0.06f,
+                        1f
+                    )
+                } else 0.06f
+
+                val barColor = when {
+                    slot.totalSpend == 0L -> Color(0xFF281D46)
+                    slot.totalSpend <= dailyLimit -> MaiPositiveEmerald
+                    slot.totalSpend <= (dailyLimit * 150L) / 100L -> Color(0xFFA855F7)
+                    else -> MaiExpenseRose
+                }
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (isSelected) Color(0xFF1D1438) else Color.Transparent)
+                        .border(
+                            width = if (isSelected) 1.dp else 0.dp,
+                            color = if (isSelected) Color(0xFFD8B4FE) else Color.Transparent,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        .clickable { selectedDayIndex = idx }
+                        .padding(vertical = 6.dp, horizontal = 4.dp)
+                        .testTag("weekly_heatmap_bar_${slot.dayShortLabel.lowercase(Locale.ENGLISH)}"),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Bottom
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.BottomCenter
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.68f)
+                                .fillMaxHeight(ratio)
+                                .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp, bottomStart = 4.dp, bottomEnd = 4.dp))
+                                .background(barColor)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = slot.dayShortLabel,
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 10.sp,
+                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                        color = if (isSelected) Color.White else MaiLavenderSubtext
+                    )
+                }
+            }
+        }
+
+        // Selected Day Detail Pill (Exact Day's Total Spend & Top Merchant)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFF130D26))
+                .border(0.9.dp, Color(0xFF3E2D6E), RoundedCornerShape(14.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+                .testTag("weekly_heatmap_selected_day_detail"),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "${selectedSlot.dayShortLabel}, ${selectedSlot.dateFormatted}",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFD8B4FE)
+                )
+                Text(
+                    text = if (selectedSlot.totalSpend > 0L) {
+                        if (stealthMode) {
+                            "Top Merchant: ${selectedSlot.topMerchant} (₹•••)"
+                        } else {
+                            "Top Merchant: ${selectedSlot.topMerchant} (₹${formatIndianAmount(selectedSlot.topMerchantAmount)})"
+                        }
+                    } else {
+                        "No expenses logged on this day ✨"
+                    },
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White
+                )
+            }
+
+            Text(
+                text = if (stealthMode) "₹••••" else "₹${formatIndianAmount(selectedSlot.totalSpend)}",
+                fontFamily = headingFont,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = if (selectedSlot.totalSpend == 0L) MaiPositiveEmerald else Color.White
+            )
+        }
+    }
+}
+
+// ============================================================================
+// ONE-TAP EXPORT STATEMENT CARD ("Download Monthly Summary (PDF / CSV)")
+// ============================================================================
+@Composable
+private fun OneTapMonthlyStatementExportCard(
+    periodLabel: String,
+    lastExportedPdf: ExportedPdfReportResult?,
+    onDownloadAndSharePdf: () -> Unit,
+    onSavePdfAs: () -> Unit,
+    onExportCsv: () -> Unit
+) {
+    val headingFont = LocalAppFontFamily.current
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(16.dp, RoundedCornerShape(22.dp), spotColor = MaiPrimaryPurpleStart)
+            .clip(RoundedCornerShape(22.dp))
+            .background(MaiCardSurface)
+            .border(1.dp, MaiCardBorderBright.copy(alpha = 0.45f), RoundedCornerShape(22.dp))
+            .padding(18.dp)
+            .testTag("download_monthly_summary_pdf_csv_section"),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "ONE-TAP STATEMENT ARCHIVE",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.1.sp,
+                    color = Color(0xFFD8B4FE)
+                )
+                Text(
+                    text = "Monthly Summary ($periodLabel)",
+                    fontFamily = headingFont,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White
+                )
+            }
+        }
+
+        Button(
+            onClick = onDownloadAndSharePdf,
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaiPrimaryPurpleEnd,
+                contentColor = Color.White
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp)
+                .testTag("download_monthly_summary_pdf_csv_button")
+        ) {
+            Icon(
+                imageVector = Icons.Default.FileDownload,
+                contentDescription = "Download Monthly Summary",
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Download Monthly Summary (PDF / CSV)",
+                fontFamily = headingFont,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 13.sp
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            OutlinedButton(
+                onClick = onSavePdfAs,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(0.8.dp, Color(0xFFA855F7).copy(alpha = 0.65f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFE9D5FF)),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(42.dp)
+                    .testTag("save_monthly_pdf_button")
+            ) {
+                Text("📄 Save PDF File", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            }
+
+            OutlinedButton(
+                onClick = onExportCsv,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(0.8.dp, MaiPositiveEmerald.copy(alpha = 0.65f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaiPositiveEmerald),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(42.dp)
+                    .testTag("export_monthly_csv_button")
+            ) {
+                Text("📊 Share CSV", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
+        if (lastExportedPdf != null) {
+            Text(
+                text = "✓ Last saved: ${lastExportedPdf.fileName}",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontSize = 10.sp,
+                color = MaiPositiveEmerald
+            )
+        }
+    }
+}
+
 
 // ============================================================================
 // COMPONENT 1: MAIN BALANCE & CASHFLOW OVERVIEW GLASS CARD (MATCHES RIGHT SCREEN OF REFERENCE)
@@ -1077,12 +1861,17 @@ fun InsightsTab(
 @Composable
 private fun InsightOverviewGlassCard(
     bundle: CompleteInsightAnalyticsBundle,
+    dailyLimit: Long = 500L,
     stealthMode: Boolean,
     onSelectSection: (InsightSectionView) -> Unit
 ) {
     val headingFont = LocalAppFontFamily.current
     val ov = bundle.overview
     val netBalance = ov.totalIncome - ov.totalExpenses
+    val safeLimit = max(100L, dailyLimit)
+    val avgDailyBurn = bundle.spending.averageDailySpending
+    val safeSpendToday = max(0L, safeLimit - avgDailyBurn)
+    val burnRatio = (avgDailyBurn.toFloat() / safeLimit.toFloat()).coerceIn(0.06f, 1f)
 
     Column(
         modifier = Modifier
@@ -1158,7 +1947,7 @@ private fun InsightOverviewGlassCard(
             }
         }
 
-        // Income & Expenses Split Row (matching reference card layout)
+        // Income & Expenses Split Row
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -1203,7 +1992,8 @@ private fun InsightOverviewGlassCard(
                     fontFamily = headingFont,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = MaiPositiveEmerald
+                    color = MaiPositiveEmerald,
+                    maxLines = 1
                 )
                 Text(
                     text = ov.incomeChangePercent?.let {
@@ -1211,7 +2001,8 @@ private fun InsightOverviewGlassCard(
                     } ?: "Tap for earnings view",
                     fontFamily = JetBrainsMonoFontFamily,
                     fontSize = 9.sp,
-                    color = MaiLavenderSubtext
+                    color = MaiLavenderSubtext,
+                    maxLines = 1
                 )
             }
 
@@ -1255,7 +2046,8 @@ private fun InsightOverviewGlassCard(
                     fontFamily = headingFont,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = MaiExpenseRose
+                    color = MaiExpenseRose,
+                    maxLines = 1
                 )
                 Text(
                     text = ov.expenseChangePercent?.let {
@@ -1263,8 +2055,146 @@ private fun InsightOverviewGlassCard(
                     } ?: "Tap for spending view",
                     fontFamily = JetBrainsMonoFontFamily,
                     fontSize = 9.sp,
-                    color = MaiLavenderSubtext
+                    color = MaiLavenderSubtext,
+                    maxLines = 1
                 )
+            }
+        }
+
+        // Dynamic Cashflow Burn-Rate Radar & Segmented MoM KPI Bars
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF0E091E))
+                .border(0.8.dp, Color(0xFF7C3AED).copy(alpha = 0.45f), RoundedCornerShape(16.dp))
+                .padding(14.dp)
+                .testTag("insight_burn_rate_radar_row"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Circular Pulse Indicator for Daily Safe Burn Rate
+            Box(
+                modifier = Modifier.size(64.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val stroke = 6.dp.toPx()
+                    drawCircle(
+                        color = Color(0xFF281A4D),
+                        style = Stroke(width = stroke)
+                    )
+                    drawArc(
+                        brush = Brush.sweepGradient(
+                            colors = listOf(
+                                Color(0xFF2EE59D),
+                                Color(0xFFA855F7),
+                                Color(0xFF7C3AED)
+                            )
+                        ),
+                        startAngle = -90f,
+                        sweepAngle = 360f * (1f - burnRatio).coerceIn(0.12f, 1f),
+                        useCenter = false,
+                        style = Stroke(width = stroke, cap = StrokeCap.Round)
+                    )
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "SAFE",
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFD8B4FE)
+                    )
+                    Text(
+                        text = if (stealthMode) "₹•••" else "₹${formatIndianAmount(safeSpendToday)}",
+                        fontFamily = headingFont,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color(0xFF2EE59D),
+                        maxLines = 1
+                    )
+                }
+            }
+
+            // Segmented Horizontal Glass Bars for Month-over-Month (MoM) Cashflow Comparison
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Daily Safe Burn Rate",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = if (stealthMode) "Avg ₹•••/day" else "Avg ₹${formatIndianAmount(avgDailyBurn)}/d",
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFFC4B5FD)
+                    )
+                }
+
+                val maxMoM = max(100L, max(ov.monthlySpending, ov.previousPeriodExpenses))
+                val currMoMRatio = (ov.monthlySpending.toFloat() / maxMoM.toFloat()).coerceIn(0.08f, 1f)
+                val prevMoMRatio = (ov.previousPeriodExpenses.toFloat() / maxMoM.toFloat()).coerceIn(0.08f, 1f)
+
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "MoM Outflow Radar",
+                            fontSize = 10.sp,
+                            color = MaiLavenderSubtext
+                        )
+                        Text(
+                            text = ov.monthOverMonthExpenseChangePercent?.let {
+                                if (it > 0) "+$it% vs Prior" else "$it% vs Prior"
+                            } ?: "0% MoM",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFD8B4FE)
+                        )
+                    }
+                    // Current vs Prior Segmented Bar
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(7.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(Color(0xFF1F143B)),
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .weight(currMoMRatio)
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    Brush.horizontalGradient(
+                                        colors = listOf(Color(0xFF7C3AED), Color(0xFFA855F7))
+                                    )
+                                )
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .weight(prevMoMRatio)
+                                .clip(RoundedCornerShape(50))
+                                .background(Color(0xFF38BDF8).copy(alpha = 0.65f))
+                        )
+                    }
+                }
             }
         }
 
@@ -1304,8 +2234,7 @@ private fun InsightOverviewGlassCard(
 }
 
 // ============================================================================
-// COMPONENT 2: ANALYTICS OVERVIEW DONUT + SMOOTH SPLINE CHART WITH FLOATING TOOLTIP
-//              (MATCHES LEFT SCREEN OF UPLOADED REFERENCE IMAGE)
+// COMPONENT 2: 3D GLASS CATEGORY DONUT + INTERACTIVE HOLOGRAPHIC SPLINE & PREDICTIVE RUNWAY
 // ============================================================================
 @Composable
 private fun InsightReferenceDonutAndSplineCard(
@@ -1321,6 +2250,17 @@ private fun InsightReferenceDonutAndSplineCard(
     val dailyPoints = bundle.spending.dailyTrend
     val safeSelectedIdx = selectedDailyIndex.coerceIn(0, max(0, dailyPoints.lastIndex))
     val activeDayPoint = dailyPoints.getOrNull(safeSelectedIdx)
+    val selectedCategoryItem = remember(selectedDonutCategory, categoryStats) {
+        categoryStats.find { it.category == selectedDonutCategory }
+    }
+    val activeSliceExpansionPx by animateFloatAsState(
+        targetValue = if (selectedDonutCategory != null) 1f else 0f,
+        animationSpec = tween(durationMillis = 280),
+        label = "donutSliceExpansion"
+    )
+    val projectedMonthEndOutflow = remember(bundle.spending.averageDailySpending, bundle.overview.monthlySpending) {
+        max(bundle.overview.monthlySpending, bundle.spending.averageDailySpending * 30L)
+    }
 
     Column(
         modifier = Modifier
@@ -1341,7 +2281,7 @@ private fun InsightReferenceDonutAndSplineCard(
             .testTag("insight_analytics_overview_card"),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-        // Top Total Spending Header (matches "Total Spending $1,460.30" in reference)
+        // Top Total Spending Header
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1378,7 +2318,7 @@ private fun InsightReferenceDonutAndSplineCard(
             }
         }
 
-        // Multi-Segment Donut Chart (Left) + Category Legend (Right) — matches reference image
+        // 3D Glass Category Donut with Active Slice Expansion (Left) + Category Legend (Right)
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -1386,12 +2326,35 @@ private fun InsightReferenceDonutAndSplineCard(
         ) {
             Box(
                 modifier = Modifier
-                    .size(164.dp)
+                    .size(172.dp)
+                    .pointerInput(categoryStats) {
+                        detectTapGestures { tapOffset ->
+                            if (categoryStats.isNotEmpty()) {
+                                val centerX = size.width / 2f
+                                val centerY = size.height / 2f
+                                val dx = tapOffset.x - centerX
+                                val dy = tapOffset.y - centerY
+                                val rawDeg = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
+                                val normalizedAngle = ((rawDeg + 90f) % 360f + 360f) % 360f
+                                val total = max(1L, categoryStats.sumOf { it.amount }).toFloat()
+                                var accAngle = 0f
+                                for (item in categoryStats) {
+                                    val sweep = (item.amount.toFloat() / total) * 360f
+                                    if (normalizedAngle >= accAngle && normalizedAngle <= accAngle + sweep) {
+                                        onSelectDonutCategory(item.category)
+                                        break
+                                    }
+                                    accAngle += sweep
+                                }
+                            }
+                        }
+                    }
                     .testTag("insight_donut_chart"),
                 contentAlignment = Alignment.Center
             ) {
-                Canvas(modifier = Modifier.fillMaxSize().padding(10.dp)) {
+                Canvas(modifier = Modifier.fillMaxSize().padding(12.dp)) {
                     val strokeWidth = 26.dp.toPx()
+                    val expandOffsetPx = 6.dp.toPx() * activeSliceExpansionPx
                     if (categoryStats.isEmpty() || bundle.overview.totalExpenses <= 0L) {
                         drawArc(
                             color = Color(0xFF281B4A),
@@ -1406,13 +2369,25 @@ private fun InsightReferenceDonutAndSplineCard(
                         categoryStats.forEach { item ->
                             val sweep = (item.amount.toFloat() / total) * 360f
                             val isHighlighted = selectedDonutCategory == item.category
+                            val extraWidth = if (isHighlighted) expandOffsetPx else 0f
                             drawArc(
                                 color = item.color,
                                 startAngle = currentStartAngle,
                                 sweepAngle = max(4f, sweep - 2.5f),
                                 useCenter = false,
                                 style = Stroke(
-                                    width = if (isHighlighted) strokeWidth + 6.dp.toPx() else strokeWidth,
+                                    width = strokeWidth + extraWidth,
+                                    cap = StrokeCap.Butt
+                                )
+                            )
+                            // 3D Glass Rim Highlight
+                            drawArc(
+                                color = Color.White.copy(alpha = if (isHighlighted) 0.45f else 0.16f),
+                                startAngle = currentStartAngle,
+                                sweepAngle = max(4f, sweep - 2.5f),
+                                useCenter = false,
+                                style = Stroke(
+                                    width = 2.dp.toPx(),
                                     cap = StrokeCap.Butt
                                 )
                             )
@@ -1421,35 +2396,70 @@ private fun InsightReferenceDonutAndSplineCard(
                     }
                 }
 
-                // Center Donut Text ("Sum expenses ₹...")
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(horizontal = 18.dp)
-                ) {
-                    Text(
-                        text = selectedDonutCategory ?: "Sum expenses",
-                        fontSize = 10.sp,
-                        color = MaiLavenderSubtext,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    val centerAmount = if (selectedDonutCategory != null) {
-                        categoryStats.find { it.category == selectedDonutCategory }?.amount ?: bundle.overview.totalExpenses
-                    } else {
-                        bundle.overview.totalExpenses
+                // Dynamic Center Donut Transition: Selected Category Icon, Name, ₹ Amount, and % Share
+                Crossfade(
+                    targetState = selectedCategoryItem,
+                    animationSpec = tween(durationMillis = 220),
+                    label = "donutCenterCrossfade"
+                ) { activeCat ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        modifier = Modifier.padding(horizontal = 18.dp)
+                    ) {
+                        if (activeCat != null) {
+                            Icon(
+                                imageVector = getCategoryIcon(activeCat.category),
+                                contentDescription = activeCat.category,
+                                tint = activeCat.color,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = activeCat.category,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = if (stealthMode) "₹••••" else "₹${formatIndianAmount(activeCat.amount)}",
+                                fontFamily = headingFont,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = activeCat.color,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = "${activeCat.percent}% Share",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaiLavenderSubtext
+                            )
+                        } else {
+                            Text(
+                                text = "Sum expenses",
+                                fontSize = 10.sp,
+                                color = MaiLavenderSubtext,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = if (stealthMode) "₹••••" else "₹${formatIndianAmount(bundle.overview.totalExpenses)}",
+                                fontFamily = headingFont,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
-                    Text(
-                        text = if (stealthMode) "₹••••" else "₹${formatIndianAmount(centerAmount)}",
-                        fontFamily = headingFont,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                        textAlign = TextAlign.Center
-                    )
                 }
             }
 
-            // Right Legend List (Food, Entertainment, Utilities, Transport, Shopping...)
+            // Right Legend List
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1475,12 +2485,14 @@ private fun InsightReferenceDonutAndSplineCard(
                     }
                 } else {
                     categoryStats.take(6).forEach { item ->
+                        val isSelected = selectedDonutCategory == item.category
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) item.color.copy(alpha = 0.16f) else Color.Transparent)
                                 .clickable { onSelectDonutCategory(item.category) }
-                                .padding(vertical = 3.dp, horizontal = 4.dp),
+                                .padding(vertical = 3.dp, horizontal = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -1498,7 +2510,7 @@ private fun InsightReferenceDonutAndSplineCard(
                                 Text(
                                     text = item.category,
                                     fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
+                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
                                     color = Color.White,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -1519,50 +2531,77 @@ private fun InsightReferenceDonutAndSplineCard(
 
         HorizontalDivider(color = MaiCardBorder.copy(alpha = 0.6f), thickness = 0.8.dp)
 
-        // Smooth Area/Spline Chart with Floating Purple Tooltip Pill ("₹ 15,000" over "Thurs")
+        // Interactive Holographic Spline & Scrubber + Predictive Runway Projection (Dotted Neon Curve)
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "7-Day Spending Velocity (Tap a day to inspect)",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaiLavenderSubtext
-                )
+                Column {
+                    Text(
+                        text = "Holographic Spend Velocity & Runway",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = if (stealthMode) {
+                            "Scrub curve · Projected Month-End: ₹••••"
+                        } else {
+                            "Scrub curve · Projected Month-End: ₹${formatIndianAmount(projectedMonthEndOutflow)}"
+                        },
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 9.sp,
+                        color = Color(0xFFC4B5FD)
+                    )
+                }
                 activeDayPoint?.let { pt ->
                     Surface(
-                        color = Color(0xFF4C1D95),
+                        color = Color(0xFF281458).copy(alpha = 0.92f),
                         shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, Color(0xFFC084FC)),
+                        border = BorderStroke(1.dp, Color(0xFFA855F7)),
                         modifier = Modifier.testTag("insight_spline_tooltip_pill")
                     ) {
                         Text(
-                            text = if (stealthMode) "${pt.shortLabel}: ₹••••" else "${pt.shortLabel}: ₹${formatIndianAmount(pt.amount)}",
+                            text = if (stealthMode) {
+                                "${pt.shortLabel} (${pt.label}): ₹••••"
+                            } else {
+                                "${pt.shortLabel} · ${pt.label}: ₹${formatIndianAmount(pt.amount)}"
+                            },
                             fontFamily = JetBrainsMonoFontFamily,
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = Color.White,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            maxLines = 1,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                         )
                     }
                 }
             }
 
-            val maxDaySpend = max(100L, dailyPoints.maxOfOrNull { it.amount } ?: 100L)
+            val maxDaySpend = max(100L, max(dailyPoints.maxOfOrNull { it.amount } ?: 100L, bundle.spending.averageDailySpending))
 
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(145.dp)
+                    .height(152.dp)
                     .pointerInput(dailyPoints) {
                         detectTapGestures { tapOffset ->
                             if (dailyPoints.isNotEmpty() && size.width > 0) {
                                 val slotWidth = size.width.toFloat() / dailyPoints.size
                                 val tappedIdx = (tapOffset.x / slotWidth).toInt().coerceIn(0, dailyPoints.lastIndex)
                                 onSelectDailyIndex(tappedIdx)
+                            }
+                        }
+                    }
+                    .pointerInput(dailyPoints) {
+                        detectHorizontalDragGestures { change, _ ->
+                            change.consume()
+                            if (dailyPoints.isNotEmpty() && size.width > 0) {
+                                val slotWidth = size.width.toFloat() / dailyPoints.size
+                                val scrubbedIdx = (change.position.x / slotWidth).toInt().coerceIn(0, dailyPoints.lastIndex)
+                                onSelectDailyIndex(scrubbedIdx)
                             }
                         }
                     }
@@ -1576,12 +2615,24 @@ private fun InsightReferenceDonutAndSplineCard(
                     val w = size.width
                     val h = size.height
                     if (dailyPoints.size > 1) {
-                        val stepX = w / (dailyPoints.size - 1).coerceAtLeast(1)
+                        // Reserve 82% width for actual points and 18% on the right for dotted month-end projection trail
+                        val actualWidth = w * 0.82f
+                        val stepX = actualWidth / (dailyPoints.size - 1).coerceAtLeast(1)
                         val offsets = dailyPoints.mapIndexed { idx, pt ->
-                            val ratio = (pt.amount.toFloat() / maxDaySpend.toFloat()).coerceIn(0.06f, 1f)
+                            val ratio = (pt.amount.toFloat() / maxDaySpend.toFloat()).coerceIn(0.08f, 1f)
                             Offset(
                                 x = stepX * idx,
                                 y = h * (1f - ratio)
+                            )
+                        }
+
+                        // Subtle glowing vertical grid guidelines
+                        offsets.forEach { ptOffset ->
+                            drawLine(
+                                color = Color(0xFF7C3AED).copy(alpha = 0.14f),
+                                start = Offset(ptOffset.x, 0f),
+                                end = Offset(ptOffset.x, h),
+                                strokeWidth = 1.dp.toPx()
                             )
                         }
 
@@ -1602,13 +2653,13 @@ private fun InsightReferenceDonutAndSplineCard(
                             close()
                         }
 
-                        // Violet/Blue-Purple gradient area fill under spline (matching reference image)
+                        // Electric Purple (#7C3AED) to Neon Violet gradient area fill under spline
                         drawPath(
                             path = fillPath,
                             brush = Brush.verticalGradient(
                                 colors = listOf(
-                                    Color(0xFF8B5CF6).copy(alpha = 0.60f),
-                                    Color(0xFF6366F1).copy(alpha = 0.25f),
+                                    Color(0xFF7C3AED).copy(alpha = 0.58f),
+                                    Color(0xFFA855F7).copy(alpha = 0.22f),
                                     Color.Transparent
                                 ),
                                 startY = 0f,
@@ -1616,29 +2667,74 @@ private fun InsightReferenceDonutAndSplineCard(
                             )
                         )
 
+                        // Glowing outer spline aura
+                        drawPath(
+                            path = smoothPath,
+                            color = Color(0xFF7C3AED).copy(alpha = 0.35f),
+                            style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round)
+                        )
+
+                        // Main Cubic-Bezier Holographic Spline
                         drawPath(
                             path = smoothPath,
                             brush = Brush.horizontalGradient(
                                 colors = listOf(
-                                    Color(0xFF818CF8),
+                                    Color(0xFF7C3AED),
                                     Color(0xFFA855F7),
                                     Color(0xFFD8B4FE)
                                 )
                             ),
-                            style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                            style = Stroke(width = 3.2.dp.toPx(), cap = StrokeCap.Round)
                         )
 
-                        // Highlight selected day point & vertical guide line
+                        // Predictive Runway Projection (Dotted Neon Curve extending to Month-End)
+                        val lastActual = offsets.last()
+                        val avgRatio = (bundle.spending.averageDailySpending.toFloat() / maxDaySpend.toFloat()).coerceIn(0.12f, 0.92f)
+                        val projMid = Offset(
+                            x = actualWidth + (w - actualWidth) * 0.5f,
+                            y = (lastActual.y + h * (1f - avgRatio)) * 0.5f
+                        )
+                        val projEnd = Offset(
+                            x = w,
+                            y = h * (1f - avgRatio)
+                        )
+                        val runwayPath = Path().apply {
+                            moveTo(lastActual.x, lastActual.y)
+                            cubicTo(
+                                (lastActual.x + projMid.x) / 2f,
+                                lastActual.y,
+                                (projMid.x + projEnd.x) / 2f,
+                                projEnd.y,
+                                projEnd.x,
+                                projEnd.y
+                            )
+                        }
+                        drawPath(
+                            path = runwayPath,
+                            color = Color(0xFFD8B4FE).copy(alpha = 0.85f),
+                            style = Stroke(
+                                width = 2.4.dp.toPx(),
+                                cap = StrokeCap.Round,
+                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f), 0f)
+                            )
+                        )
+                        drawCircle(
+                            color = Color(0xFFD8B4FE),
+                            radius = 3.5.dp.toPx(),
+                            center = projEnd
+                        )
+
+                        // Highlight selected day point & scrubber vertical guideline
                         val selectedOffset = offsets[safeSelectedIdx]
                         drawLine(
-                            color = Color(0xFFC084FC).copy(alpha = 0.5f),
-                            start = Offset(selectedOffset.x, selectedOffset.y),
+                            color = Color(0xFFC084FC).copy(alpha = 0.65f),
+                            start = Offset(selectedOffset.x, 0f),
                             end = Offset(selectedOffset.x, h),
                             strokeWidth = 1.5.dp.toPx(),
                             pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f), 0f)
                         )
                         drawCircle(
-                            color = Color(0xFFA855F7).copy(alpha = 0.35f),
+                            color = Color(0xFFA855F7).copy(alpha = 0.40f),
                             radius = 9.dp.toPx(),
                             center = selectedOffset
                         )
@@ -1650,27 +2746,35 @@ private fun InsightReferenceDonutAndSplineCard(
                     }
                 }
 
-                // Bottom Day Labels (Mon, Tue, Wed, Thurs, Fri, Sat, Sun)
+                // Bottom Day Labels + Projected Runway Tag
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     dailyPoints.forEachIndexed { idx, pt ->
                         val isSelected = idx == safeSelectedIdx
                         Text(
                             text = pt.shortLabel,
                             fontFamily = JetBrainsMonoFontFamily,
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
-                            color = if (isSelected) Color(0xFF60A5FA) else MaiLavenderSubtext,
+                            color = if (isSelected) Color(0xFFD8B4FE) else MaiLavenderSubtext,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
                                 .clickable { onSelectDailyIndex(idx) }
                                 .padding(horizontal = 4.dp, vertical = 2.dp)
                         )
                     }
+                    Text(
+                        text = "PROJ →",
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFA855F7)
+                    )
                 }
             }
         }
@@ -2799,16 +3903,29 @@ private fun SavingsAnalyticsSectionCard(
 }
 
 // ============================================================================
-// COMPONENT 9: FINANCIAL REPORTS ACTION CARD (#13)
+// COMPONENT 9: FINANCIAL REPORTS & MONTHLY PDF EXPORT ACTION CARD (#13)
 // ============================================================================
 @Composable
 private fun FinancialReportsActionCard(
     bundle: CompleteInsightAnalyticsBundle,
+    monthlyOptions: List<MonthlyReportPeriodOption>,
+    selectedMonthlyOption: MonthlyReportPeriodOption,
+    useActiveFilter: Boolean,
+    activeFilterLabel: String,
+    lastExportedPdf: ExportedPdfReportResult?,
+    stealthMode: Boolean,
+    onSelectMonthlyOption: (MonthlyReportPeriodOption) -> Unit,
+    onSelectActiveFilter: () -> Unit,
+    onDownloadPdf: () -> Unit,
+    onSavePdfAs: () -> Unit,
+    onOpenExportedPdf: (ExportedPdfReportResult) -> Unit,
+    onShareExportedPdf: (ExportedPdfReportResult) -> Unit,
     onOpenReportPreview: () -> Unit,
     onExportCsv: () -> Unit,
     onShareSummary: () -> Unit
 ) {
     val headingFont = LocalAppFontFamily.current
+    val ov = bundle.overview
 
     Column(
         modifier = Modifier
@@ -2818,29 +3935,202 @@ private fun FinancialReportsActionCard(
             .border(1.dp, MaiCardBorder, RoundedCornerShape(22.dp))
             .padding(18.dp)
             .testTag("insight_financial_reports_card"),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    text = "MONTHLY FINANCIAL PDF REPORTS",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.1.sp,
+                    color = Color(0xFFC084FC)
+                )
+                Text(
+                    text = "Statement & Summary Export",
+                    fontFamily = headingFont,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White
+                )
+            }
+            Surface(
+                color = Color(0xFF1F143B),
+                shape = RoundedCornerShape(50),
+                border = BorderStroke(0.8.dp, MaiPositiveEmerald.copy(alpha = 0.65f))
+            ) {
+                Text(
+                    text = "A4 PDF · ${ov.transactionCount} Txns",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaiPositiveEmerald,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+        }
+
         Text(
-            text = "FINANCIAL INTELLIGENCE REPORTS",
-            fontFamily = JetBrainsMonoFontFamily,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.1.sp,
-            color = Color(0xFFC084FC)
-        )
-        Text(
-            text = "Generate, Inspect & Export (${bundle.timeWindow.filter.label})",
-            fontFamily = headingFont,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = Color.White
-        )
-        Text(
-            text = "Includes Income Summary, Expense Summary, Verified Savings, Category Breakdown, Budget Performance, and Period Comparison.",
+            text = "Select a month below to generate a cleanly formatted PDF summary statement with Executive KPIs, Budget Performance, Category Breakdown, and Chronological Transaction Ledger.",
             fontSize = 11.sp,
-            color = MaiLavenderSubtext
+            color = MaiLavenderSubtext,
+            lineHeight = 16.sp
         )
 
+        // Month Selector Strip for Monthly PDF Export
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            monthlyOptions.forEach { option ->
+                val isSelected = !useActiveFilter && selectedMonthlyOption.id == option.id
+                Surface(
+                    color = if (isSelected) MaiPrimaryPurpleEnd else MaiCardSurfaceElevated,
+                    shape = RoundedCornerShape(50),
+                    border = BorderStroke(
+                        0.8.dp,
+                        if (isSelected) Color(0xFFE9D5FF) else MaiCardBorder
+                    ),
+                    modifier = Modifier
+                        .clickable { onSelectMonthlyOption(option) }
+                        .testTag("pdf_month_option_${option.id}")
+                ) {
+                    Text(
+                        text = option.label,
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 10.sp,
+                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                        color = if (isSelected) Color.White else MaiLavenderSubtext,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+            }
+
+            Surface(
+                color = if (useActiveFilter) MaiPrimaryPurpleEnd else MaiCardSurfaceElevated,
+                shape = RoundedCornerShape(50),
+                border = BorderStroke(
+                    0.8.dp,
+                    if (useActiveFilter) Color(0xFFE9D5FF) else MaiCardBorder
+                ),
+                modifier = Modifier
+                    .clickable { onSelectActiveFilter() }
+                    .testTag("pdf_month_option_active_filter")
+            ) {
+                Text(
+                    text = "Filter: $activeFilterLabel",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 10.sp,
+                    fontWeight = if (useActiveFilter) FontWeight.ExtraBold else FontWeight.Medium,
+                    color = if (useActiveFilter) Color.White else MaiLavenderSubtext,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            }
+        }
+
+        // Mini Report Summary Preview Strip for the Selected Month
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFF0E091E))
+                .border(0.8.dp, MaiCardBorder, RoundedCornerShape(14.dp))
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("PERIOD", fontFamily = JetBrainsMonoFontFamily, fontSize = 8.sp, color = MaiLavenderSubtext)
+                Text(
+                    text = bundle.timeWindow.displayRangeLabel,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text("INCOME", fontFamily = JetBrainsMonoFontFamily, fontSize = 8.sp, color = MaiLavenderSubtext)
+                Text(
+                    text = if (stealthMode) "₹••••" else "+₹${formatIndianAmount(ov.totalIncome)}",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaiPositiveEmerald
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text("EXPENSES", fontFamily = JetBrainsMonoFontFamily, fontSize = 8.sp, color = MaiLavenderSubtext)
+                Text(
+                    text = if (stealthMode) "₹••••" else "-₹${formatIndianAmount(ov.totalExpenses)}",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaiExpenseRose
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text("NET SAVINGS", fontFamily = JetBrainsMonoFontFamily, fontSize = 8.sp, color = MaiLavenderSubtext)
+                Text(
+                    text = if (stealthMode) {
+                        "₹••••"
+                    } else if (!ov.hasRecordedIncome) {
+                        "Unverified"
+                    } else {
+                        "₹${formatIndianAmount(ov.verifiedSavings)}"
+                    },
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFD8B4FE)
+                )
+            }
+        }
+
+        // Primary PDF Download + Save As Row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = onDownloadPdf,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaiPositiveEmerald,
+                    contentColor = Color(0xFF051B11)
+                ),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .weight(1.25f)
+                    .testTag("insight_export_pdf_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FileDownload,
+                    contentDescription = "Download PDF Report",
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Download PDF", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+            }
+
+            OutlinedButton(
+                onClick = onSavePdfAs,
+                border = BorderStroke(1.dp, Color(0xFFD8B4FE)),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("insight_save_pdf_as_button")
+            ) {
+                Text("Save PDF As…", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE9D5FF))
+            }
+        }
+
+        // Secondary Actions Row: View Report, Export CSV, Share Text
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -2875,6 +4165,78 @@ private fun FinancialReportsActionCard(
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Share", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE9D5FF))
+            }
+        }
+
+        // Downloaded PDF Confirmation & Open/Share Card
+        lastExportedPdf?.let { exported ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xFF0A261E))
+                    .border(1.dp, MaiPositiveEmerald.copy(alpha = 0.65f), RoundedCornerShape(14.dp))
+                    .padding(12.dp)
+                    .testTag("insight_pdf_downloaded_banner"),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "PDF Downloaded",
+                        tint = MaiPositiveEmerald,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "PDF Report Generated (${exported.pageCount} page${if (exported.pageCount == 1) "" else "s"} · ${max(1, exported.byteSize / 1024)} KB)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Saved to ${exported.savedLocationLabel}",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 9.sp,
+                            color = Color(0xFFA7F3D0)
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { onOpenExportedPdf(exported) },
+                        border = BorderStroke(0.8.dp, MaiPositiveEmerald),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("insight_open_downloaded_pdf_button")
+                    ) {
+                        Text("Open PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaiPositiveEmerald)
+                    }
+                    OutlinedButton(
+                        onClick = { onShareExportedPdf(exported) },
+                        border = BorderStroke(0.8.dp, Color(0xFFE9D5FF)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("insight_share_downloaded_pdf_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Share PDF",
+                            tint = Color(0xFFE9D5FF),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text("Share PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE9D5FF))
+                    }
+                }
             }
         }
     }
@@ -3083,6 +4445,7 @@ private fun CustomDateRangePickerDialog(
 @Composable
 private fun FinancialReportPreviewDialog(
     bundle: CompleteInsightAnalyticsBundle,
+    onDownloadPdf: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val reportText = remember(bundle) {
@@ -3119,7 +4482,7 @@ private fun FinancialReportPreviewDialog(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(300.dp)
+                        .height(280.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(Color(0xFF090614))
                         .padding(12.dp)
@@ -3132,6 +4495,41 @@ private fun FinancialReportPreviewDialog(
                             color = Color(0xFFE9D5FF),
                             lineHeight = 16.sp
                         )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Close", color = MaiLavenderSubtext)
+                    }
+                    Button(
+                        onClick = {
+                            onDownloadPdf()
+                            onDismiss()
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaiPositiveEmerald,
+                            contentColor = Color(0xFF051B11)
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(1.4f)
+                            .testTag("insight_dialog_download_pdf_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FileDownload,
+                            contentDescription = "Download PDF",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Download PDF", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
                     }
                 }
             }

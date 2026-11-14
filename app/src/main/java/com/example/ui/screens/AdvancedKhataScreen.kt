@@ -105,6 +105,11 @@ import com.example.data.model.UnifiedRecentActivityItem
 import com.example.ui.components.KharcheeCompactHeaderBranding
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalAppFontFamily
+import com.example.util.KhataSplitCardGenerator
+import com.example.util.PaymentUtil
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -120,14 +125,36 @@ fun AdvancedKhataScreen(
     userId: String,
     legacyFriends: List<KhataFriendRecord> = emptyList(),
     stealthMode: Boolean = false,
+    userDisplayName: String = "Kharchee Member",
+    userUpiId: String = "",
     onShowToast: (String) -> Unit = {},
     onOpenVaultTools: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val headingFont = LocalAppFontFamily.current
     val storeVersion by AdvancedKhataStore.versionFlow.collectAsState()
+    val pendingUpiSession by PaymentUtil.activePendingSessionFlow.collectAsState()
     var localRefreshTick by remember { mutableLongStateOf(0L) }
+
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val resumedSession = PaymentUtil.onAppResumedAfterUpiIntent(
+                    context = context,
+                    onShowToast = onShowToast
+                )
+                if (resumedSession != null) {
+                    localRefreshTick++
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     LaunchedEffect(userId, legacyFriends) {
         AdvancedKhataStore.syncLegacyFirestoreFriendsIfNeeded(context, userId, legacyFriends)
@@ -187,6 +214,8 @@ fun AdvancedKhataScreen(
         KhataIndividualPersonLedgerView(
             state = selectedContactState,
             stealthMode = stealthMode,
+            userDisplayName = userDisplayName,
+            userUpiId = userUpiId,
             onBack = { selectedContactId = null },
             onAddLenaHai = {
                 prefilledContactNameForAdd = selectedContactState.contact.name
@@ -225,7 +254,8 @@ fun AdvancedKhataScreen(
                 )
                 localRefreshTick++
                 onShowToast(if (enabled) "🔔 Due reminders enabled for ${selectedContactState.contact.name}" else "🔕 Reminders muted")
-            }
+            },
+            onShowToast = onShowToast
         )
     } else {
         // --- SECTION 2, 3, 4 & 8: KHATA OVERVIEW & KHATA HISTORY ---
@@ -262,29 +292,42 @@ fun AdvancedKhataScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Top Branding & Mode Header
+            // Top Branding & Horizontal Action Header ("Contacts (0)" + "History")
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         KharcheeCompactHeaderBranding(sectionLabel = "KHATA")
                         Text(
                             text = "Digital Bahi-Khata Ledger",
                             fontFamily = headingFont,
-                            fontSize = 22.sp,
+                            fontSize = 20.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = Color.White
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Surface(
-                            color = if (activeSubTab == "overview") MaiPrimaryPurpleEnd else MaiCardSurfaceElevated,
+                            color = if (activeSubTab == "overview") MaiPrimaryPurpleEnd else Color(0xFF0D0E17),
                             shape = RoundedCornerShape(50),
-                            border = BorderStroke(1.dp, if (activeSubTab == "overview") Color(0xFFD8B4FE) else MaiCardBorder),
+                            border = BorderStroke(
+                                1.dp,
+                                if (activeSubTab == "overview") Color(0xFFD8B4FE) else Color(0xFF7C3AED)
+                            ),
                             modifier = Modifier
                                 .clickable { activeSubTab = "overview" }
                                 .testTag("khata_subtab_contacts")
@@ -294,45 +337,70 @@ fun AdvancedKhataScreen(
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
+                                maxLines = 1,
+                                softWrap = false,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                             )
                         }
 
                         Surface(
-                            color = if (activeSubTab == "history") MaiPrimaryPurpleEnd else MaiCardSurfaceElevated,
+                            color = if (activeSubTab == "history") MaiPrimaryPurpleEnd else Color(0xFF0D0E17),
                             shape = RoundedCornerShape(50),
-                            border = BorderStroke(1.dp, if (activeSubTab == "history") Color(0xFFD8B4FE) else MaiCardBorder),
+                            border = BorderStroke(
+                                1.dp,
+                                if (activeSubTab == "history") Color(0xFFD8B4FE) else Color(0xFF7C3AED)
+                            ),
                             modifier = Modifier
                                 .clickable { activeSubTab = "history" }
                                 .testTag("khata_subtab_history")
                         ) {
                             Text(
-                                text = "History (${auditHistory.size})",
+                                text = "History",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
+                                maxLines = 1,
+                                softWrap = false,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                             )
                         }
+                    }
+                }
+            }
 
-                        if (onOpenVaultTools != null) {
-                            Surface(
-                                color = MaiCardSurfaceElevated,
-                                shape = RoundedCornerShape(50),
-                                border = BorderStroke(1.dp, MaiCardBorder),
-                                modifier = Modifier
-                                    .clickable { onOpenVaultTools() }
-                                    .testTag("khata_open_vault_tools_chip")
-                            ) {
-                                Text(
-                                    text = "Goals",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaiLavenderSubtext,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                )
-                            }
-                        }
+            // Post-Payment UPI Sync Confirmation Badge (shown on return from payment intent)
+            if (pendingUpiSession?.hasReturnedToApp == true) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color(0xFF0A241C))
+                            .border(1.dp, MaiPositiveEmerald.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                            .testTag("khata_post_payment_sync_badge"),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "⚡ ${PaymentUtil.POST_PAYMENT_SYNC_MESSAGE}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF2EE59D),
+                            lineHeight = 15.sp,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp)
+                        )
+                        Text(
+                            text = "✕",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaiLavenderSubtext,
+                            modifier = Modifier
+                                .clickable { PaymentUtil.clearPendingUpiSession(context) }
+                                .padding(4.dp)
+                        )
                     }
                 }
             }
@@ -433,7 +501,7 @@ fun AdvancedKhataScreen(
                 if (filteredContacts.isEmpty()) {
                     item {
                         KhataEmptyStateCard(
-                            title = if (allContactStates.isEmpty()) "Your Khata Ledger is Clean" else "No matching contacts found",
+                            title = if (allContactStates.isEmpty()) "Khata is empty. Add a person to track Lena/Dena." else "No matching contacts found",
                             subtitle = if (allContactStates.isEmpty()) {
                                 "Tap '+ Add Lena Hai' when someone owes you money, or '+ Add Dena Hai' when you owe someone."
                             } else {
@@ -447,12 +515,40 @@ fun AdvancedKhataScreen(
                         )
                     }
                 } else {
-                    items(filteredContacts, key = { it.contact.id }) { contactState ->
+                    items(
+                        items = filteredContacts,
+                        key = { it.contact.id },
+                        contentType = { "khata_contact_row" }
+                    ) { contactState ->
                         KhataContactCardItem(
                             state = contactState,
                             stealthMode = stealthMode,
                             onClick = { selectedContactId = contactState.contact.id },
-                            onQuickPayment = { paymentModalContactState = contactState }
+                            onQuickPayment = { paymentModalContactState = contactState },
+                            onInstantUpiPay = {
+                                val resolvedVpa = PaymentUtil.resolvePayeeVpa(
+                                    rawPhoneOrVpa = contactState.contact.phone,
+                                    payeeName = contactState.contact.name
+                                )
+                                PaymentUtil.launchUpiPaymentIntent(
+                                    context = context,
+                                    payeeVpa = resolvedVpa,
+                                    payeeName = contactState.contact.name,
+                                    amount = contactState.outstandingAmount.toString(),
+                                    txnNote = "Settle Khata Due - Kharchee",
+                                    contactId = contactState.contact.id,
+                                    onStatusMessage = onShowToast
+                                )
+                            },
+                            onShareWhatsAppSplitCard = {
+                                KhataSplitCardGenerator.shareSplitReceiptCardOnWhatsApp(
+                                    context = context,
+                                    contactState = contactState,
+                                    userDisplayName = userDisplayName,
+                                    userUpiId = userUpiId,
+                                    onStatusToast = onShowToast
+                                )
+                            }
                         )
                     }
                 }
@@ -482,7 +578,11 @@ fun AdvancedKhataScreen(
                         )
                     }
                 } else {
-                    items(filteredHistory, key = { it.id }) { auditItem ->
+                    items(
+                        items = filteredHistory,
+                        key = { it.id },
+                        contentType = { "khata_history_row" }
+                    ) { auditItem ->
                         KhataHistoryAuditCard(
                             item = auditItem,
                             stealthMode = stealthMode,
@@ -972,7 +1072,9 @@ private fun KhataContactCardItem(
     state: KhataContactComputedState,
     stealthMode: Boolean,
     onClick: () -> Unit,
-    onQuickPayment: () -> Unit
+    onQuickPayment: () -> Unit,
+    onInstantUpiPay: () -> Unit = {},
+    onShareWhatsAppSplitCard: () -> Unit = {}
 ) {
     val headingFont = LocalAppFontFamily.current
     val dateFmt = remember { SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH) }
@@ -1126,33 +1228,103 @@ private fun KhataContactCardItem(
                 Text(
                     text = "Recorded: ₹${formatIndianAmount(state.totalOriginalRecordedForActiveDirection)} · Paid: ₹${formatIndianAmount(state.totalPaidOrReceivedForActiveDirection)}",
                     fontSize = 11.sp,
-                    color = MaiLavenderSubtext
-                )
-                Surface(
-                    color = MaiCardSurfaceElevated,
-                    shape = RoundedCornerShape(50),
-                    border = BorderStroke(0.8.dp, MaiCardBorderBright),
+                    color = MaiLavenderSubtext,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
-                        .clickable { onQuickPayment() }
-                        .testTag("khata_quick_payment_${state.contact.name}")
+                        .weight(1f)
+                        .padding(end = 8.dp)
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    // 1-Tap Viral WhatsApp Split Receipt Card Button whenever Lena Hai (Receivable) is active
+                    if (state.netDirection == KhataDirection.LENA_HAI && state.outstandingAmount > 0L) {
+                        Surface(
+                            color = Color(0xFF0F2920),
+                            shape = RoundedCornerShape(50),
+                            border = BorderStroke(1.dp, MaiPositiveEmerald),
+                            modifier = Modifier
+                                .clickable { onShareWhatsAppSplitCard() }
+                                .testTag("khata_share_split_whatsapp_${state.contact.name}")
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Share Split Card on WhatsApp",
+                                    tint = MaiPositiveEmerald,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Share Split Card on WhatsApp",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaiPositiveEmerald,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                    }
+
+                    // 1-Tap Instant UPI Payment Button whenever Dena Hai (Payout Due) is active
+                    if (state.netDirection == KhataDirection.DENA_HAI && state.outstandingAmount > 0L) {
+                        Surface(
+                            color = Color(0xFF2EE59D),
+                            shape = RoundedCornerShape(50),
+                            border = BorderStroke(1.dp, Color(0xFF6EE7B7)),
+                            modifier = Modifier
+                                .shadow(8.dp, RoundedCornerShape(50), spotColor = Color(0xFF2EE59D))
+                                .clickable { onInstantUpiPay() }
+                                .testTag("khata_instant_upi_pay_${state.contact.name}")
+                        ) {
+                            Text(
+                                text = if (stealthMode) "⚡ Pay ₹•••" else "⚡ Pay ₹${formatIndianAmount(state.outstandingAmount)}",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF040508),
+                                maxLines = 1,
+                                softWrap = false,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+
+                    Surface(
+                        color = MaiCardSurfaceElevated,
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(0.8.dp, MaiCardBorderBright),
+                        modifier = Modifier
+                            .clickable { onQuickPayment() }
+                            .testTag("khata_quick_payment_${state.contact.name}")
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Payments,
-                            contentDescription = "Record Payment",
-                            tint = Color(0xFFD8B4FE),
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Record Payment",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFD8B4FE)
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Payments,
+                                contentDescription = "Record Payment",
+                                tint = Color(0xFFD8B4FE),
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Record Payment",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFD8B4FE),
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                     }
                 }
             }
@@ -1167,6 +1339,8 @@ private fun KhataContactCardItem(
 private fun KhataIndividualPersonLedgerView(
     state: KhataContactComputedState,
     stealthMode: Boolean,
+    userDisplayName: String = "Kharchee Member",
+    userUpiId: String = "",
     onBack: () -> Unit,
     onAddLenaHai: () -> Unit,
     onAddDenaHai: () -> Unit,
@@ -1174,7 +1348,8 @@ private fun KhataIndividualPersonLedgerView(
     onSettleInFull: () -> Unit,
     onEditEntry: (KhataLedgerEntry) -> Unit,
     onRequestDeleteEntry: (KhataLedgerEntry) -> Unit,
-    onToggleReminder: (Boolean) -> Unit
+    onToggleReminder: (Boolean) -> Unit,
+    onShowToast: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val headingFont = LocalAppFontFamily.current
@@ -1410,8 +1585,77 @@ private fun KhataIndividualPersonLedgerView(
                     }
                 }
 
-                // Action Buttons inside Person Ledger: Record Payment, Mark Settled, + Lena Hai, + Dena Hai
+                // Action Buttons inside Person Ledger: 1-Tap WhatsApp Split Receipt (for Lena Hai), 1-Tap UPI Pay (for Dena Hai), Record Payment, Mark Settled
                 if (!state.isSettled) {
+                    if (state.netDirection == KhataDirection.LENA_HAI && state.outstandingAmount > 0L) {
+                        Button(
+                            onClick = {
+                                KhataSplitCardGenerator.shareSplitReceiptCardOnWhatsApp(
+                                    context = context,
+                                    contactState = state,
+                                    userDisplayName = userDisplayName,
+                                    userUpiId = userUpiId,
+                                    onStatusToast = onShowToast
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaiPositiveEmerald,
+                                contentColor = Color(0xFF040508)
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .shadow(10.dp, RoundedCornerShape(14.dp), spotColor = MaiPositiveEmerald)
+                                .testTag("person_ledger_share_split_whatsapp_button")
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Share Split Card on WhatsApp",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+
+                    if (state.netDirection == KhataDirection.DENA_HAI && state.outstandingAmount > 0L) {
+                        val resolvedVpa = remember(state.contact.phone, state.contact.name) {
+                            PaymentUtil.resolvePayeeVpa(state.contact.phone, state.contact.name)
+                        }
+                        Button(
+                            onClick = {
+                                PaymentUtil.launchUpiPaymentIntent(
+                                    context = context,
+                                    payeeVpa = resolvedVpa,
+                                    payeeName = state.contact.name,
+                                    amount = state.outstandingAmount.toString(),
+                                    txnNote = "Settle Khata Due - Kharchee",
+                                    contactId = state.contact.id,
+                                    onStatusMessage = onShowToast
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF2EE59D),
+                                contentColor = Color(0xFF040508)
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .shadow(10.dp, RoundedCornerShape(14.dp), spotColor = Color(0xFF2EE59D))
+                                .testTag("person_ledger_instant_upi_pay_button")
+                        ) {
+                            Text(
+                                text = if (stealthMode) "⚡ Pay ₹••• via UPI ($resolvedVpa)" else "⚡ Pay ₹${formatIndianAmount(state.outstandingAmount)} ($resolvedVpa)",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1483,7 +1727,11 @@ private fun KhataIndividualPersonLedgerView(
             )
         }
 
-        items(state.activeEntries, key = { it.id }) { entry ->
+        items(
+            items = state.activeEntries,
+            key = { it.id },
+            contentType = { "khata_entry_row" }
+        ) { entry ->
             val isPayment = entry.recordType == KhataRecordType.PARTIAL_PAYMENT ||
                 entry.recordType == KhataRecordType.FULL_SETTLEMENT
             val entryAccent = when {
@@ -1555,6 +1803,48 @@ private fun KhataIndividualPersonLedgerView(
                         fontSize = 12.sp,
                         color = MaiLavenderSubtext
                     )
+                }
+
+                // 1-Tap Viral WhatsApp Split Card button on every friend's due entry ("Lena Hai")
+                if (entry.direction == KhataDirection.LENA_HAI && !isPayment) {
+                    Surface(
+                        color = Color(0xFF0F2920),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(0.8.dp, MaiPositiveEmerald.copy(alpha = 0.8f)),
+                        modifier = Modifier
+                            .clickable {
+                                KhataSplitCardGenerator.shareSplitReceiptCardOnWhatsApp(
+                                    context = context,
+                                    contactState = state,
+                                    userDisplayName = userDisplayName,
+                                    userUpiId = userUpiId,
+                                    specificEntryDescription = entry.description,
+                                    specificEntryAmount = entry.amount,
+                                    onStatusToast = onShowToast
+                                )
+                            }
+                            .testTag("entry_share_split_whatsapp_${entry.id}")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Share Split Card on WhatsApp",
+                                tint = MaiPositiveEmerald,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "Share Split Card on WhatsApp",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaiPositiveEmerald
+                            )
+                        }
+                    }
                 }
 
                 Row(
@@ -1926,9 +2216,9 @@ private fun AddKhataUdhaarEntryDialog(
                 OutlinedTextField(
                     value = phone,
                     onValueChange = { phone = it },
-                    label = { Text("Phone (Optional)") },
+                    label = { Text("UPI ID / Phone") },
+                    placeholder = { Text("friend@upi", fontSize = 11.sp) },
                     singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = accentColor,
                         unfocusedBorderColor = MaiCardBorder,
@@ -2364,7 +2654,10 @@ fun DashboardKhataSummarySection(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.MenuBook,
@@ -2377,12 +2670,16 @@ fun DashboardKhataSummarySection(
                         text = "Khata Udhaar Summary",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "${metrics.totalActiveContacts} active people in ledger",
                         fontSize = 11.sp,
-                        color = MaiLavenderSubtext
+                        color = MaiLavenderSubtext,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -2402,7 +2699,9 @@ fun DashboardKhataSummarySection(
                         text = "Open Khata",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = Color.White,
+                        maxLines = 1,
+                        softWrap = false
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Icon(
@@ -2537,7 +2836,10 @@ fun DashboardUnifiedRecentHistorySection(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.History,
@@ -2552,12 +2854,16 @@ fun DashboardUnifiedRecentHistorySection(
                         fontSize = 12.sp,
                         fontWeight = FontWeight.ExtraBold,
                         letterSpacing = 1.sp,
-                        color = Color.White
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "Latest across Income, Expenses, Bills & Khata",
                         fontSize = 11.sp,
-                        color = MaiLavenderSubtext
+                        color = MaiLavenderSubtext,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -2576,7 +2882,9 @@ fun DashboardUnifiedRecentHistorySection(
                     fontFamily = JetBrainsMonoFontFamily,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFFD8B4FE)
+                    color = Color(0xFFD8B4FE),
+                    maxLines = 1,
+                    softWrap = false
                 )
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowForward,

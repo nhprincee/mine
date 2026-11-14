@@ -16,14 +16,18 @@ import com.google.firebase.auth.auth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToLong
 
 class KharcheeRepository(private val db: FirebaseFirestore) {
@@ -55,11 +59,18 @@ class KharcheeRepository(private val db: FirebaseFirestore) {
                     }
                 }
                 .catch { error ->
-                    if (error is Exception) handleFirestoreError(error, OperationType.GET, docRef.path)
+                    val firestoreError = generateSequence(error) { it.cause }
+                        .filterIsInstance<FirebaseFirestoreException>()
+                        .firstOrNull()
+                    if (firestoreError == null && error is CancellationException) throw error
+                    val exceptionToLog = firestoreError ?: (error as? Exception)
+                    if (exceptionToLog != null && auth.currentUser?.uid == userId) {
+                        handleFirestoreError(exceptionToLog, OperationType.GET, docRef.path)
+                    }
                     throw error
                 }
         )
-    }
+    }.flowOn(Dispatchers.IO)
 
     suspend fun upsertUserSettings(
         dailyLimit: Long = 500L,
@@ -228,11 +239,51 @@ class KharcheeRepository(private val db: FirebaseFirestore) {
                         .sortedByDescending { it.txEpochMillis }
                 }
                 .catch { error ->
-                    if (error is Exception) handleFirestoreError(error, OperationType.LIST, path)
+                    val firestoreError = generateSequence(error) { it.cause }
+                        .filterIsInstance<FirebaseFirestoreException>()
+                        .firstOrNull()
+                    if (firestoreError == null && error is CancellationException) throw error
+                    val exceptionToLog = firestoreError ?: (error as? Exception)
+                    if (exceptionToLog != null && auth.currentUser?.uid == userId) {
+                        handleFirestoreError(exceptionToLog, OperationType.LIST, path)
+                    }
                     throw error
                 }
         )
-    }
+    }.flowOn(Dispatchers.IO)
+
+    /**
+     * Paginated dashboard query limited to the top [limitCount] (default 20) recent items
+     * executing strictly on Dispatchers.IO to prevent memory spikes on large ledgers.
+     */
+    fun observeDashboardRecentExpenses(
+        userId: String = requireUserId(),
+        limitCount: Int = 20
+    ): Flow<List<ExpenseRecord>> = flow {
+        val path = "users/$userId/expenses"
+        emitAll(
+            db.collection("users").document(userId).collection("expenses")
+                .whereEqualTo("userId", userId)
+                .limit(limitCount.coerceIn(20, 500).toLong())
+                .snapshots()
+                .map { snapshot ->
+                    snapshot.toObjects(ExpenseRecord::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                        .sortedByDescending { it.txEpochMillis }
+                        .take(limitCount.coerceAtLeast(20))
+                }
+                .catch { error ->
+                    val firestoreError = generateSequence(error) { it.cause }
+                        .filterIsInstance<FirebaseFirestoreException>()
+                        .firstOrNull()
+                    if (firestoreError == null && error is CancellationException) throw error
+                    val exceptionToLog = firestoreError ?: (error as? Exception)
+                    if (exceptionToLog != null && auth.currentUser?.uid == userId) {
+                        handleFirestoreError(exceptionToLog, OperationType.LIST, path)
+                    }
+                    throw error
+                }
+        )
+    }.flowOn(Dispatchers.IO)
 
     suspend fun createExpense(
         title: String,
@@ -246,12 +297,23 @@ class KharcheeRepository(private val db: FirebaseFirestore) {
         val uid = requireUserId()
         val colRef = db.collection("users").document(uid).collection("expenses")
         val docRef = colRef.document()
+        val validCategories = setOf(
+            "Food", "Chai & Snacks", "Transport", "Grocery", "Shopping",
+            "Subscriptions", "Entertainment", "Bills", "Bills & Rent",
+            "Salary", "Freelance", "Cashback", "Refund", "Investment", "Other"
+        )
+        val safeCategory = when {
+            category in validCategories -> category
+            type == "income" || category.contains("Income", ignoreCase = true) || category.contains("Balance", ignoreCase = true) -> "Salary"
+            else -> "Other"
+        }
+        val safePaymentMode = if (paymentMode in setOf("UPI", "Cash", "Card")) paymentMode else "UPI"
         val payload = mapOf(
             "userId" to uid,
             "title" to title.trim().take(120).ifEmpty { "Expense" },
-            "category" to category,
+            "category" to safeCategory,
             "amount" to amount.coerceIn(1L, 10000000L),
-            "paymentMode" to paymentMode,
+            "paymentMode" to safePaymentMode,
             "type" to type,
             "note" to note.trim().take(300),
             "txEpochMillis" to txEpochMillis,
@@ -348,7 +410,14 @@ class KharcheeRepository(private val db: FirebaseFirestore) {
                     snapshot.toObjects(KhataFriendRecord::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
                 }
                 .catch { error ->
-                    if (error is Exception) handleFirestoreError(error, OperationType.LIST, path)
+                    val firestoreError = generateSequence(error) { it.cause }
+                        .filterIsInstance<FirebaseFirestoreException>()
+                        .firstOrNull()
+                    if (firestoreError == null && error is CancellationException) throw error
+                    val exceptionToLog = firestoreError ?: (error as? Exception)
+                    if (exceptionToLog != null && auth.currentUser?.uid == userId) {
+                        handleFirestoreError(exceptionToLog, OperationType.LIST, path)
+                    }
                     throw error
                 }
         )
@@ -462,7 +531,14 @@ class KharcheeRepository(private val db: FirebaseFirestore) {
                     snapshot.toObjects(SavingsGoalRecord::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
                 }
                 .catch { error ->
-                    if (error is Exception) handleFirestoreError(error, OperationType.LIST, path)
+                    val firestoreError = generateSequence(error) { it.cause }
+                        .filterIsInstance<FirebaseFirestoreException>()
+                        .firstOrNull()
+                    if (firestoreError == null && error is CancellationException) throw error
+                    val exceptionToLog = firestoreError ?: (error as? Exception)
+                    if (exceptionToLog != null && auth.currentUser?.uid == userId) {
+                        handleFirestoreError(exceptionToLog, OperationType.LIST, path)
+                    }
                     throw error
                 }
         )
@@ -538,7 +614,14 @@ class KharcheeRepository(private val db: FirebaseFirestore) {
                         .sortedBy { it.txEpochMillis }
                 }
                 .catch { error ->
-                    if (error is Exception) handleFirestoreError(error, OperationType.LIST, path)
+                    val firestoreError = generateSequence(error) { it.cause }
+                        .filterIsInstance<FirebaseFirestoreException>()
+                        .firstOrNull()
+                    if (firestoreError == null && error is CancellationException) throw error
+                    val exceptionToLog = firestoreError ?: (error as? Exception)
+                    if (exceptionToLog != null && auth.currentUser?.uid == userId) {
+                        handleFirestoreError(exceptionToLog, OperationType.LIST, path)
+                    }
                     throw error
                 }
         )
@@ -612,7 +695,14 @@ class KharcheeRepository(private val db: FirebaseFirestore) {
                         .sortedBy { it.dueEpochMillis }
                 }
                 .catch { error ->
-                    if (error is Exception) handleFirestoreError(error, OperationType.LIST, path)
+                    val firestoreError = generateSequence(error) { it.cause }
+                        .filterIsInstance<FirebaseFirestoreException>()
+                        .firstOrNull()
+                    if (firestoreError == null && error is CancellationException) throw error
+                    val exceptionToLog = firestoreError ?: (error as? Exception)
+                    if (exceptionToLog != null && auth.currentUser?.uid == userId) {
+                        handleFirestoreError(exceptionToLog, OperationType.LIST, path)
+                    }
                     throw error
                 }
         )
@@ -700,7 +790,14 @@ class KharcheeRepository(private val db: FirebaseFirestore) {
                         .sortedByDescending { it.eventEpochMillis }
                 }
                 .catch { error ->
-                    if (error is Exception) handleFirestoreError(error, OperationType.LIST, path)
+                    val firestoreError = generateSequence(error) { it.cause }
+                        .filterIsInstance<FirebaseFirestoreException>()
+                        .firstOrNull()
+                    if (firestoreError == null && error is CancellationException) throw error
+                    val exceptionToLog = firestoreError ?: (error as? Exception)
+                    if (exceptionToLog != null && auth.currentUser?.uid == userId) {
+                        handleFirestoreError(exceptionToLog, OperationType.LIST, path)
+                    }
                     throw error
                 }
         )

@@ -151,14 +151,19 @@ fun KhataTab(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 10.dp)
+                    ) {
                         Text(
                             text = "SOVEREIGN KHATA LEDGER",
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Medium,
                             letterSpacing = 1.4.sp,
-                            color = ChampagneGold
+                            color = ChampagneGold,
+                            maxLines = 1
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
@@ -166,7 +171,8 @@ fun KhataTab(
                             fontFamily = headingFont,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.ExtraBold,
-                            color = WarmIvory
+                            color = WarmIvory,
+                            maxLines = 1
                         )
                     }
                     Surface(
@@ -180,11 +186,13 @@ fun KhataTab(
                             .testTag("configure_my_upi_button")
                     ) {
                         Text(
-                            text = if (myUpiId.isNotBlank()) "UPI: $myUpiId ✎" else "Set Receiving UPI ✎",
+                            text = if (myUpiId.isNotBlank()) "UPI: $myUpiId ✎" else "Set UPI ✎",
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Medium,
                             color = ChampagneGold,
+                            maxLines = 1,
+                            softWrap = false,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         )
                     }

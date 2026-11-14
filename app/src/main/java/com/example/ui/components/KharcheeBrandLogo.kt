@@ -7,7 +7,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,8 +17,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
@@ -33,19 +30,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.R
 import com.example.ui.theme.JetBrainsMonoFontFamily
+import com.example.ui.theme.LocalAppFontFamily
 
 /**
- * Centralized KHARCHEE Full Logo Component (Geometric Symbol + KHARCHEE Wordmark).
- * Preserves original proportions, colors, and transparency using ContentScale.Fit.
+ * Centralized KHARCHEE Full Logo Component (Official Architectural "A" Monolith + Bold "KHARCHEE" Wordmark).
  */
 @Composable
 fun KharcheeFullLogo(
@@ -53,19 +47,31 @@ fun KharcheeFullLogo(
     modifier: Modifier = Modifier,
     testTag: String = "kharchee_full_logo"
 ) {
-    Image(
-        painter = painterResource(id = R.drawable.kharchee_logo_full),
-        contentDescription = "KHARCHEE Logo",
-        contentScale = ContentScale.Fit,
+    val headingFont = LocalAppFontFamily.current
+    val glyphHeight = (height * 0.62f).coerceAtLeast(16.dp)
+    val textSp = (height.value * 0.44f).coerceIn(13f, 22f).sp
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         modifier = modifier
             .height(height)
             .testTag(testTag)
-    )
+    ) {
+        KharcheeArchitecturalAMark(size = glyphHeight)
+        Text(
+            text = "KHARCHEE",
+            fontFamily = headingFont,
+            fontSize = textSp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 3.2.sp,
+            color = Color.White
+        )
+    }
 }
 
 /**
- * Centralized KHARCHEE Geometric Symbol Component for compact placements.
- * Preserves original proportions, colors, and transparency using ContentScale.Fit.
+ * Centralized KHARCHEE Architectural "A" Symbol Component for compact placements.
  */
 @Composable
 fun KharcheeSymbolLogo(
@@ -73,37 +79,33 @@ fun KharcheeSymbolLogo(
     modifier: Modifier = Modifier,
     testTag: String = "kharchee_symbol_logo"
 ) {
-    Image(
-        painter = painterResource(id = R.drawable.kharchee_logo_symbol),
-        contentDescription = "KHARCHEE Symbol",
-        contentScale = ContentScale.Fit,
-        modifier = modifier
-            .height(height)
-            .testTag(testTag)
+    KharcheeArchitecturalAMark(
+        size = height,
+        modifier = modifier.testTag(testTag)
     )
 }
 
 /**
- * Compact header branding component combining the approved KHARCHEE geometric symbol
- * with optional section or PRO badge in the Dark Navy + Purple/Violet theme.
+ * Compact header branding component combining the official KHARCHEE architectural "A" symbol
+ * with bold tracking "KHARCHEE" wordmark and optional section or PRO badge.
  */
 @Composable
 fun KharcheeCompactHeaderBranding(
     sectionLabel: String? = null,
     isPro: Boolean = false,
-    symbolHeight: Dp = 16.dp,
+    symbolHeight: Dp = 14.dp,
     modifier: Modifier = Modifier,
     testTag: String = "kharchee_compact_header_branding"
 ) {
     Surface(
-        color = Color(0xFF1F133D),
+        color = Color(0xFF151329),
         shape = RoundedCornerShape(50),
-        border = BorderStroke(0.8.dp, Color(0xFF8B5CF6).copy(alpha = 0.7f)),
+        border = BorderStroke(0.8.dp, Color(0xFFA855F7).copy(alpha = 0.65f)),
         modifier = modifier.testTag(testTag)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
         ) {
             KharcheeSymbolLogo(height = symbolHeight)
@@ -116,59 +118,70 @@ fun KharcheeCompactHeaderBranding(
                 fontFamily = JetBrainsMonoFontFamily,
                 fontSize = 9.sp,
                 fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 1.sp,
-                color = Color(0xFFE9D5FF)
+                letterSpacing = 1.4.sp,
+                color = Color.White
             )
         }
     }
 }
 
 /**
- * Subtle logo-based loading indicator for screen and app loading states.
+ * Subtle logo-based loading indicator featuring the official KHARCHEE architectural "A" monolith.
  */
 @Composable
 fun KharcheeLogoLoadingIndicator(
     message: String = "Synchronizing KHARCHEE...",
     modifier: Modifier = Modifier
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "kharcheeLogoPulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 0.96f,
-        targetValue = 1.04f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1100, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseScale"
-    )
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.72f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1100, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseAlpha"
-    )
+    val pauseAnimations = com.example.util.PerformancePreferences.shouldPauseAnimations()
+    val pulseScale: Float
+    val pulseAlpha: Float
+
+    if (pauseAnimations) {
+        pulseScale = 1.0f
+        pulseAlpha = 1.0f
+    } else {
+        val infiniteTransition = rememberInfiniteTransition(label = "kharcheeLogoPulse")
+        val animScale by infiniteTransition.animateFloat(
+            initialValue = 0.96f,
+            targetValue = 1.04f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1100, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "pulseScale"
+        )
+        val animAlpha by infiniteTransition.animateFloat(
+            initialValue = 0.78f,
+            targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1100, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "pulseAlpha"
+        )
+        pulseScale = animScale
+        pulseAlpha = animAlpha
+    }
 
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF070510))
+            .background(Color(0xFF05050A))
             .testTag("kharchee_logo_loading_indicator"),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Box(
             modifier = Modifier
-                .size(88.dp)
-                .clip(CircleShape)
+                .size(96.dp)
+                .clip(RoundedCornerShape(28.dp))
                 .background(
-                    Brush.radialGradient(
+                    Brush.linearGradient(
                         colors = listOf(
-                            Color(0xFF7C3AED).copy(alpha = 0.28f),
-                            Color(0xFF150D2E),
-                            Color.Transparent
+                            Color(0xFF141126),
+                            Color(0xFF0D0E17),
+                            Color(0xFF05050A)
                         )
                     )
                 ),
@@ -177,7 +190,7 @@ fun KharcheeLogoLoadingIndicator(
             CircularProgressIndicator(
                 color = Color(0xFFA855F7),
                 strokeWidth = 2.dp,
-                modifier = Modifier.size(76.dp)
+                modifier = Modifier.size(82.dp)
             )
             KharcheeSymbolLogo(
                 height = 28.dp,
@@ -189,9 +202,9 @@ fun KharcheeLogoLoadingIndicator(
                     .alpha(pulseAlpha)
             )
         }
-        Spacer(modifier = Modifier.height(14.dp))
-        KharcheeFullLogo(height = 24.dp)
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+        KharcheeFullLogo(height = 26.dp)
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = message,
             fontFamily = JetBrainsMonoFontFamily,

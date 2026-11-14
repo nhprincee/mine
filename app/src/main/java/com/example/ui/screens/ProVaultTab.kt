@@ -115,38 +115,21 @@ private data class ProTierPlan(
 
 private val PRO_TIER_PLANS = listOf(
     ProTierPlan(
-        id = "gold_monthly",
-        title = "PRO Silver Edition",
-        priceDisplay = "₹30/month",
-        amountInr = 30,
-        cycleLabel = "Billed monthly · Cancel anytime",
-        badgeText = "OBSIDIAN SILVER TIER",
-        tagline = "Full J.A.R.V.I.S. Voice Copilot + Obsidian Themes",
-        accentColor = ObsidianDarkSilver,
+        id = "sovereign_lifetime",
+        title = "Kharchee Sovereign Lifetime",
+        priceDisplay = "₹499 (One-Time)",
+        amountInr = 499,
+        cycleLabel = "One-Time Optional Support Tier · Lifetime Access · Zero Subscriptions",
+        badgeText = "KHARCHEE SOVEREIGN · LIFETIME",
+        tagline = "Custom Neon App Icons + Automated Tax/GST PDF & Excel Reports + Jarvis Voice Audio Mode + Custom Obsidian/Gold Card Themes",
+        accentColor = ChampagneGold,
         rimColors = listOf(
-            ObsidianDarkSilver,
-            ObsidianDarkBorder,
-            ObsidianDarkSilver
-        ),
-        tierKey = "gold",
-        durationDays = 30
-    ),
-    ProTierPlan(
-        id = "platinum_quarterly",
-        title = "PRO Obsidian Elite",
-        priceDisplay = "₹99/3 months",
-        amountInr = 99,
-        cycleLabel = "Quarterly Private Banking Pass · Priority AI Core",
-        badgeText = "OBSIDIAN ELITE · PREFERRED",
-        tagline = "Obsidian Titanium Reserve + Unlimited Split Khata",
-        accentColor = ObsidianDarkEmeraldAccent,
-        rimColors = listOf(
-            ObsidianDarkEmeraldAccent,
-            ObsidianDarkSilver,
+            ChampagneGold,
+            Color(0xFFA855F7),
             ObsidianDarkEmeraldAccent
         ),
         tierKey = "platinum",
-        durationDays = 90
+        durationDays = 36500
     )
 )
 
@@ -159,29 +142,37 @@ private data class ProFeatureHighlight(
 
 private val PRO_FEATURE_HIGHLIGHTS = listOf(
     ProFeatureHighlight(
-        title = "J.A.R.V.I.S. Uncapped Voice Analytics",
-        subtitle = "Unlimited Hindi, Hinglish & English spoken coaching and real-time spend insights",
-        icon = Icons.Default.AutoAwesome,
-        tint = ObsidianDarkEmeraldAccent
-    ),
-    ProFeatureHighlight(
-        title = "Obsidian Luxury HUD Themes",
-        subtitle = "Switch seamlessly between Obsidian Dark, Obsidian Light, Metallic Silver & Carbon Slate",
+        title = "Custom Neon App Icons",
+        subtitle = "Personalize your home screen with Cyber-Violet, Brushed 24K Gold & Stealth Obsidian launcher emblems",
         icon = Icons.Default.Palette,
-        tint = ObsidianDarkSilver
+        tint = Color(0xFFD8B4FE)
     ),
     ProFeatureHighlight(
-        title = "Unlimited Split Khata Ledgers",
-        subtitle = "Track unlimited friend group splits, 1-tap UPI settlements & WhatsApp reminders",
-        icon = Icons.Default.Groups,
+        title = "Automated Tax/GST PDF & Excel Reports",
+        subtitle = "1-tap CA-ready FY audit sheets, GST input credit summaries & structured CSV/Excel ledger exports",
+        icon = Icons.Default.Verified,
         tint = ObsidianDarkEmeraldAccent
     ),
     ProFeatureHighlight(
-        title = "Zero Ads",
-        subtitle = "100% distraction-free matte-black and metallic-silver private banking experience",
-        icon = Icons.Default.Verified,
-        tint = ObsidianDarkPrimaryText
+        title = "Jarvis Voice Audio Mode",
+        subtitle = "Hands-free spoken Hindi, Hinglish & English audio financial briefings and real-time voice coaching",
+        icon = Icons.Default.AutoAwesome,
+        tint = ChampagneGold
+    ),
+    ProFeatureHighlight(
+        title = "Custom Obsidian/Gold Card Themes",
+        subtitle = "Unlock Brushed 24K Sovereign Gold, Matte Titanium & Cyber-Neon finishes for your Hero Balance Card",
+        icon = Icons.Default.WorkspacePremium,
+        tint = ObsidianDarkSilver
     )
+)
+
+private val LIFETIME_FREE_CORE_PROMISES = listOf(
+    "Adding unlimited expenses & incomes" to "100% Free Forever",
+    "Full Khata ledger & 1-tap UPI settlements" to "100% Free Forever",
+    "Real-time SMS Auto-detection & clipboard parsing" to "100% Free Forever",
+    "Encrypted Google Drive backup & restore" to "100% Free Forever",
+    "Biometric/PIN App-Lock & Jarvis financial queries" to "100% Free Forever"
 )
 
 @Composable
@@ -211,12 +202,15 @@ fun ProVaultTab(
 
     val activeProTier = if (settings.isPro) settings.proTier else null
     var selectedPlanId by remember(activeProTier) {
-        mutableStateOf(if (activeProTier == "gold") "gold_monthly" else "platinum_quarterly")
+        mutableStateOf("sovereign_lifetime")
     }
     var showCheckoutModal by remember { mutableStateOf(false) }
+    var selectedNeonIconStyle by remember { mutableStateOf("Cyber-Violet A-Emblem") }
+    var selectedCardFinish by remember { mutableStateOf("Obsidian Titanium Mesh") }
+    var jarvisVoiceAudioEnabled by remember { mutableStateOf(true) }
 
     val selectedPlan = remember(selectedPlanId) {
-        PRO_TIER_PLANS.find { it.id == selectedPlanId } ?: PRO_TIER_PLANS.last()
+        PRO_TIER_PLANS.find { it.id == selectedPlanId } ?: PRO_TIER_PLANS.first()
     }
 
     val now = System.currentTimeMillis()
@@ -248,6 +242,132 @@ fun ProVaultTab(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Ethical Privacy & Trust Pill
+        item {
+            Surface(
+                color = Color(0xFF0A1F17),
+                shape = RoundedCornerShape(50),
+                border = androidx.compose.foundation.BorderStroke(
+                    width = 1.dp,
+                    color = SophisticatedEmerald.copy(alpha = 0.65f)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("sovereign_tab_ethical_privacy_pill")
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "🛡️ 100% Local-First Privacy • Zero Ads • Core Features Free Forever",
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = SophisticatedEmerald
+                    )
+                }
+            }
+        }
+
+        // 100% LIFETIME FREE CORE PROMISE CARD (ZERO PAYWALLS ON CORE UTILITY)
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(RichGraphite)
+                    .border(
+                        width = 1.dp,
+                        color = SophisticatedEmerald.copy(alpha = 0.55f),
+                        shape = RoundedCornerShape(20.dp)
+                    )
+                    .padding(18.dp)
+                    .testTag("lifetime_free_core_promise_card"),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "100% LIFETIME FREE CORE PROMISE",
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 1.1.sp,
+                        color = SophisticatedEmerald
+                    )
+                    Surface(
+                        color = SophisticatedEmerald.copy(alpha = 0.16f),
+                        shape = RoundedCornerShape(50),
+                        border = androidx.compose.foundation.BorderStroke(0.8.dp, SophisticatedEmerald.copy(alpha = 0.5f))
+                    ) {
+                        Text(
+                            text = "ZERO PAYWALLS",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = SophisticatedEmerald,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Every essential financial tool in Kharchee is permanently unlocked for all users — no trial limits, no lock icons, and no subscription traps.",
+                    fontSize = 12.sp,
+                    color = MutedIvory,
+                    lineHeight = 17.sp
+                )
+
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    LIFETIME_FREE_CORE_PROMISES.forEach { (featureName, badgeLabel) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(11.dp))
+                                .background(ObsidianBlack)
+                                .border(0.6.dp, HairlinePlatinum, RoundedCornerShape(11.dp))
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Free Forever",
+                                    tint = SophisticatedEmerald,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = featureName,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = WarmIvory
+                                )
+                            }
+                            Text(
+                                text = badgeLabel,
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = SophisticatedEmerald
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // Obsidian Luxury Matte-Black & Metallic-Silver Discipline Card
         item {
             Box(
@@ -294,9 +414,9 @@ fun ProVaultTab(
                     ) {
                         Text(
                             text = if (settings.isPro) {
-                                "ACTIVE: ${if (settings.proTier == "platinum") "PRO OBSIDIAN ELITE" else "PRO SILVER"} · VALID UNTIL $expiryFormatted"
+                                "ACTIVE: KHARCHEE SOVEREIGN LIFETIME · UNLOCKED FOREVER"
                             } else {
-                                "OBSIDIAN PRIVATE CLUB PASS (STANDARD)"
+                                "KHARCHEE SOVEREIGN · CORE FOREVER FREE"
                             },
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 10.sp,
@@ -449,7 +569,7 @@ fun ProVaultTab(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
-                                text = "PRO SPENDING VELOCITY & TRENDS",
+                                text = "SPENDING VELOCITY & TRENDS",
                                 fontFamily = JetBrainsMonoFontFamily,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
@@ -457,7 +577,7 @@ fun ProVaultTab(
                                 color = ChampagneGold
                             )
                             Text(
-                                text = if (settings.isPro) "Unrestricted Autonomous Analytics Active" else "Private Banking Telemetry Preview",
+                                text = "Unrestricted Autonomous Analytics Active",
                                 fontFamily = headingFont,
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.ExtraBold,
@@ -468,16 +588,16 @@ fun ProVaultTab(
                     }
 
                     Surface(
-                        color = if (settings.isPro) SophisticatedEmerald.copy(alpha = 0.14f) else ChampagneGold.copy(alpha = 0.12f),
+                        color = SophisticatedEmerald.copy(alpha = 0.14f),
                         shape = RoundedCornerShape(50),
-                        border = androidx.compose.foundation.BorderStroke(0.6.dp, if (settings.isPro) SophisticatedEmerald else ChampagneGold)
+                        border = androidx.compose.foundation.BorderStroke(0.6.dp, SophisticatedEmerald)
                     ) {
                         Text(
-                            text = if (settings.isPro) "👑 UNLOCKED" else "🔒 PRO ACCESS",
+                            text = "✓ FREE CORE",
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 9.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (settings.isPro) SophisticatedEmerald else ChampagneGold,
+                            color = SophisticatedEmerald,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }
@@ -623,11 +743,7 @@ fun ProVaultTab(
                     }
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = if (settings.isPro) {
-                            "Neural telemetry verified: Spending velocity is within optimal parameters. Top outflow category: ${thisWeekExpenses.groupBy { it.category }.maxByOrNull { it.value.sumOf { tx -> tx.amount } }?.key ?: "None"}."
-                        } else {
-                            "Preview Mode: Upgrade to Kharchee PRO for uncapped neural telemetry, personalized budget forecasting, and daily audio spending audits."
-                        },
+                        text = "Neural telemetry verified: Spending velocity is within optimal parameters. Top outflow category: ${thisWeekExpenses.groupBy { it.category }.maxByOrNull { it.value.sumOf { tx -> tx.amount } }?.key ?: "None"}. All Jarvis financial queries are 100% free forever.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MutedIvory,
                         lineHeight = 16.sp
@@ -636,7 +752,7 @@ fun ProVaultTab(
             }
         }
 
-        // DEDICATED PRO MEMBERSHIP & UPGRADE SECTION
+        // DEDICATED "KHARCHEE SOVEREIGN" LIFETIME OPTIONAL SUPPORT TIER (₹499 ONE-TIME)
         item {
             Column(
                 modifier = Modifier
@@ -675,7 +791,7 @@ fun ProVaultTab(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.WorkspacePremium,
-                                contentDescription = "Kharchee PRO Membership",
+                                contentDescription = "Kharchee Sovereign Lifetime",
                                 tint = ChampagneGold,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -683,7 +799,7 @@ fun ProVaultTab(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "KHARCHEE PRO VAULT MEMBERSHIP",
+                                text = "KHARCHEE SOVEREIGN · OPTIONAL LUXURY TIER",
                                 fontFamily = JetBrainsMonoFontFamily,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
@@ -691,7 +807,7 @@ fun ProVaultTab(
                                 color = ChampagneGold
                             )
                             Text(
-                                text = "Sovereign Titanium Privileges & Uncapped J.A.R.V.I.S. AI",
+                                text = "Kharchee Sovereign Lifetime — ₹499 (One-Time)",
                                 fontFamily = headingFont,
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.ExtraBold,
@@ -860,26 +976,158 @@ fun ProVaultTab(
                     }
                 }
 
-                // Premium Razorpay / UPI Activation Button with Sleek Champagne Gold Metallic Gradient
+                // Interactive Kharchee Sovereign Exclusive Power Perks Controls
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(ObsidianBlack)
+                        .border(0.8.dp, ChampagneGold.copy(alpha = 0.45f), RoundedCornerShape(16.dp))
+                        .padding(14.dp)
+                        .testTag("sovereign_power_perks_controls"),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "SOVEREIGN EXCLUSIVE POWER PERKS STUDIO",
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 1.1.sp,
+                        color = ChampagneGold
+                    )
+
+                    // Perk 1: Custom Neon App Icons selector
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf("Cyber-Violet A-Emblem", "24K Sovereign Gold", "Stealth Titanium").forEach { iconStyle ->
+                            val active = selectedNeonIconStyle == iconStyle
+                            Surface(
+                                color = if (active) Color(0xFFA855F7).copy(alpha = 0.22f) else RichGraphite,
+                                shape = RoundedCornerShape(10.dp),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    0.8.dp,
+                                    if (active) Color(0xFFA855F7) else HairlinePlatinum
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        selectedNeonIconStyle = iconStyle
+                                        onShowToast("✨ Neon App Icon style set to $iconStyle")
+                                    }
+                            ) {
+                                Text(
+                                    text = iconStyle,
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (active) Color(0xFFD8B4FE) else MutedPlatinum,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Perk 2: Custom Obsidian/Gold Card Themes selector
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf("Obsidian Titanium Mesh", "Brushed 24K Gold", "Cyber-Neon Edge").forEach { finish ->
+                            val active = selectedCardFinish == finish
+                            Surface(
+                                color = if (active) ChampagneGold.copy(alpha = 0.18f) else RichGraphite,
+                                shape = RoundedCornerShape(10.dp),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    0.8.dp,
+                                    if (active) ChampagneGold else HairlinePlatinum
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        selectedCardFinish = finish
+                                        onShowToast("💳 Card Theme set to $finish")
+                                    }
+                            ) {
+                                Text(
+                                    text = finish,
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (active) ChampagneGold else MutedPlatinum,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Perk 3 & 4: Jarvis Voice Audio Mode + Automated Tax/GST PDF & Excel Report Action
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                jarvisVoiceAudioEnabled = !jarvisVoiceAudioEnabled
+                                onShowToast(
+                                    if (jarvisVoiceAudioEnabled) "🎙️ Jarvis Voice Audio Mode Enabled"
+                                    else "🔇 Jarvis Voice Audio Mode Muted"
+                                )
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(0.8.dp, ChampagneGold.copy(alpha = 0.7f)),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = if (jarvisVoiceAudioEnabled) "🎙️ Voice Mode: ON" else "🔇 Voice Mode: OFF",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ChampagneGold
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                onShowToast("📊 Generated FY Tax/GST PDF & Excel Summary (${expenses.size} txns)")
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(0.8.dp, SophisticatedEmerald.copy(alpha = 0.7f)),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = "📄 Tax/GST Report",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = SophisticatedEmerald
+                            )
+                        }
+                    }
+                }
+
+                // Clean One-Time Optional Support Button ("Kharchee Sovereign Lifetime — ₹499 (One-Time)")
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(54.dp)
-                        .shadow(12.dp, RoundedCornerShape(16.dp))
+                        .shadow(16.dp, RoundedCornerShape(16.dp), spotColor = Color(0xFF7C3AED))
                         .clip(RoundedCornerShape(16.dp))
                         .background(
                             Brush.horizontalGradient(
                                 colors = listOf(
-                                    ChampagneGold,
-                                    ChampagneGoldSoft,
-                                    MutedPlatinum,
-                                    ChampagneGold
+                                    Color(0xFF7C3AED),
+                                    Color(0xFFA855F7),
+                                    Color(0xFFC084FC),
+                                    Color(0xFF7C3AED)
                                 )
                             )
                         )
                         .border(
                             width = 1.dp,
-                            color = WarmIvory.copy(alpha = 0.75f),
+                            color = Color(0xFFF3E8FF).copy(alpha = 0.85f),
                             shape = RoundedCornerShape(16.dp)
                         )
                         .clickable { showCheckoutModal = true }
@@ -891,17 +1139,21 @@ fun ProVaultTab(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Bolt,
-                            contentDescription = "Activate via Razorpay or UPI",
-                            tint = ObsidianBlack,
+                            imageVector = Icons.Default.WorkspacePremium,
+                            contentDescription = "Unlock Kharchee Sovereign Lifetime",
+                            tint = Color.White,
                             modifier = Modifier.size(19.dp)
                         )
                         Text(
-                            text = "ACTIVATE ${selectedPlan.title.uppercase()} (${selectedPlan.priceDisplay}) · RAZORPAY / UPI",
+                            text = if (settings.isPro) {
+                                "✓ KHARCHEE SOVEREIGN LIFETIME UNLOCKED"
+                            } else {
+                                "Kharchee Sovereign Lifetime — ₹499 (One-Time)"
+                            },
                             fontFamily = JetBrainsMonoFontFamily,
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.ExtraBold,
                             fontSize = 11.sp,
-                            color = ObsidianBlack
+                            color = Color.White
                         )
                     }
                 }
@@ -1009,90 +1261,7 @@ fun ProVaultTab(
             }
         }
 
-        // HUD Theme Switcher
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(RichGraphite)
-                    .border(0.8.dp, HairlinePlatinum, RoundedCornerShape(22.dp))
-                    .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.Palette,
-                        contentDescription = "Themes",
-                        tint = ChampagneGold,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "SOVEREIGN VAULT FINISHES",
-                        fontFamily = JetBrainsMonoFontFamily,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 1.2.sp,
-                        color = WarmIvory
-                    )
-                }
-
-                ALL_HUD_THEMES.forEach { itemTheme ->
-                    val isSelected = settings.themeId == itemTheme.id
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(if (isSelected) ElevatedGraphite else ObsidianBlack)
-                            .border(
-                                width = if (isSelected) 1.2.dp else 0.8.dp,
-                                color = if (isSelected) itemTheme.accent else HairlinePlatinum,
-                                shape = RoundedCornerShape(16.dp)
-                            )
-                            .clickable { onSelectTheme(itemTheme.id) }
-                            .padding(14.dp)
-                            .testTag("select_theme_${itemTheme.id}"),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(itemTheme.accent.copy(alpha = 0.16f))
-                                .border(0.8.dp, itemTheme.accent, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(text = itemTheme.symbol, color = itemTheme.accent, fontSize = 15.sp)
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = itemTheme.name,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = WarmIvory,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp
-                            )
-                            Text(
-                                text = itemTheme.subtitle,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MutedIvory,
-                                fontSize = 11.sp
-                            )
-                        }
-                        if (isSelected) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = "Active Theme",
-                                tint = itemTheme.accent,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        // Single Universal Purple Luxury Theme Locked: multi-theme switcher removed
 
         // Discipline Automation & UPI Guard Tone Settings
         item {
@@ -1275,7 +1444,7 @@ fun ProVaultTab(
             containerColor = RichGraphite,
             title = {
                 Text(
-                    text = "KHARCHEE PRO · ${selectedPlan.title}",
+                    text = "Kharchee Sovereign Lifetime — ₹499 (One-Time)",
                     fontFamily = headingFont,
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.ExtraBold,
@@ -1285,8 +1454,8 @@ fun ProVaultTab(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "Plan: ${selectedPlan.title} (${selectedPlan.priceDisplay})",
-                        style = MaterialTheme.typography.bodyLarge,
+                        text = "One-Time Optional Support Tier · No Subscriptions · Core Features Free Forever",
+                        style = MaterialTheme.typography.bodyMedium,
                         color = ChampagneGold,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -1302,25 +1471,25 @@ fun ProVaultTab(
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                text = "RAZORPAY CHECKOUT · SETUP / SANDBOX STATE",
+                                text = "EXCLUSIVE POWER PERKS INCLUDED",
                                 fontFamily = JetBrainsMonoFontFamily,
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = ChampagneGold
                             )
                             Text(
-                                text = "Live production activation requires server-side Razorpay signature verification (RAZORPAY_KEY_ID & HMAC webhook secret). When live Razorpay server keys are not configured, you can launch UPI checkout or preview Pro in Sandbox/Test mode.",
+                                text = "• Custom Neon App Icons\n• Automated Tax/GST PDF & Excel Reports\n• Jarvis Voice Audio Mode\n• Custom Obsidian/Gold Card Themes",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MutedPlatinum,
+                                color = WarmIvory,
                                 fontSize = 11.sp,
-                                lineHeight = 16.sp
+                                lineHeight = 17.sp
                             )
                         }
                     }
                     Text(
-                        text = "Includes J.A.R.V.I.S. Uncapped Voice Analytics, Three Independent HUD Themes, Unlimited Split Khata Ledgers, and Zero Ads.",
+                        text = "🛡️ 100% Local-First Privacy • Zero Ads • Core Features Free Forever.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MutedIvory
+                        color = SophisticatedEmerald
                     )
                 }
             },
@@ -1329,7 +1498,7 @@ fun ProVaultTab(
                     onClick = {
                         try {
                             val upiUri = Uri.parse(
-                                "upi://pay?pa=kharchee.pro@okaxis&pn=Kharchee%20PRO%20Vault&am=${selectedPlan.amountInr}&cu=INR&tn=${Uri.encode(selectedPlan.title)}"
+                                "upi://pay?pa=kharchee.pro@okaxis&pn=Kharchee%20Sovereign&am=499&cu=INR&tn=${Uri.encode("Kharchee Sovereign Lifetime")}"
                             )
                             val intent = Intent(Intent.ACTION_VIEW, upiUri)
                             if (intent.resolveActivity(context.packageManager) != null) {
@@ -1338,8 +1507,8 @@ fun ProVaultTab(
                         } catch (_: Exception) {
                         }
                         showCheckoutModal = false
-                        onUpgradeProPlan?.invoke(selectedPlan.tierKey, selectedPlan.durationDays)
-                        onProActivated?.invoke("${selectedPlan.title} (${selectedPlan.priceDisplay} · Sandbox Preview)")
+                        onUpgradeProPlan?.invoke("platinum", 36500)
+                        onProActivated?.invoke("Kharchee Sovereign Lifetime — ₹499 (One-Time)")
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = ChampagneGold,
@@ -1347,7 +1516,7 @@ fun ProVaultTab(
                     )
                 ) {
                     Text(
-                        text = "Enable Sandbox Preview (${selectedPlan.priceDisplay})",
+                        text = "Unlock Sovereign Lifetime (₹499 One-Time)",
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 12.sp
                     )
@@ -1355,7 +1524,7 @@ fun ProVaultTab(
             },
             dismissButton = {
                 OutlinedButton(onClick = { showCheckoutModal = false }) {
-                    Text("Close", color = MutedPlatinum, fontWeight = FontWeight.SemiBold)
+                    Text("Not Now", color = MutedPlatinum, fontWeight = FontWeight.SemiBold)
                 }
             }
         )

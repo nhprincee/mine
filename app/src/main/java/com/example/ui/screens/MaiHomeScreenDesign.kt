@@ -8,6 +8,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,8 +24,10 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -38,8 +41,10 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.CellTower
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.DarkMode
@@ -52,11 +57,13 @@ import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.WorkspacePremium
@@ -109,6 +116,7 @@ import com.example.data.model.ExpenseRecord
 import com.example.data.model.PaymentReminderRecord
 import com.example.data.model.ProactiveFinancialInsight
 import com.example.data.model.isIncomeTransaction
+import com.example.ui.components.KharcheeArchitecturalAMark
 import com.example.ui.components.KharcheeCompactHeaderBranding
 import com.example.ui.components.KharcheeSymbolLogo
 import com.example.ui.theme.JetBrainsMonoFontFamily
@@ -127,13 +135,13 @@ import kotlin.math.roundToInt
 // ============================================================================
 // KHARCHEE DARK NAVY + PURPLE/VIOLET DASHBOARD PALETTE
 // ============================================================================
-val MaiDeepCanvas = Color(0xFF070510)
-val MaiCardSurface = Color(0xFF110C22)
-val MaiCardSurfaceElevated = Color(0xFF181130)
-val MaiCardBorder = Color(0xFF31215C)
-val MaiCardBorderBright = Color(0xFF8B5CF6)
+val MaiDeepCanvas = Color(0xFF05050A)
+val MaiCardSurface = Color(0xFF0D0E17)
+val MaiCardSurfaceElevated = Color(0xFF151329)
+val MaiCardBorder = Color(0xFF2B224C)
+val MaiCardBorderBright = Color(0xFFA855F7)
 val MaiPrimaryPurpleStart = Color(0xFFA855F7)
-val MaiPrimaryPurpleEnd = Color(0xFF6D28D9)
+val MaiPrimaryPurpleEnd = Color(0xFF7C3AED)
 val MaiLavenderSubtext = Color(0xFFB8B0D4)
 val MaiMutedViolet = Color(0xFF8E84AD)
 val MaiPositiveEmerald = Color(0xFF2EE59D)
@@ -169,13 +177,13 @@ fun MaiScreenTopHeader(
     onOpenNotifications: () -> Unit,
     onToggleThemeMode: () -> Unit,
     onToggleStealth: () -> Unit,
-    onSignOut: () -> Unit
+    onSignOut: () -> Unit,
+    onOpenProVault: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val headingFont = LocalAppFontFamily.current
-    val greeting = remember { resolveTimeOfDayGreeting() }
     val displayTitle = remember(userDisplayName) {
-        userDisplayName.trim().ifBlank { "Kharchee" }
+        userDisplayName.trim().ifBlank { "K" }
     }
 
     val profileBitmap = remember(profilePhotoUri) {
@@ -192,33 +200,24 @@ fun MaiScreenTopHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(Color(0xFF130B29), MaiDeepCanvas)
-                )
-            )
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .background(MaiDeepCanvas)
+            .statusBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left: Avatar + KHARCHEE Branding + Personalized Greeting
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(16.dp))
-                    .clickable { onOpenMyProfile() }
-                    .testTag("open_my_profile_button")
+                modifier = Modifier.weight(1f)
             ) {
+                // Left: Clean 38dp User Avatar
                 Box(
                     modifier = Modifier
-                        .size(50.dp)
-                        .shadow(12.dp, CircleShape, spotColor = MaiPrimaryPurpleStart)
+                        .size(38.dp)
                         .clip(CircleShape)
                         .background(
                             Brush.linearGradient(
@@ -226,12 +225,14 @@ fun MaiScreenTopHeader(
                             )
                         )
                         .border(
-                            width = 2.dp,
+                            width = 1.2.dp,
                             brush = Brush.linearGradient(
                                 colors = listOf(Color(0xFFC4B5FD), Color(0xFF7C3AED))
                             ),
                             shape = CircleShape
-                        ),
+                        )
+                        .clickable { onOpenMyProfile() }
+                        .testTag("open_my_profile_button"),
                     contentAlignment = Alignment.Center
                 ) {
                     if (profileBitmap != null) {
@@ -248,127 +249,54 @@ fun MaiScreenTopHeader(
                             text = displayTitle.firstOrNull()?.uppercaseChar()?.toString() ?: "K",
                             fontFamily = headingFont,
                             fontWeight = FontWeight.ExtraBold,
-                            fontSize = 20.dp.value.sp,
+                            fontSize = 15.sp,
                             color = Color.White
                         )
                     }
                 }
 
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        KharcheeCompactHeaderBranding()
-                        Text(
-                            text = greeting,
-                            fontSize = 12.sp,
-                            color = MaiLavenderSubtext,
-                            fontWeight = FontWeight.Medium
-                        )
+                // Dynamic Time-Based Greeting ("Good Evening, Chief 🌙")
+                val currentHour = remember { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) }
+                val dynamicGreeting = remember(currentHour) {
+                    when (currentHour) {
+                        in 5..11 -> "Good Morning, Chief ☀️"
+                        in 12..16 -> "Good Afternoon, Chief ⚡"
+                        else -> "Good Evening, Chief 🌙"
                     }
-                    Text(
-                        text = displayTitle,
-                        fontFamily = headingFont,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
                 }
+                Text(
+                    text = dynamicGreeting,
+                    fontFamily = headingFont,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 0.2.sp,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    softWrap = false,
+                    modifier = Modifier
+                        .clickable { onOpenProVault() }
+                        .testTag("header_dynamic_greeting")
+                )
             }
 
-            // Right: Notification Bell + Settings + Theme + SignOut
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // Right: Clean Settings Icon only
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(MaiCardSurfaceElevated.copy(alpha = 0.88f))
+                    .border(1.dp, Color(0xFF7C3AED).copy(alpha = 0.45f), CircleShape)
+                    .clickable { onOpenMyProfile() }
+                    .testTag("header_settings_button"),
+                contentAlignment = Alignment.Center
             ) {
-                // Notification Bell Box
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaiCardSurfaceElevated)
-                        .border(1.dp, MaiCardBorder, RoundedCornerShape(14.dp))
-                        .clickable { onOpenNotifications() }
-                        .testTag("header_notifications_button"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.NotificationsNone,
-                        contentDescription = "Notifications & Bill Reminders",
-                        tint = Color(0xFFD5CEE8),
-                        modifier = Modifier.size(21.dp)
-                    )
-                    if (hasUnreadReminders) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(top = 9.dp, end = 9.dp)
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(MaiNotificationRed)
-                        )
-                    }
-                }
-
-                // Settings Gear Box
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaiCardSurfaceElevated)
-                        .border(1.dp, MaiCardBorder, RoundedCornerShape(14.dp))
-                        .clickable { onOpenMyProfile() }
-                        .testTag("header_settings_button"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Settings & Profile",
-                        tint = Color(0xFFD5CEE8),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                // Theme Switcher
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaiCardSurface)
-                        .border(0.8.dp, MaiCardBorder, RoundedCornerShape(12.dp))
-                        .clickable { onToggleThemeMode() }
-                        .testTag("toggle_theme_mode_button"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isLightMode) Icons.Default.DarkMode else Icons.Default.LightMode,
-                        contentDescription = "Switch Theme",
-                        tint = MaiLavenderSubtext,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                // Sign Out
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaiCardSurface)
-                        .border(0.8.dp, MaiCardBorder, RoundedCornerShape(12.dp))
-                        .clickable { onSignOut() }
-                        .testTag("sign_out_button"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Logout,
-                        contentDescription = "Sign Out",
-                        tint = MaiLavenderSubtext,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "Settings & Profile",
+                    tint = Color(0xFFD5CEE8),
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
     }
@@ -771,42 +699,41 @@ fun MaiScreenQuickActionsSection(
             }
         }
 
-        // 4 Primary Compact Action Buttons: Add Expense | Add Income | Add Bill | View Khata
+        // 4 Primary Compact Action Buttons: Add Expense | Add Income | Add Bill | Khata
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             MaiCompactQuickActionTile(
                 icon = Icons.Default.AddCircleOutline,
                 label = "Add Expense",
                 accentColor = Color(0xFFFF4D8D),
                 testTag = "mai_add_expense_button",
-                onClick = onAddExpense,
-                modifier = Modifier.weight(1f)
+                onClick = onAddExpense
             )
             MaiCompactQuickActionTile(
                 icon = Icons.Default.Download,
                 label = "Add Income",
                 accentColor = Color(0xFF2EE59D),
                 testTag = "mai_add_income_button",
-                onClick = onAddIncome,
-                modifier = Modifier.weight(1f)
+                onClick = onAddIncome
             )
             MaiCompactQuickActionTile(
                 icon = Icons.Default.CalendarToday,
                 label = "Add Bill",
                 accentColor = Color(0xFFA855F7),
                 testTag = "mai_open_smart_reminders_button",
-                onClick = onOpenBills,
-                modifier = Modifier.weight(1f)
+                onClick = onOpenBills
             )
             MaiCompactQuickActionTile(
                 icon = Icons.Default.MenuBook,
-                label = "View Khata",
+                label = "Khata",
                 accentColor = Color(0xFF38BDF8),
                 testTag = "quick_action_view_khata",
-                onClick = onOpenVault,
-                modifier = Modifier.weight(1f)
+                onClick = onOpenVault
             )
         }
     }
@@ -823,33 +750,34 @@ private fun MaiCompactQuickActionTile(
 ) {
     Column(
         modifier = modifier
-            .height(82.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(MaiCardSurfaceElevated, MaiCardSurface)
-                )
-            )
-            .border(1.dp, MaiCardBorder, RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(16.dp))
             .clickable { onClick() }
-            .padding(horizontal = 6.dp, vertical = 10.dp)
+            .padding(horizontal = 6.dp, vertical = 4.dp)
             .testTag(testTag),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(34.dp)
+                .size(48.dp)
+                .shadow(10.dp, CircleShape, spotColor = accentColor)
                 .clip(CircleShape)
-                .background(accentColor.copy(alpha = 0.16f))
-                .border(0.8.dp, accentColor.copy(alpha = 0.55f), CircleShape),
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            accentColor.copy(alpha = 0.28f),
+                            Color(0xFF151329)
+                        )
+                    )
+                )
+                .border(1.dp, accentColor.copy(alpha = 0.65f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = label,
                 tint = accentColor,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(22.dp)
             )
         }
         Text(
@@ -858,6 +786,7 @@ private fun MaiCompactQuickActionTile(
             fontWeight = FontWeight.SemiBold,
             color = Color(0xFFEAE4F8),
             maxLines = 1,
+            softWrap = false,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center
         )
@@ -889,16 +818,15 @@ fun MaiScreenMetallicSilverHealthScoreCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(20.dp, RoundedCornerShape(24.dp), spotColor = Color(0xFF94A3B8))
+            .shadow(22.dp, RoundedCornerShape(24.dp), spotColor = Color(0xFF7C3AED))
             .clip(RoundedCornerShape(24.dp))
             .background(
                 Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFFF1F5F9), // Bright Platinum highlight
-                        Color(0xFFCBD5E1), // Brushed Sterling Silver
-                        Color(0xFF94A3B8), // Deep Titanium Satin
-                        Color(0xFFE2E8F0), // Metallic Sheen reflection
-                        Color(0xFFABB6C8)  // Engraved Silver base
+                        Color(0xFF05050A),
+                        Color(0xFF0D0E17),
+                        Color(0xFF1A1333),
+                        Color(0xFF0D0E17)
                     ),
                     start = Offset(0f, 0f),
                     end = Offset(900f, 500f)
@@ -908,9 +836,9 @@ fun MaiScreenMetallicSilverHealthScoreCard(
                 width = 1.4.dp,
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        Color.White,
-                        Color(0xFF64748B),
-                        Color(0xFFF8FAFC)
+                        Color(0xFFA855F7),
+                        Color(0xFF7C3AED),
+                        Color(0xFFD8B4FE)
                     )
                 ),
                 shape = RoundedCornerShape(24.dp)
@@ -919,21 +847,20 @@ fun MaiScreenMetallicSilverHealthScoreCard(
             .padding(20.dp)
             .testTag("financial_health_silver_card")
     ) {
-        // Subtle metallic brushed lines & embossed watermark effect
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width
             val h = size.height
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.45f),
+                        Color(0xFFA855F7).copy(alpha = 0.22f),
                         Color.Transparent
                     ),
                     center = Offset(w * 0.82f, h * 0.25f),
-                    radius = w * 0.45f
+                    radius = (w * 0.45f).coerceAtLeast(1f)
                 ),
                 center = Offset(w * 0.82f, h * 0.25f),
-                radius = w * 0.45f
+                radius = (w * 0.45f).coerceAtLeast(1f)
             )
         }
 
@@ -951,17 +878,16 @@ fun MaiScreenMetallicSilverHealthScoreCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Embossed Metallic Chip Emblem
                     Box(
                         modifier = Modifier
                             .size(width = 32.dp, height = 24.dp)
                             .clip(RoundedCornerShape(6.dp))
                             .background(
                                 Brush.linearGradient(
-                                    colors = listOf(Color(0xFF475569), Color(0xFF1E293B))
+                                    colors = listOf(Color(0xFF2B185E), Color(0xFF151329))
                                 )
                             )
-                            .border(0.8.dp, Color.White.copy(alpha = 0.7f), RoundedCornerShape(6.dp)),
+                            .border(0.8.dp, Color(0xFFA855F7).copy(alpha = 0.8f), RoundedCornerShape(6.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         KharcheeSymbolLogo(height = 13.dp)
@@ -973,7 +899,7 @@ fun MaiScreenMetallicSilverHealthScoreCard(
                             fontSize = 11.sp,
                             fontWeight = FontWeight.ExtraBold,
                             letterSpacing = 2.sp,
-                            color = Color(0xFF0F172A)
+                            color = Color(0xFFF7F4FF)
                         )
                         Text(
                             text = "FINANCIAL HEALTH SCORE",
@@ -981,22 +907,22 @@ fun MaiScreenMetallicSilverHealthScoreCard(
                             fontSize = 8.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.sp,
-                            color = Color(0xFF334155)
+                            color = Color(0xFFD8B4FE)
                         )
                     }
                 }
 
                 Surface(
-                    color = Color(0xFF0F172A).copy(alpha = 0.10f),
+                    color = Color(0xFF151329),
                     shape = RoundedCornerShape(50),
-                    border = BorderStroke(0.8.dp, Color(0xFF334155).copy(alpha = 0.35f))
+                    border = BorderStroke(0.8.dp, Color(0xFF7C3AED).copy(alpha = 0.55f))
                 ) {
                     Text(
                         text = "UPDATED $scoreDate",
                         fontFamily = JetBrainsMonoFontFamily,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1E293B),
+                        color = Color(0xFFD8B4FE),
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                     )
                 }
@@ -1015,7 +941,7 @@ fun MaiScreenMetallicSilverHealthScoreCard(
                             fontFamily = headingFont,
                             fontSize = 42.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = Color(0xFF0F172A)
+                            color = Color(0xFFF7F4FF)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
@@ -1023,7 +949,7 @@ fun MaiScreenMetallicSilverHealthScoreCard(
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF475569),
+                            color = Color(0xFFB8B0D4),
                             modifier = Modifier.padding(bottom = 6.dp)
                         )
                     }
@@ -1033,8 +959,9 @@ fun MaiScreenMetallicSilverHealthScoreCard(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Surface(
-                            color = Color(0xFF1E1B4B),
-                            shape = RoundedCornerShape(50)
+                            color = Color(0xFF2B185E),
+                            shape = RoundedCornerShape(50),
+                            border = BorderStroke(0.8.dp, Color(0xFFA855F7))
                         ) {
                             Text(
                                 text = healthCategory,
@@ -1042,15 +969,15 @@ fun MaiScreenMetallicSilverHealthScoreCard(
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 letterSpacing = 1.1.sp,
-                                color = Color(0xFFE9D5FF),
+                                color = Color(0xFFF3E8FF),
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                             )
                         }
                         Text(
-                            text = "Tap for full breakdown →",
+                            text = "Open in Insight →",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF334155)
+                            color = Color(0xFFD8B4FE)
                         )
                     }
                 }
@@ -1063,7 +990,7 @@ fun MaiScreenMetallicSilverHealthScoreCard(
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         val stroke = 7.dp.toPx()
                         drawArc(
-                            color = Color(0xFF64748B).copy(alpha = 0.28f),
+                            color = Color(0xFF2B224C),
                             startAngle = 0f,
                             sweepAngle = 360f,
                             useCenter = false,
@@ -1072,10 +999,10 @@ fun MaiScreenMetallicSilverHealthScoreCard(
                         drawArc(
                             brush = Brush.sweepGradient(
                                 colors = listOf(
-                                    Color(0xFF4C1D95),
                                     Color(0xFF7C3AED),
-                                    Color(0xFF0F172A),
-                                    Color(0xFF4C1D95)
+                                    Color(0xFFA855F7),
+                                    Color(0xFFD8B4FE),
+                                    Color(0xFF7C3AED)
                                 )
                             ),
                             startAngle = -90f,
@@ -1089,7 +1016,7 @@ fun MaiScreenMetallicSilverHealthScoreCard(
                         fontFamily = JetBrainsMonoFontFamily,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 14.sp,
-                        color = Color(0xFF0F172A)
+                        color = Color(0xFFF7F4FF)
                     )
                 }
             }
@@ -1848,6 +1775,7 @@ fun MaiScreenUpcomingBillsCard(
     onToggleBillPaid: ((PaymentReminderRecord, Boolean) -> Unit)? = null,
     onDeleteBill: ((PaymentReminderRecord) -> Unit)? = null
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val headingFont = LocalAppFontFamily.current
     val nowMillis = System.currentTimeMillis()
     val sortedBills = remember(paymentReminders) {
@@ -1857,6 +1785,65 @@ fun MaiScreenUpcomingBillsCard(
 
     var showInlineBillDialog by remember { mutableStateOf(false) }
     var editingBill by remember { mutableStateOf<PaymentReminderRecord?>(null) }
+    var prefillTitle by remember { mutableStateOf("") }
+    var prefillAmount by remember { mutableStateOf("") }
+    var prefillDays by remember { mutableStateOf("3") }
+
+    data class SmartBillSuggestion(
+        val id: String,
+        val title: String,
+        val subtitle: String,
+        val defaultAmount: Long,
+        val dueDays: Int,
+        val badgeColor: Color,
+        val icon: ImageVector,
+        val defaultVpa: String
+    )
+
+    val smartBillRadarItems = remember {
+        listOf(
+            SmartBillSuggestion(
+                id = "electricity",
+                title = "Electricity",
+                subtitle = "Due in 3 days · ₹1,850",
+                defaultAmount = 1850L,
+                dueDays = 3,
+                badgeColor = Color(0xFFF59E0B),
+                icon = Icons.Default.Bolt,
+                defaultVpa = "electricity.biller@upi"
+            ),
+            SmartBillSuggestion(
+                id = "wifi_broadband",
+                title = "Wi-Fi / Broadband",
+                subtitle = "Auto-pay · ₹999",
+                defaultAmount = 999L,
+                dueDays = 5,
+                badgeColor = Color(0xFF06B6D4),
+                icon = Icons.Default.Router,
+                defaultVpa = "broadband.biller@upi"
+            ),
+            SmartBillSuggestion(
+                id = "mobile_sim",
+                title = "Mobile SIM Recharge",
+                subtitle = "Expiring soon · ₹349",
+                defaultAmount = 349L,
+                dueDays = 2,
+                badgeColor = Color(0xFF3B82F6),
+                icon = Icons.Default.CellTower,
+                defaultVpa = "mobilerecharge.biller@upi"
+            ),
+            SmartBillSuggestion(
+                id = "ott_sub",
+                title = "OTT / Subscriptions",
+                subtitle = "Monthly plan · ₹499",
+                defaultAmount = 499L,
+                dueDays = 7,
+                badgeColor = Color(0xFFF43F5E),
+                icon = Icons.Default.Tv,
+                defaultVpa = "subscriptions.biller@upi"
+            )
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -1877,18 +1864,35 @@ fun MaiScreenUpcomingBillsCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.CalendarToday,
-                    contentDescription = "Upcoming Bills",
-                    tint = Color(0xFFD6CEEC),
-                    modifier = Modifier.size(19.dp)
-                )
-                Text(
-                    text = "Upcoming Bills",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF7C3AED).copy(alpha = 0.22f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Bolt,
+                        contentDescription = "Smart Bill Radar",
+                        tint = Color(0xFFD8B4FE),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                Column {
+                    Text(
+                        text = "Smart Bill Radar",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = "1-tap UPI settlement & recurring utility reminders",
+                        fontSize = 10.sp,
+                        color = MaiLavenderSubtext,
+                        maxLines = 1
+                    )
+                }
             }
 
             Row(
@@ -1902,6 +1906,9 @@ fun MaiScreenUpcomingBillsCard(
                         .clickable {
                             if (onCreateBill != null) {
                                 editingBill = null
+                                prefillTitle = ""
+                                prefillAmount = ""
+                                prefillDays = "3"
                                 showInlineBillDialog = true
                             } else {
                                 onOpenBillsManager()
@@ -1921,10 +1928,11 @@ fun MaiScreenUpcomingBillsCard(
                         )
                         Spacer(modifier = Modifier.width(3.dp))
                         Text(
-                            text = "Add Bill",
+                            text = "Custom",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = Color.White,
+                            maxLines = 1
                         )
                     }
                 }
@@ -1933,6 +1941,7 @@ fun MaiScreenUpcomingBillsCard(
                     text = "Manage →",
                     fontSize = 12.sp,
                     color = MaiLavenderSubtext,
+                    maxLines = 1,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { onOpenBillsManager() }
@@ -1941,46 +1950,108 @@ fun MaiScreenUpcomingBillsCard(
             }
         }
 
-        if (sortedBills.isEmpty()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(MaiCardSurfaceElevated)
-                    .border(1.dp, MaiCardBorder, RoundedCornerShape(14.dp))
-                    .clickable {
-                        if (onCreateBill != null) {
-                            editingBill = null
-                            showInlineBillDialog = true
-                        } else {
-                            onOpenBillsManager()
+        // Horizontal Smart Bill Radar Suggestions with Provider Badges & 1-Tap [⚡ Settle] UPI Trigger
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            smartBillRadarItems.forEach { provider ->
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaiCardSurfaceElevated)
+                        .border(
+                            width = 1.dp,
+                            color = provider.badgeColor.copy(alpha = 0.45f),
+                            shape = RoundedCornerShape(14.dp)
+                        )
+                        .clickable {
+                            if (onCreateBill != null) {
+                                editingBill = null
+                                prefillTitle = provider.title
+                                prefillAmount = provider.defaultAmount.toString()
+                                prefillDays = provider.dueDays.toString()
+                                showInlineBillDialog = true
+                            } else {
+                                onOpenBillsManager()
+                            }
                         }
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                        .testTag("smart_bill_radar_${provider.id}"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(provider.badgeColor.copy(alpha = 0.18f))
+                            .border(0.8.dp, provider.badgeColor.copy(alpha = 0.55f), RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = provider.icon,
+                            contentDescription = provider.title,
+                            tint = provider.badgeColor,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        text = "No upcoming bills scheduled",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = "Tap to add rent, electricity, subscriptions or EMI reminders",
-                        fontSize = 11.sp,
-                        color = MaiLavenderSubtext
-                    )
+
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = provider.title,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                        Text(
+                            text = provider.subtitle,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = provider.badgeColor,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+
+                    // 1-Tap Instant UPI [⚡ Settle] Button
+                    Surface(
+                        color = Color(0xFF2EE59D),
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(0.8.dp, Color(0xFF6EE7B7)),
+                        modifier = Modifier
+                            .clickable {
+                                com.example.util.PaymentUtil.launchUpiPaymentIntent(
+                                    context = context,
+                                    payeeVpa = provider.defaultVpa,
+                                    payeeName = provider.title,
+                                    amount = provider.defaultAmount.toString(),
+                                    txnNote = "${provider.title} Bill Settlement - Kharchee"
+                                )
+                            }
+                            .testTag("smart_bill_radar_settle_${provider.id}")
+                    ) {
+                        Text(
+                            text = "⚡ Settle",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF040508),
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
                 }
-                Text(
-                    text = "+ Add Bill",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFFD8B4FE)
-                )
             }
-        } else {
+        }
+
+        if (sortedBills.isNotEmpty()) {
             sortedBills.take(4).forEach { bill ->
                 val daysRemaining = ((bill.dueEpochMillis - nowMillis) / (24L * 60L * 60L * 1000L)).toInt()
                 val dueLabel = when {
@@ -2062,7 +2133,7 @@ fun MaiScreenUpcomingBillsCard(
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
                             text = if (stealthMode) "₹•••" else "₹${formatIndianAmount(bill.amount)}",
@@ -2071,6 +2142,37 @@ fun MaiScreenUpcomingBillsCard(
                             fontWeight = FontWeight.ExtraBold,
                             color = if (bill.isPaid) MaiPositiveEmerald else Color.White
                         )
+
+                        if (!bill.isPaid && bill.amount > 0L) {
+                            Surface(
+                                color = Color(0xFF2EE59D),
+                                shape = RoundedCornerShape(50),
+                                border = BorderStroke(0.8.dp, Color(0xFF6EE7B7)),
+                                modifier = Modifier
+                                    .clickable {
+                                        com.example.util.PaymentUtil.launchUpiPaymentIntent(
+                                            context = context,
+                                            payeeVpa = com.example.util.PaymentUtil.resolveBillVpa(bill.title),
+                                            payeeName = bill.title,
+                                            amount = bill.amount.toString(),
+                                            txnNote = "Settle Bill: ${bill.title} - Kharchee",
+                                            billReminderId = bill.id
+                                        )
+                                    }
+                                    .testTag("upcoming_bill_instant_pay_${bill.id}")
+                            ) {
+                                Text(
+                                    text = "⚡ Pay",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF040508),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
 
                         if (onCreateBill != null) {
                             IconButton(
@@ -2110,14 +2212,16 @@ fun MaiScreenUpcomingBillsCard(
 
     if (showInlineBillDialog && onCreateBill != null) {
         val currentEditing = editingBill
-        var billTitle by remember(currentEditing) { mutableStateOf(currentEditing?.title.orEmpty()) }
-        var billAmountText by remember(currentEditing) {
-            mutableStateOf(currentEditing?.amount?.toString().orEmpty())
+        var billTitle by remember(currentEditing, prefillTitle) {
+            mutableStateOf(currentEditing?.title ?: prefillTitle)
         }
-        var daysUntilDueText by remember(currentEditing) {
+        var billAmountText by remember(currentEditing, prefillAmount) {
+            mutableStateOf(currentEditing?.amount?.toString() ?: prefillAmount)
+        }
+        var daysUntilDueText by remember(currentEditing, prefillDays) {
             val defaultDays = if (currentEditing != null) {
                 max(0L, (currentEditing.dueEpochMillis - nowMillis) / 86_400_000L).toString()
-            } else "3"
+            } else prefillDays
             mutableStateOf(defaultDays)
         }
 
@@ -2304,9 +2408,12 @@ fun MaiScreenRecentTransactionsCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
                     Text(
-                        text = "No transactions recorded yet",
+                        text = "No transactions yet. Tap '+' to log your first spend.",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path
+        name="exported_reports"
+        path="reports/" />
+    <files-path
+        name="internal_reports"
+        path="reports/" />
+    <files-path
+        name="encrypted_backups"
+        path="backups/" />
+    <files-path
+        name="drive_appdata_backups"
+        path="google_drive_appdata_vault/" />
+    <external-path
+        name="external_files"
+        path="." />
+</paths>

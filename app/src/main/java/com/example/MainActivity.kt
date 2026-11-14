@@ -1,12 +1,17 @@
 package com.example
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -78,7 +83,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -92,6 +101,7 @@ import androidx.compose.ui.layout.ContentScale
 import com.example.data.model.ExpenseRecord
 import com.example.data.model.KharcheeOnboardingProfileStore
 import com.example.data.model.KharcheeProfileAndToolsStore
+import kotlinx.coroutines.launch
 import com.example.data.model.UserSettings
 import com.example.data.model.isIncomeTransaction
 import com.example.data.model.isSameDay
@@ -100,8 +110,11 @@ import com.example.data.repository.KharcheeRepository
 import com.example.ui.auth.AuthScreen
 import com.example.ui.auth.signOut
 import com.example.ui.components.KharcheeArchitecturalLogo
+import com.example.ui.components.KharcheeFirstLaunchWalkthroughAndSetupOverlay
 import com.example.ui.components.KharcheeLogoLoadingIndicator
+import com.example.ui.jarvis.FloatingJarvisArcReactorTrigger
 import com.example.ui.jarvis.JarvisAssistantOverlay
+import com.example.ui.jarvis.JarvisAssistantSheet
 import com.example.ui.screens.AddSavingsGoalBottomSheet
 import com.example.ui.screens.AddTransactionBottomSheet
 import com.example.ui.screens.AdvancedKhataScreen
@@ -148,7 +161,11 @@ import com.example.ui.theme.ThemePreferenceManager
 import com.example.ui.theme.WarmIvory
 import com.example.ui.viewmodel.KharcheeViewModel
 import com.example.ui.viewmodel.UiState
+import android.content.Intent
+import com.example.receiver.AutoExpenseDetectionStore
+import com.example.ui.security.AppLockScreen
 import com.example.util.KharcheeNotificationManager
+import com.example.util.SecurityLockManager
 import com.example.util.configureAppCheck
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
@@ -169,9 +186,85 @@ class MainActivity : ComponentActivity() {
         ThemePreferenceManager.ensureInitialized(this)
         KharcheeNotificationManager.ensureChannels(this)
         IntroAuthPreferences.syncLocalSessionFromDisk(this)
+        AutoExpenseDetectionStore.ensureLoaded(this)
+        SecurityLockManager.ensureInitialized(this)
+        com.example.util.PerformancePreferences.ensureInitialized(this)
+        handleIncomingAutoExpenseIntent(intent)
         enableEdgeToEdge()
         setContent {
-            AppNavigation()
+            val isAppLockEnabled by SecurityLockManager.isAppLockEnabledFlow.collectAsStateWithLifecycle()
+            val isFlagSecureEnabled by SecurityLockManager.isFlagSecureEnabledFlow.collectAsStateWithLifecycle()
+            val isAppLocked by SecurityLockManager.isLockedFlow.collectAsStateWithLifecycle()
+            val lifecycleOwner = LocalLifecycleOwner.current
+
+            // Incognito Screen Privacy (FLAG_SECURE): blanks Recent Apps switcher & blocks screenshots when App Lock or Flag Secure is active
+            LaunchedEffect(isAppLockEnabled, isFlagSecureEnabled) {
+                if (isAppLockEnabled || isFlagSecureEnabled) {
+                    window.setFlags(
+                        WindowManager.LayoutParams.FLAG_SECURE,
+                        WindowManager.LayoutParams.FLAG_SECURE
+                    )
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
+            }
+
+            // Lifecycle observer for Immediate / 1-Min background auto-lock & pausing background animations
+            DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    when (event) {
+                        Lifecycle.Event.ON_PAUSE -> {
+                            com.example.util.PerformancePreferences.setAppInForeground(false)
+                        }
+                        Lifecycle.Event.ON_STOP -> {
+                            com.example.util.PerformancePreferences.setAppInForeground(false)
+                            SecurityLockManager.onAppBackgrounded(this@MainActivity)
+                        }
+                        Lifecycle.Event.ON_START, Lifecycle.Event.ON_RESUME -> {
+                            com.example.util.PerformancePreferences.setAppInForeground(true)
+                            SecurityLockManager.onAppForegrounded(this@MainActivity)
+                        }
+                        else -> Unit
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose {
+                    lifecycleOwner.lifecycle.removeObserver(observer)
+                }
+            }
+
+            Box(modifier = Modifier.fillMaxSize()) {
+                AppNavigation()
+
+                AnimatedVisibility(
+                    visible = isAppLockEnabled && isAppLocked,
+                    enter = fadeIn(animationSpec = tween(220)),
+                    exit = fadeOut(animationSpec = tween(260))
+                ) {
+                    AppLockScreen(
+                        onUnlocked = {
+                            SecurityLockManager.unlockApp(this@MainActivity)
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingAutoExpenseIntent(intent)
+    }
+
+    private fun handleIncomingAutoExpenseIntent(intent: Intent?) {
+        val openEditId = intent?.getStringExtra(AutoExpenseDetectionStore.EXTRA_OPEN_EDIT_EXPENSE_ID)
+        if (!openEditId.isNullOrBlank()) {
+            AutoExpenseDetectionStore.setPendingEditExpenseId(openEditId)
+        }
+        if (intent?.getBooleanExtra(com.example.widget.KharcheeQuickWidgetProvider.EXTRA_WIDGET_OPEN_ADD_EXPENSE, false) == true) {
+            intent.removeExtra(com.example.widget.KharcheeQuickWidgetProvider.EXTRA_WIDGET_OPEN_ADD_EXPENSE)
+            com.example.widget.KharcheeQuickWidgetProvider.setPendingOpenAddExpense(true)
         }
     }
 }
@@ -191,32 +284,40 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
     val localSession by IntroAuthPreferences.localSessionFlow.collectAsStateWithLifecycle()
     val user = currentUser
     val fallbackSession = localSession
+    var showAuthScreen by remember { mutableStateOf(false) }
 
-    if (user == null && fallbackSession == null) {
+    if (showAuthScreen || (user == null && fallbackSession == null)) {
         val savedThemeId = remember { ThemePreferenceManager.loadThemePreference(context) }
         KharcheeTheme(themeId = savedThemeId) {
             AuthScreen(
                 onAuthSuccess = {
                     IntroAuthPreferences.syncLocalSessionFromDisk(context)
+                    showAuthScreen = false
                 }
             )
         }
     } else if (user != null) {
-        KharcheeMainShell(
-            currentUserId = user.uid,
-            userDisplayName = user.displayName ?: user.email?.substringBefore("@") ?: user.phoneNumber ?: "Kharchee",
-            userEmail = user.email ?: "",
-            userPhone = user.phoneNumber ?: "",
-            userCreationTimestamp = user.metadata?.creationTimestamp ?: 0L
-        )
+        androidx.compose.runtime.key(user.uid) {
+            KharcheeMainShell(
+                currentUserId = user.uid,
+                userDisplayName = user.displayName ?: user.email?.substringBefore("@") ?: user.phoneNumber ?: "Kharchee",
+                userEmail = user.email ?: "",
+                userPhone = user.phoneNumber ?: "",
+                userCreationTimestamp = user.metadata?.creationTimestamp ?: 0L,
+                onRequireAuthScreen = { showAuthScreen = true }
+            )
+        }
     } else if (fallbackSession != null) {
-        KharcheeMainShell(
-            currentUserId = fallbackSession.uid,
-            userDisplayName = fallbackSession.displayName.ifBlank { "Kharchee" },
-            userEmail = fallbackSession.email,
-            userPhone = "",
-            userCreationTimestamp = fallbackSession.creationTimestamp
-        )
+        androidx.compose.runtime.key(fallbackSession.uid) {
+            KharcheeMainShell(
+                currentUserId = fallbackSession.uid,
+                userDisplayName = fallbackSession.displayName.ifBlank { "Kharchee" },
+                userEmail = fallbackSession.email,
+                userPhone = "",
+                userCreationTimestamp = fallbackSession.creationTimestamp,
+                onRequireAuthScreen = { showAuthScreen = true }
+            )
+        }
     }
 }
 
@@ -226,7 +327,7 @@ enum class KharcheeTab(val id: String, val label: String, val icon: ImageVector)
     JARVIS("jarvis", "JARVIS", Icons.Default.AutoAwesome),
     INSIGHTS("insights", "Analytics", Icons.Default.Analytics),
     VAULT("vault", "Vault", Icons.Default.AccountBalanceWallet),
-    PRO("pro", "KHARCHEE PRO", Icons.Default.WorkspacePremium)
+    PRO("pro", "Sovereign", Icons.Default.WorkspacePremium)
 }
 
 @Composable
@@ -235,7 +336,8 @@ fun KharcheeMainShell(
     userDisplayName: String,
     userEmail: String = "",
     userPhone: String = "",
-    userCreationTimestamp: Long = 0L
+    userCreationTimestamp: Long = 0L,
+    onRequireAuthScreen: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -294,38 +396,14 @@ fun KharcheeMainShell(
     var showSmartRemindersModal by remember { mutableStateOf(false) }
     var showNightGuardSettingsModal by remember { mutableStateOf(false) }
     var showMomCallEscape by remember { mutableStateOf(false) }
-    var showJarvisAssistant by remember { mutableStateOf(false) }
+    var isJarvisOpen by remember { mutableStateOf(false) }
     var jarvisInitialPrompt by remember { mutableStateOf<String?>(null) }
     var showOnboardingFlowModal by remember { mutableStateOf(false) }
-    var onboardingCheckedForSession by remember(currentUserId) { mutableStateOf(false) }
+    var showFirstTimeTutorialAndColdStart by remember(currentUserId) {
+        mutableStateOf(KharcheeProfileAndToolsStore.isFirstTimeUser(context, currentUserId))
+    }
 
     var profileVersion by remember { mutableStateOf(0) }
-
-    LaunchedEffect(
-        currentUserId,
-        expensesUiState,
-        goalsUiState,
-        khataUiState,
-        onboardingCheckedForSession
-    ) {
-        if (!onboardingCheckedForSession &&
-            expensesUiState !is UiState.Loading &&
-            goalsUiState !is UiState.Loading &&
-            khataUiState !is UiState.Loading
-        ) {
-            onboardingCheckedForSession = true
-            val shouldLaunch = KharcheeOnboardingProfileStore.shouldShowGuidedOnboardingOnLaunch(
-                context = context,
-                userId = currentUserId,
-                existingExpensesCount = expenses.size,
-                existingGoalsCount = savingsGoals.size,
-                existingKhataCount = khataFriends.size
-            )
-            if (shouldLaunch) {
-                showOnboardingFlowModal = true
-            }
-        }
-    }
     val userProfileData = remember(currentUserId, userDisplayName, userEmail, userPhone, settings.dailyLimit, userCreationTimestamp, profileVersion) {
         KharcheeProfileAndToolsStore.getProfileMetadata(
             context = context,
@@ -340,12 +418,59 @@ fun KharcheeMainShell(
     val effectiveDisplayName = userProfileData.customDisplayName.ifBlank { userDisplayName }
 
     val snackbarHostState = remember { SnackbarHostState() }
+    val undoSmsToast by AutoExpenseDetectionStore.undoToastEventFlow.collectAsStateWithLifecycle()
+    val pendingEditExpenseId by AutoExpenseDetectionStore.pendingEditExpenseIdFlow.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) {
+        AutoExpenseDetectionStore.ensureLoaded(context)
+    }
+
+    var detectedColdStartBackup by remember { mutableStateOf<com.example.util.DetectedBackupMetadata?>(null) }
+    var coldStartRestoreDismissed by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentUserId, userEmail) {
+        com.example.util.BackupManager.ensureInitialized(context, currentUserId)
+        val detected = com.example.util.BackupManager.scanGoogleDriveForPreviousBackup(
+            context = context,
+            userId = currentUserId,
+            userEmail = userEmail
+        )
+        detectedColdStartBackup = detected
+    }
 
     LaunchedEffect(toastMsg) {
         val msg = toastMsg
         if (msg != null) {
             snackbarHostState.showSnackbar(msg)
             viewModel.clearToast()
+        }
+    }
+
+    LaunchedEffect(undoSmsToast) {
+        val undoMsg = undoSmsToast
+        if (undoMsg != null) {
+            snackbarHostState.showSnackbar(undoMsg)
+            AutoExpenseDetectionStore.consumeUndoToastEvent()
+        }
+    }
+
+    val pendingWidgetAddExpense by com.example.widget.KharcheeQuickWidgetProvider.pendingOpenAddExpenseFlow.collectAsStateWithLifecycle()
+
+    LaunchedEffect(pendingWidgetAddExpense) {
+        if (pendingWidgetAddExpense) {
+            addModalType = "expense"
+            com.example.widget.KharcheeQuickWidgetProvider.setPendingOpenAddExpense(false)
+        }
+    }
+
+    LaunchedEffect(pendingEditExpenseId, expenses) {
+        val targetId = pendingEditExpenseId
+        if (!targetId.isNullOrBlank()) {
+            val matched = expenses.firstOrNull { it.id == targetId }
+            if (matched != null) {
+                editingExpense = matched
+                AutoExpenseDetectionStore.consumePendingEditExpenseId()
+            }
         }
     }
 
@@ -360,13 +485,13 @@ fun KharcheeMainShell(
     // BackHandler for secondary tabs or overlays
     BackHandler(
         enabled = pendingNightGuardSpend != null ||
-            showJarvisAssistant ||
+            isJarvisOpen ||
             showMomCallEscape ||
             activeTab != KharcheeTab.HOME
     ) {
         when {
             pendingNightGuardSpend != null -> viewModel.onNightGuardCancelPurchase("back_navigation")
-            showJarvisAssistant -> showJarvisAssistant = false
+            isJarvisOpen -> isJarvisOpen = false
             showMomCallEscape -> showMomCallEscape = false
             else -> activeTab = KharcheeTab.HOME
         }
@@ -380,6 +505,45 @@ fun KharcheeMainShell(
     val monthSpent = remember(expenses) {
         expenses.filter { !isIncomeTransaction(it) && isSameMonth(it.txEpochMillis, now) }
             .sumOf { it.amount }
+    }
+    val monthlyInflow = remember(expenses) {
+        expenses.filter { isIncomeTransaction(it) && isSameMonth(it.txEpochMillis, now) }
+            .sumOf { it.amount }
+    }
+    val totalIncomeAll = remember(expenses) {
+        expenses.filter { isIncomeTransaction(it) }.sumOf { it.amount }
+    }
+    val totalExpenseAll = remember(expenses) {
+        expenses.filter { !isIncomeTransaction(it) }.sumOf { it.amount }
+    }
+    val monthlyBudgetTarget = remember(settings.dailyLimit) {
+        (settings.dailyLimit * 30L).coerceAtLeast(1500L)
+    }
+    val remainingBudget = remember(monthlyBudgetTarget, monthSpent) {
+        (monthlyBudgetTarget - monthSpent).coerceAtLeast(0L)
+    }
+
+    // Keep Android Home-Screen Quick Widget in real-time sync with Remaining Monthly Budget & Today's Spend
+    LaunchedEffect(remainingBudget, todaySpent) {
+        com.example.widget.KharcheeQuickWidgetProvider.syncWidgetState(
+            context = context,
+            remainingMonthlyBudget = remainingBudget,
+            todaySpent = todaySpent
+        )
+    }
+
+    val totalBalance = remember(totalIncomeAll, totalExpenseAll) {
+        totalIncomeAll - totalExpenseAll
+    }
+    val topSpendingCategory = remember(expenses) {
+        expenses
+            .filter { !isIncomeTransaction(it) && isSameMonth(it.txEpochMillis, now) }
+            .groupBy { it.category.ifBlank { "General" } }
+            .mapValues { (_, list) -> list.sumOf { it.amount } }
+            .entries
+            .maxByOrNull { it.value }
+            ?.let { "${it.key} (₹${it.value})" }
+            ?: "None yet"
     }
 
     val streakDays = remember(expenses, settings.dailyLimit) {
@@ -421,38 +585,10 @@ fun KharcheeMainShell(
                     contentWindowInsets = WindowInsets.safeDrawing,
                     snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                     floatingActionButton = {
-                        if (isWideScreen && activeTab != KharcheeTab.JARVIS) {
-                            ExtendedFloatingActionButton(
-                                onClick = { showKharcheeSnapModal = true },
-                                containerColor = ObsidianDarkPrimarySurface,
-                                contentColor = SophisticatedEmerald,
-                                shape = RoundedCornerShape(14.dp),
-                                icon = {
-                                    Icon(
-                                        imageVector = Icons.Default.CameraAlt,
-                                        contentDescription = "Open SNAP & TRACK",
-                                        tint = SophisticatedEmerald,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                },
-                                text = {
-                                    Text(
-                                        text = "SNAP & TRACK",
-                                        fontFamily = JetBrainsMonoFontFamily,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 11.sp,
-                                        letterSpacing = 1.sp,
-                                        color = ObsidianDarkPrimaryText
-                                    )
-                                },
-                                modifier = Modifier
-                                    .shadow(16.dp, RoundedCornerShape(14.dp))
-                                    .border(
-                                        width = 1.dp,
-                                        color = SophisticatedEmerald.copy(alpha = 0.65f),
-                                        shape = RoundedCornerShape(14.dp)
-                                    )
-                                    .testTag("open_snap_and_track_fab")
+                        if (!isJarvisOpen) {
+                            FloatingJarvisArcReactorTrigger(
+                                onClick = { isJarvisOpen = true },
+                                isGenerating = jarvisIsGenerating
                             )
                         }
                     },
@@ -463,25 +599,10 @@ fun KharcheeMainShell(
                                 profilePhotoUri = userProfileData.profilePhotoUri,
                                 hasUnreadReminders = paymentReminders.any { !it.isPaid },
                                 stealthMode = settings.stealthMode,
-                                isLightMode = settings.themeId == "light",
+                                isLightMode = false,
                                 onOpenMyProfile = { showMyProfileModal = true },
                                 onOpenNotifications = { showSmartRemindersModal = true },
-                                onToggleThemeMode = {
-                                    val nextTheme = when (settings.themeId) {
-                                        "stark" -> "neon"
-                                        "neon" -> "light"
-                                        else -> "stark"
-                                    }
-                                    ThemePreferenceManager.saveThemePreference(context, nextTheme)
-                                    viewModel.updateSettings(
-                                        themeId = nextTheme,
-                                        toastText = when (nextTheme) {
-                                            "neon" -> "⚡ Theme B: Neon Intelligence Activated"
-                                            "light" -> "◇ Theme C: Light Luxury Activated"
-                                            else -> "◆ Theme A: Obsidian Luxury Activated"
-                                        }
-                                    )
-                                },
+                                onToggleThemeMode = {},
                                 onToggleStealth = {
                                     viewModel.updateSettings(
                                         stealthMode = !settings.stealthMode,
@@ -489,13 +610,25 @@ fun KharcheeMainShell(
                                     )
                                 },
                                 onSignOut = {
+                                    com.example.util.BackupManager.triggerAutoBackupOnLogout(
+                                        context = context,
+                                        userId = currentUserId,
+                                        userEmail = userEmail,
+                                        userDisplayName = effectiveDisplayName,
+                                        liveExpenses = expenses,
+                                        liveGoals = savingsGoals,
+                                        liveSettings = settings,
+                                        liveKhataFriends = khataFriends,
+                                        liveReminders = paymentReminders
+                                    )
                                     signOut(
                                         context = context,
                                         credentialManager = credentialManager,
-                                        onSignOutComplete = {},
+                                        onSignOutComplete = onRequireAuthScreen,
                                         scope = scope
                                     )
-                                }
+                                },
+                                onOpenProVault = { activeTab = KharcheeTab.PRO }
                             )
                         } else {
                             KharcheeTopHeader(
@@ -503,26 +636,11 @@ fun KharcheeMainShell(
                                 userDisplayName = effectiveDisplayName,
                                 profilePhotoUri = userProfileData.profilePhotoUri,
                                 stealthMode = settings.stealthMode,
-                                isLightMode = settings.themeId == "light",
+                                isLightMode = false,
                                 streakDays = streakDays,
                                 onOpenMyProfile = { showMyProfileModal = true },
-                                onOpenJarvis = { showJarvisAssistant = true },
-                                onToggleThemeMode = {
-                                    val nextTheme = when (settings.themeId) {
-                                        "stark" -> "neon"
-                                        "neon" -> "light"
-                                        else -> "stark"
-                                    }
-                                    ThemePreferenceManager.saveThemePreference(context, nextTheme)
-                                    viewModel.updateSettings(
-                                        themeId = nextTheme,
-                                        toastText = when (nextTheme) {
-                                            "neon" -> "⚡ Theme B: Neon Intelligence Activated"
-                                            "light" -> "◇ Theme C: Light Luxury Activated"
-                                            else -> "◆ Theme A: Obsidian Luxury Activated"
-                                        }
-                                    )
-                                },
+                                onOpenJarvis = { isJarvisOpen = true },
+                                onToggleThemeMode = {},
                                 onToggleStealth = {
                                     viewModel.updateSettings(
                                         stealthMode = !settings.stealthMode,
@@ -530,13 +648,25 @@ fun KharcheeMainShell(
                                     )
                                 },
                                 onSignOut = {
+                                    com.example.util.BackupManager.triggerAutoBackupOnLogout(
+                                        context = context,
+                                        userId = currentUserId,
+                                        userEmail = userEmail,
+                                        userDisplayName = effectiveDisplayName,
+                                        liveExpenses = expenses,
+                                        liveGoals = savingsGoals,
+                                        liveSettings = settings,
+                                        liveKhataFriends = khataFriends,
+                                        liveReminders = paymentReminders
+                                    )
                                     signOut(
                                         context = context,
                                         credentialManager = credentialManager,
-                                        onSignOutComplete = {},
+                                        onSignOutComplete = onRequireAuthScreen,
                                         scope = scope
                                     )
-                                }
+                                },
+                                onOpenProVault = { activeTab = KharcheeTab.PRO }
                             )
                         }
                     },
@@ -550,7 +680,7 @@ fun KharcheeMainShell(
                                 onSelectAnalytics = { activeTab = KharcheeTab.INSIGHTS },
                                 onOpenProfile = { showMyProfileModal = true },
                                 onSelectVault = { activeTab = KharcheeTab.VAULT },
-                                onSelectJarvis = { activeTab = KharcheeTab.JARVIS },
+                                onSelectJarvis = { isJarvisOpen = true },
                                 onSelectPro = { activeTab = KharcheeTab.PRO }
                             )
                         }
@@ -600,11 +730,8 @@ fun KharcheeMainShell(
                                 .weight(1f)
                                 .fillMaxHeight()
                         ) {
-                            if (expensesUiState is UiState.Loading && settingsUiState is UiState.Loading) {
-                                KharcheeLogoLoadingIndicator()
-                            } else {
-                                when (activeTab) {
-                                    KharcheeTab.HOME -> HomeTab(
+                            when (activeTab) {
+                                KharcheeTab.HOME, KharcheeTab.JARVIS -> HomeTab(
                                         settings = settings,
                                         expenses = expenses,
                                         savingsGoals = savingsGoals,
@@ -617,17 +744,16 @@ fun KharcheeMainShell(
                                         proactiveInsights = proactiveInsights,
                                         onOpenJarvisWithPrompt = { prompt ->
                                             jarvisInitialPrompt = prompt
-                                            showJarvisAssistant = true
+                                            isJarvisOpen = true
                                         },
                                         onDismissAlert = viewModel::dismissAccountabilityAlert,
                                         onQuickAdd = { title, cat, amt ->
-                                            viewModel.requestAddTransaction(
+                                            viewModel.instantOneTapLogExpense(
                                                 title = title,
                                                 category = cat,
                                                 amount = amt,
                                                 paymentMode = "UPI",
-                                                type = "expense",
-                                                note = "1-Tap Quick Add"
+                                                note = "1-Tap Instant Log"
                                             )
                                         },
                                         onOpenAddExpense = { addModalType = "expense" },
@@ -636,7 +762,10 @@ fun KharcheeMainShell(
                                         onOpenUpiGuardSimulator = { showSmsParserModal = true },
                                         onOpenAddGoal = { showSavingsGoalModal = true },
                                         onAddGoalProgress = viewModel::addSavingsProgress,
-                                        onDeleteExpense = { viewModel.deleteExpense(it.id, it.title) },
+                                        onDeleteExpense = {
+                                            AutoExpenseDetectionStore.removeLocalAutoExpenseById(context, it.id)
+                                            viewModel.deleteExpense(it.id, it.title)
+                                        },
                                         onToggleLockdown = {
                                             val next = !settings.lockdownActive
                                             viewModel.updateSettings(
@@ -658,7 +787,7 @@ fun KharcheeMainShell(
                                         onEditExpense = { editingExpense = it },
                                         onOpenFinanceTools = { showFinanceToolsModal = true },
                                         onOpenSnapAndTrack = { showKharcheeSnapModal = true },
-                                        onOpenJarvisTab = { activeTab = KharcheeTab.JARVIS },
+                                        onOpenJarvisTab = { isJarvisOpen = true },
                                         onOpenOnboardingProfileEditor = { showOnboardingFlowModal = true },
                                         onToggleStealth = {
                                             viewModel.updateSettings(
@@ -692,53 +821,13 @@ fun KharcheeMainShell(
                                     KharcheeTab.HISTORY -> HistoryTab(
                                         expenses = expenses,
                                         stealthMode = settings.stealthMode,
-                                        onDeleteExpense = { viewModel.deleteExpense(it.id, it.title) },
+                                        onDeleteExpense = {
+                                            AutoExpenseDetectionStore.removeLocalAutoExpenseById(context, it.id)
+                                            viewModel.deleteExpense(it.id, it.title)
+                                        },
                                         onEditExpense = { editingExpense = it },
                                         onOpenAddExpense = { addModalType = "expense" },
                                         onOpenAddIncome = { addModalType = "income" }
-                                    )
-
-                                    KharcheeTab.JARVIS -> JarvisAssistantOverlay(
-                                        userDisplayName = effectiveDisplayName,
-                                        todaySpent = todaySpent,
-                                        monthSpent = monthSpent,
-                                        dailyLimit = settings.dailyLimit,
-                                        disciplineScore = disciplineScore,
-                                        messages = jarvisMessages,
-                                        streamingReply = jarvisStreamingReply,
-                                        isGenerating = jarvisIsGenerating,
-                                        activeMode = jarvisMode,
-                                        activeLanguage = jarvisLanguage,
-                                        errorState = jarvisError,
-                                        latestSpokenText = latestSpokenJarvisText,
-                                        onConsumeLatestSpokenText = viewModel::consumeLatestSpokenJarvisText,
-                                        onSelectMode = viewModel::setJarvisMode,
-                                        onSelectLanguage = viewModel::setJarvisLanguage,
-                                        proactiveInsights = proactiveInsights,
-                                        pendingProposedAction = pendingProposedAction,
-                                        onConfirmProposedAction = { action ->
-                                            viewModel.executeConfirmedJarvisAction(
-                                                action = action,
-                                                onNavigateToTab = { targetTabId ->
-                                                    val matched = KharcheeTab.entries.find { it.id == targetTabId }
-                                                    if (matched != null) {
-                                                        activeTab = matched
-                                                    }
-                                                }
-                                            )
-                                        },
-                                        onDismissProposedAction = viewModel::dismissProposedAction,
-                                        initialPrompt = jarvisInitialPrompt,
-                                        onSendMessage = { prompt ->
-                                            jarvisInitialPrompt = null
-                                            viewModel.sendJarvisMessage(prompt, effectiveDisplayName)
-                                        },
-                                        onClearHistory = viewModel::clearJarvisConversation,
-                                        onDismissError = viewModel::dismissJarvisError,
-                                        onClose = {
-                                            activeTab = KharcheeTab.HOME
-                                            jarvisInitialPrompt = null
-                                        }
                                     )
 
                                     KharcheeTab.INSIGHTS -> InsightsTab(
@@ -754,7 +843,7 @@ fun KharcheeMainShell(
                                         userDisplayName = effectiveDisplayName,
                                         onOpenJarvisWithPrompt = { prompt ->
                                             jarvisInitialPrompt = prompt
-                                            showJarvisAssistant = true
+                                            isJarvisOpen = true
                                         },
                                         onOpenProfile = { showMyProfileModal = true },
                                         onOpenNotifications = { showSmartRemindersModal = true },
@@ -798,6 +887,8 @@ fun KharcheeMainShell(
                                                 userId = currentUserId,
                                                 legacyFriends = khataFriends,
                                                 stealthMode = settings.stealthMode,
+                                                userDisplayName = effectiveDisplayName,
+                                                userUpiId = settings.myUpiId,
                                                 onShowToast = viewModel::showToast,
                                                 onOpenVaultTools = { showVaultGoalsSubScreen = true }
                                             )
@@ -848,11 +939,13 @@ fun KharcheeMainShell(
                         }
                     }
                 }
-            }
 
             if (addModalType != null) {
                 AddTransactionBottomSheet(
                     initialType = addModalType!!,
+                    recentExpenses = expenses,
+                    savingsGoals = savingsGoals,
+                    dailyLimit = settings.dailyLimit,
                     onDismiss = { addModalType = null },
                     onSubmit = { title, cat, amt, mode, type, note ->
                         viewModel.requestAddTransaction(title, cat, amt, mode, type, note)
@@ -865,6 +958,7 @@ fun KharcheeMainShell(
                     expense = editingExpense!!,
                     onDismiss = { editingExpense = null },
                     onSaveUpdated = { updated ->
+                        AutoExpenseDetectionStore.updateLocalAutoExpense(context, updated)
                         viewModel.updateExistingExpense(updated)
                     }
                 )
@@ -875,6 +969,21 @@ fun KharcheeMainShell(
                     userId = currentUserId,
                     initialProfile = userProfileData,
                     settings = settings,
+                    liveExpenses = expenses,
+                    liveGoals = savingsGoals,
+                    liveKhataFriends = khataFriends,
+                    liveReminders = paymentReminders,
+                    onBackupRestored = { snapshot, mergeWithExisting ->
+                        profileVersion++
+                        viewModel.applyRestoredBackupSnapshot(snapshot, mergeWithExisting)
+                    },
+                    onShowToast = viewModel::showToast,
+                    onToggleHideBalance = { hide ->
+                        viewModel.updateSettings(
+                            stealthMode = hide,
+                            toastText = if (hide) "🛡️ Balance hidden on Dashboard (••••••)" else "👁️ Balance visible on Dashboard"
+                        )
+                    },
                     onDismiss = {
                         profileVersion++
                         showMyProfileModal = false
@@ -926,6 +1035,13 @@ fun KharcheeMainShell(
                                 scope = scope
                             )
                         }
+                    },
+                    onOpenWalkthrough = {
+                        showFirstTimeTutorialAndColdStart = true
+                    },
+                    onOpenSovereignTab = {
+                        showMyProfileModal = false
+                        activeTab = KharcheeTab.PRO
                     }
                 )
             }
@@ -1092,9 +1208,25 @@ fun KharcheeMainShell(
                 )
             }
 
-            if (showJarvisAssistant) {
-                JarvisAssistantOverlay(
-                    userDisplayName = userDisplayName,
+            if (isJarvisOpen) {
+                val advancedKhataVersion by com.example.data.model.AdvancedKhataStore.versionFlow.collectAsStateWithLifecycle()
+                val mergedKhataEntities = remember(khataFriends, currentUserId, advancedKhataVersion) {
+                    val advStates = com.example.data.model.AdvancedKhataStore.getAllContactStates(context, currentUserId)
+                    val advRecords = advStates.map { st ->
+                        com.example.data.model.KhataFriendRecord(
+                            id = st.contact.id,
+                            userId = currentUserId,
+                            name = st.contact.name,
+                            phone = st.contact.phone,
+                            balance = st.netSignedBalance,
+                            lastDescription = st.activeEntries.firstOrNull()?.description ?: "Khata Ledger"
+                        )
+                    }
+                    (khataFriends + advRecords).distinctBy { it.name.trim().lowercase() }
+                }
+
+                JarvisAssistantSheet(
+                    userDisplayName = effectiveDisplayName,
                     todaySpent = todaySpent,
                     monthSpent = monthSpent,
                     dailyLimit = settings.dailyLimit,
@@ -1118,21 +1250,33 @@ fun KharcheeMainShell(
                                 val matched = KharcheeTab.entries.find { it.id == targetTabId }
                                 if (matched != null) {
                                     activeTab = matched
-                                    showJarvisAssistant = false
+                                    isJarvisOpen = false
                                 }
                             }
                         )
                     },
                     onDismissProposedAction = viewModel::dismissProposedAction,
                     initialPrompt = jarvisInitialPrompt,
+                    totalBalance = totalBalance,
+                    monthlyInflow = monthlyInflow,
+                    monthlyOutflow = monthSpent,
+                    topSpendingCategory = topSpendingCategory,
+                    remainingBudget = remainingBudget,
+                    allTransactions = expenses,
+                    khataEntities = mergedKhataEntities,
+                    netBalance = totalBalance,
                     onSendMessage = { prompt ->
                         jarvisInitialPrompt = null
-                        viewModel.sendJarvisMessage(prompt, userDisplayName)
+                        viewModel.sendJarvisMessage(
+                            rawPrompt = prompt,
+                            userDisplayName = effectiveDisplayName,
+                            extraKhataRecords = mergedKhataEntities
+                        )
                     },
                     onClearHistory = viewModel::clearJarvisConversation,
                     onDismissError = viewModel::dismissJarvisError,
                     onClose = {
-                        showJarvisAssistant = false
+                        isJarvisOpen = false
                         jarvisInitialPrompt = null
                     }
                 )
@@ -1172,6 +1316,158 @@ fun KharcheeMainShell(
                     }
                 )
             }
+
+            if (showFirstTimeTutorialAndColdStart) {
+                KharcheeFirstLaunchWalkthroughAndSetupOverlay(
+                    initialUserName = effectiveDisplayName,
+                    initialMonthlyBudget = userProfileData.monthlyBudget,
+                    initialCurrency = KharcheeProfileAndToolsStore.getPreferredCurrency(context, currentUserId),
+                    showColdStartSetupAfterTutorial = expenses.isEmpty(),
+                    userId = currentUserId,
+                    userEmail = userEmail,
+                    onBackupRestored = { snapshot ->
+                        profileVersion++
+                        coldStartRestoreDismissed = true
+                        viewModel.applyRestoredBackupSnapshot(snapshot, mergeWithExisting = false)
+                    },
+                    onDismissOrSkipToZeroStart = {
+                        KharcheeProfileAndToolsStore.setFirstTimeUser(context, currentUserId, false)
+                        showFirstTimeTutorialAndColdStart = false
+                        activeTab = KharcheeTab.HOME
+                    },
+                    onCompleteColdStartSetup = { newName, openingBalance, monthlyBudgetTarget, preferredCurrency, notifyPayRem, notifyNight, notifyMorn ->
+                        KharcheeProfileAndToolsStore.setFirstTimeUser(context, currentUserId, false)
+                        KharcheeProfileAndToolsStore.savePreferredCurrency(context, currentUserId, preferredCurrency)
+                        KharcheeProfileAndToolsStore.saveProfileMetadata(
+                            context = context,
+                            userId = currentUserId,
+                            displayName = newName,
+                            phone = userProfileData.phone,
+                            profilePhotoUri = userProfileData.profilePhotoUri,
+                            monthlyBudget = monthlyBudgetTarget,
+                            primaryWallet = userProfileData.primaryWallet,
+                            vaultPinProtectionEnabled = userProfileData.vaultPinProtectionEnabled,
+                            sharePrivacyHideBalances = userProfileData.sharePrivacyHideBalances
+                        )
+                        profileVersion++
+                        val computedDailyLimit = if (monthlyBudgetTarget > 0L) {
+                            (monthlyBudgetTarget / 30L).coerceAtLeast(50L)
+                        } else {
+                            settings.dailyLimit
+                        }
+                        viewModel.updateSettings(
+                            dailyLimit = computedDailyLimit,
+                            notifyPaymentReminders = notifyPayRem,
+                            notifyNightGuardAlert = notifyNight,
+                            notifyMorningReview = notifyMorn,
+                            toastText = if (openingBalance > 0L) {
+                                "✅ Vault initialized with ₹$openingBalance Opening Balance"
+                            } else {
+                                "✅ Vault initialized with ₹0 clean balance"
+                            }
+                        )
+                        if (openingBalance > 0L) {
+                            viewModel.requestAddTransaction(
+                                title = "Opening Balance / Income",
+                                category = "Opening Balance / Income",
+                                amount = openingBalance,
+                                paymentMode = "UPI",
+                                type = "income",
+                                note = "Initial Cold-Start Opening Balance ($preferredCurrency)"
+                            )
+                        }
+                        showFirstTimeTutorialAndColdStart = false
+                        activeTab = KharcheeTab.HOME
+                    }
+                )
+            }
+
+            // First-Time / Returning User Cold-Start Restore Detector Card on Main Shell
+            val coldStartBackup = detectedColdStartBackup
+            if (coldStartBackup != null && !coldStartRestoreDismissed && expenses.isEmpty() && !showFirstTimeTutorialAndColdStart) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = 16.dp, vertical = 96.dp)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color(0xFF071B15).copy(alpha = 0.96f))
+                        .border(1.2.dp, Color(0xFF2EE59D).copy(alpha = 0.8f), RoundedCornerShape(18.dp))
+                        .padding(16.dp)
+                        .testTag("main_shell_restore_detected_card")
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "☁️ GOOGLE DRIVE BACKUP DETECTED",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 10.sp,
+                                letterSpacing = 1.sp,
+                                color = Color(0xFF2EE59D)
+                            )
+                            Text(
+                                text = "✕ Dismiss",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp,
+                                color = Color(0xFF9CA3AF),
+                                modifier = Modifier
+                                    .clickable { coldStartRestoreDismissed = true }
+                                    .padding(4.dp)
+                                    .testTag("dismiss_cold_start_restore_card")
+                            )
+                        }
+                        Text(
+                            text = "Restore detected! We found a previous backup from ${coldStartBackup.lastDateFormatted}. Restoring will retrieve your ₹${coldStartBackup.netBalanceAmount} balance and transactions.",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        androidx.compose.material3.Button(
+                            onClick = {
+                                kotlinx.coroutines.MainScope().launch {
+                                    val res = com.example.util.BackupManager.restoreFromEncryptedFile(
+                                        context = context,
+                                        file = java.io.File(coldStartBackup.encryptedFilePath),
+                                        targetUserId = currentUserId,
+                                        password = "",
+                                        mergeWithExisting = false
+                                    )
+                                    res.onSuccess { snapshot ->
+                                        coldStartRestoreDismissed = true
+                                        profileVersion++
+                                        viewModel.applyRestoredBackupSnapshot(snapshot, mergeWithExisting = false)
+                                    }.onFailure { err ->
+                                        viewModel.showToast("⚠️ Restore error: ${err.message}")
+                                    }
+                                }
+                            },
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF2EE59D),
+                                contentColor = Color(0xFF040508)
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 2.dp)
+                                .testTag("main_shell_restore_now_button")
+                        ) {
+                            Text(
+                                text = "Restore Now",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1188,11 +1484,10 @@ private fun KharcheeTopHeader(
     onOpenJarvis: () -> Unit,
     onToggleThemeMode: () -> Unit,
     onToggleStealth: () -> Unit,
-    onSignOut: () -> Unit
+    onSignOut: () -> Unit,
+    onOpenProVault: () -> Unit = {}
 ) {
-    val hud = LocalHudTheme.current
     val headingFont = LocalAppFontFamily.current
-    val jarvisCyan = Color(0xFF00E5FF)
     val initials = remember(userDisplayName) {
         userDisplayName.trim().take(2).uppercase().ifBlank { "KH" }
     }
@@ -1210,17 +1505,23 @@ private fun KharcheeTopHeader(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left: Original Geometric Architectural Logo + Full KHARCHEE Wordmark
-            KharcheeArchitecturalLogo(
-                symbolSize = 34.dp,
-                wordmarkFontSizeSp = 15,
-                subtitle = "${activeTab.label.uppercase()} · OBSIDIAN VAULT"
-            )
+            // Left: Official 40dp Architectural "A" Logo + Full KHARCHEE Wordmark
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp)
+            ) {
+                KharcheeArchitecturalLogo(
+                    symbolSize = 40.dp,
+                    wordmarkFontSizeSp = 15,
+                    subtitle = "${activeTab.label.uppercase()} · OBSIDIAN VAULT"
+                )
+            }
 
-            // Right: My Profile Pill + Theme / Stealth / Sign-out Actions
+            // Right: Clean My Profile Pill + Stealth / Sign-out Actions (No intrusive Pro badges)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Surface(
                     color = RichGraphite,
@@ -1272,27 +1573,15 @@ private fun KharcheeTopHeader(
                         }
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "My Profile",
+                            text = "Profile",
                             fontFamily = JetBrainsMonoFontFamily,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 10.sp,
-                            color = WarmIvory
+                            color = WarmIvory,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
-                }
-
-                IconButton(
-                    onClick = onToggleThemeMode,
-                    modifier = Modifier
-                        .size(34.dp)
-                        .testTag("toggle_theme_mode_button")
-                ) {
-                    Icon(
-                        imageVector = if (isLightMode) Icons.Default.DarkMode else Icons.Default.LightMode,
-                        contentDescription = if (isLightMode) "Switch to Obsidian Dark Mode" else "Switch to Obsidian Light Mode",
-                        tint = MutedPlatinum,
-                        modifier = Modifier.size(18.dp)
-                    )
                 }
 
                 IconButton(

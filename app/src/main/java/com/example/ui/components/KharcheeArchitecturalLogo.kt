@@ -1,13 +1,12 @@
 package com.example.ui.components
 
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,98 +15,179 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.R
 import com.example.ui.theme.JetBrainsMonoFontFamily
+import com.example.ui.theme.LocalAppFontFamily
 
 /**
- * Approved KHARCHEE Geometric Brand Logo & Wordmark Component.
- * Uses the exact uploaded KHARCHEE geometric symbol and full logo assets
- * without stretching, cropping, or distorting proportions.
+ * Builds the official KHARCHEE Architectural "A" monolith vector path:
+ * - Angled 45° left ramp
+ * - Flat top horizontal peak
+ * - Vertical inner negative cut with rounded arch
+ * - Solid right horizontal step and base foot
+ */
+fun buildKharcheeArchitecturalAPath(w: Float, h: Float): Path {
+    return Path().apply {
+        // 1. Start at bottom-left vertical edge
+        moveTo(w * 0.06f, h * 0.82f)
+        lineTo(w * 0.06f, h * 0.64f)
+        quadraticTo(w * 0.06f, h * 0.59f, w * 0.09f, h * 0.55f)
+
+        // 2. Angled left ramp rising to flat top peak
+        lineTo(w * 0.43f, h * 0.14f)
+        quadraticTo(w * 0.46f, h * 0.10f, w * 0.51f, h * 0.10f)
+
+        // 3. Flat top horizontal shelf
+        lineTo(w * 0.61f, h * 0.10f)
+        quadraticTo(w * 0.66f, h * 0.10f, w * 0.66f, h * 0.16f)
+
+        // 4. Vertical step down on right side of peak
+        lineTo(w * 0.66f, h * 0.45f)
+        quadraticTo(w * 0.66f, h * 0.51f, w * 0.72f, h * 0.51f)
+
+        // 5. Right horizontal wing shelf
+        lineTo(w * 0.89f, h * 0.51f)
+        quadraticTo(w * 0.94f, h * 0.51f, w * 0.94f, h * 0.57f)
+
+        // 6. Solid right vertical outer edge
+        lineTo(w * 0.94f, h * 0.84f)
+        quadraticTo(w * 0.94f, h * 0.90f, w * 0.89f, h * 0.90f)
+
+        // 7. Solid right base foot with rounded inner-left heel
+        lineTo(w * 0.68f, h * 0.90f)
+        quadraticTo(w * 0.58f, h * 0.90f, w * 0.58f, h * 0.78f)
+
+        // 8. Vertical inner negative cut & arch
+        lineTo(w * 0.58f, h * 0.63f)
+        cubicTo(
+            w * 0.58f, h * 0.53f,
+            w * 0.47f, h * 0.53f,
+            w * 0.42f, h * 0.60f
+        )
+
+        // 9. Inner diagonal ramp descending to left base foot
+        lineTo(w * 0.25f, h * 0.86f)
+        quadraticTo(w * 0.22f, h * 0.90f, w * 0.17f, h * 0.90f)
+
+        // 10. Bottom-left base foot closing back to start
+        lineTo(w * 0.11f, h * 0.90f)
+        quadraticTo(w * 0.06f, h * 0.90f, w * 0.06f, h * 0.82f)
+        close()
+    }
+}
+
+/**
+ * Renders the standalone official KHARCHEE Architectural "A" Monolith Mark
+ * in a clean pure white (#FFFFFF) / brushed titanium silver finish.
+ */
+@Composable
+fun KharcheeArchitecturalAMark(
+    size: Dp = 28.dp,
+    modifier: Modifier = Modifier,
+    brush: Brush? = null
+) {
+    Canvas(
+        modifier = modifier.size(width = size * 1.18f, height = size)
+    ) {
+        val w = this.size.width
+        val h = this.size.height
+        val monolithPath = buildKharcheeArchitecturalAPath(w, h)
+        val fillBrush = brush ?: Brush.linearGradient(
+            colors = listOf(
+                Color(0xFFFFFFFF),
+                Color(0xFFF8FAFC),
+                Color(0xFFE2E8F0),
+                Color(0xFFFFFFFF)
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(w, h)
+        )
+        drawPath(
+            path = monolithPath,
+            brush = fillBrush
+        )
+    }
+}
+
+/**
+ * Official KHARCHEE Architectural Brand Logo & Wordmark Component.
+ * Combines the official architectural "A" block geometry alongside bold tracking "KHARCHEE" text.
  */
 @Composable
 fun KharcheeArchitecturalLogo(
     subtitle: String? = null,
-    symbolSize: Dp = 38.dp,
+    symbolSize: Dp = 36.dp,
     wordmarkFontSizeSp: Int = 15,
     compact: Boolean = false,
     usePurpleAccentDot: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val matteBlack = Color(0xFF0A0714)
-    val metallicSilver = Color(0xFFC4CBD4)
-    val subtlePurple = Color(0xFF9D4EDD)
+    val headingFont = LocalAppFontFamily.current
+    val effectiveSymbolBox = if (compact) 32.dp else symbolSize
+    val effectiveGlyphHeight = effectiveSymbolBox * 0.56f
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 12.dp),
         modifier = modifier.testTag("kharchee_architectural_logo")
     ) {
-        if (subtitle.isNullOrBlank()) {
-            // Render the full approved logo (symbol + KHARCHEE wordmark) preserving exact aspect ratio
-            Image(
-                painter = painterResource(id = R.drawable.kharchee_logo_full),
-                contentDescription = "KHARCHEE Logo",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.height(if (compact) 28.dp else symbolSize.coerceAtLeast(30.dp))
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(symbolSize)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(
-                                matteBlack,
-                                Color(0xFF140E26),
-                                Color(0xFF1F1438)
-                            )
+        // Obsidian Squircle Emblem housing the pure white / brushed titanium "A" monolith
+        Box(
+            modifier = Modifier
+                .size(effectiveSymbolBox)
+                .clip(RoundedCornerShape(effectiveSymbolBox * 0.28f))
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFF141126),
+                            Color(0xFF0A0914),
+                            Color(0xFF05050A)
                         )
                     )
-                    .border(
-                        width = 1.dp,
-                        brush = Brush.linearGradient(
-                            colors = listOf(
-                                Color(0xFFE9D5FF).copy(alpha = 0.75f),
-                                subtlePurple.copy(alpha = 0.55f),
-                                metallicSilver.copy(alpha = 0.4f)
-                            )
-                        ),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    .padding(6.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Image(
-                    painter = painterResource(id = R.drawable.kharchee_logo_symbol),
-                    contentDescription = "KHARCHEE Symbol",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.height(symbolSize * 0.62f)
                 )
-            }
+                .border(
+                    width = 1.dp,
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFFFFFFFF).copy(alpha = 0.45f),
+                            Color(0xFFA855F7).copy(alpha = 0.55f),
+                            Color(0xFF94A3B8).copy(alpha = 0.35f)
+                        )
+                    ),
+                    shape = RoundedCornerShape(effectiveSymbolBox * 0.28f)
+                )
+                .padding(4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            KharcheeArchitecturalAMark(size = effectiveGlyphHeight)
+        }
 
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Image(
-                    painter = painterResource(id = R.drawable.kharchee_logo_full),
-                    contentDescription = "KHARCHEE Wordmark",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.height((wordmarkFontSizeSp + 6).dp)
-                )
+        Column(
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = "KHARCHEE",
+                fontFamily = headingFont,
+                fontSize = wordmarkFontSizeSp.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 3.2.sp,
+                color = Color.White
+            )
+            if (!subtitle.isNullOrBlank()) {
                 Text(
                     text = subtitle,
                     fontFamily = JetBrainsMonoFontFamily,
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Medium,
-                    letterSpacing = 0.9.sp,
+                    letterSpacing = 1.0.sp,
                     color = Color(0xFFB8B0D4)
                 )
             }

@@ -189,62 +189,47 @@ class ExampleUnitTest {
 
     @Test
     fun obsidianLuxuryDesignSystem_darkAndLightModeTokens_matchSpecification() {
-        // Dark Mode tokens
+        // Unified Purple/Violet Luxury tokens (#05050A canvas, #0D0E17 surface, #A855F7 / #7C3AED accents)
         com.example.ui.theme.ObsidianThemeState.isLightMode = false
-        assertEquals(0xFF080A0D.toInt(), com.example.ui.theme.ObsidianBlack.value.shr(32).toInt())
-        assertEquals(0xFF12161C.toInt(), com.example.ui.theme.RichGraphite.value.shr(32).toInt())
-        assertEquals(0xFF202630.toInt(), com.example.ui.theme.ElevatedGraphite.value.shr(32).toInt())
-        assertEquals(0xFF303944.toInt(), com.example.ui.theme.HairlinePlatinum.value.shr(32).toInt())
-        assertEquals(0xFFF5F7FA.toInt(), com.example.ui.theme.WarmIvory.value.shr(32).toInt())
-        assertEquals(0xFFA1AAB6.toInt(), com.example.ui.theme.MutedPlatinum.value.shr(32).toInt())
-        assertEquals(0xFF84909E.toInt(), com.example.ui.theme.MutedIvory.value.shr(32).toInt())
-        assertEquals(0xFFC4CBD4.toInt(), com.example.ui.theme.MetallicSilver.value.shr(32).toInt())
-        assertEquals(0xFF00DFA5.toInt(), com.example.ui.theme.ChampagneGold.value.shr(32).toInt())
-        assertEquals(0xFF00C98A.toInt(), com.example.ui.theme.SophisticatedEmerald.value.shr(32).toInt())
-        assertEquals(0xFFFF5364.toInt(), com.example.ui.theme.CrimsonRuby.value.shr(32).toInt())
-        assertEquals(0xFFF3B94F.toInt(), com.example.ui.theme.GoldReserveAccent.value.shr(32).toInt())
+        assertEquals(0xFF05050A.toInt(), com.example.ui.theme.ObsidianBlack.value.shr(32).toInt())
+        assertEquals(0xFF0D0E17.toInt(), com.example.ui.theme.RichGraphite.value.shr(32).toInt())
+        assertEquals(0xFF151329.toInt(), com.example.ui.theme.ElevatedGraphite.value.shr(32).toInt())
+        assertEquals(0xFF2B224C.toInt(), com.example.ui.theme.HairlinePlatinum.value.shr(32).toInt())
+        assertEquals(0xFFF7F4FF.toInt(), com.example.ui.theme.WarmIvory.value.shr(32).toInt())
+        assertEquals(0xFFB8B0D4.toInt(), com.example.ui.theme.MutedPlatinum.value.shr(32).toInt())
+        assertEquals(0xFF8E84AD.toInt(), com.example.ui.theme.MutedIvory.value.shr(32).toInt())
+        assertEquals(0xFFD8B4FE.toInt(), com.example.ui.theme.MetallicSilver.value.shr(32).toInt())
+        assertEquals(0xFFA855F7.toInt(), com.example.ui.theme.ChampagneGold.value.shr(32).toInt())
+        assertEquals(0xFF2EE59D.toInt(), com.example.ui.theme.SophisticatedEmerald.value.shr(32).toInt())
+        assertEquals(0xFFFF4D8D.toInt(), com.example.ui.theme.CrimsonRuby.value.shr(32).toInt())
+        assertEquals(0xFFA855F7.toInt(), com.example.ui.theme.GoldReserveAccent.value.shr(32).toInt())
 
-        // Light Mode tokens
+        // Verify theme lock: attempting to enable light mode stays locked on the single Purple Luxury theme
         com.example.ui.theme.ObsidianThemeState.isLightMode = true
-        assertEquals(0xFFF4F5F7.toInt(), com.example.ui.theme.ObsidianBlack.value.shr(32).toInt())
-        assertEquals(0xFFFFFFFF.toInt(), com.example.ui.theme.RichGraphite.value.shr(32).toInt())
-        assertEquals(0xFFEDF0F4.toInt(), com.example.ui.theme.ElevatedGraphite.value.shr(32).toInt())
-        assertEquals(0xFFE5E9EF.toInt(), com.example.ui.theme.HairlinePlatinum.value.shr(32).toInt())
-        assertEquals(0xFF171B22.toInt(), com.example.ui.theme.WarmIvory.value.shr(32).toInt())
-        assertEquals(0xFF667085.toInt(), com.example.ui.theme.MutedPlatinum.value.shr(32).toInt())
-        assertEquals(0xFF00A879.toInt(), com.example.ui.theme.ChampagneGold.value.shr(32).toInt())
-        assertEquals(0xFF008F68.toInt(), com.example.ui.theme.SophisticatedEmerald.value.shr(32).toInt())
-        assertEquals(0xFFD9364F.toInt(), com.example.ui.theme.CrimsonRuby.value.shr(32).toInt())
-        assertEquals(0xFFA96B00.toInt(), com.example.ui.theme.GoldReserveAccent.value.shr(32).toInt())
-
-        // Reset to Dark Mode default
-        com.example.ui.theme.ObsidianThemeState.isLightMode = false
+        assertFalse(com.example.ui.theme.ObsidianThemeState.isLightMode)
+        assertEquals(0xFF05050A.toInt(), com.example.ui.theme.ObsidianBlack.value.shr(32).toInt())
+        assertEquals(0xFF0D0E17.toInt(), com.example.ui.theme.RichGraphite.value.shr(32).toInt())
+        assertEquals(0xFFA855F7.toInt(), com.example.ui.theme.ChampagneGold.value.shr(32).toInt())
     }
 
     @Test
     fun threeIndependentThemes_andVoiceExpenseParser_workAndPersist() {
         val context = ApplicationProvider.getApplicationContext<Context>()
 
-        // Verify all 3 themes exist and resolve properly
+        // Verify all theme IDs resolve to the unified Purple Luxury Vault theme
         val themeA = com.example.ui.theme.getHudThemeById("stark")
         val themeB = com.example.ui.theme.getHudThemeById("neon")
         val themeC = com.example.ui.theme.getHudThemeById("light")
-        assertTrue(themeA.name.contains("Theme A"))
-        assertTrue(themeB.name.contains("Theme B"))
-        assertTrue(themeC.name.contains("Theme C"))
+        assertTrue(themeA.name.contains("Purple Luxury"))
+        assertEquals(themeA, themeB)
+        assertEquals(themeA, themeC)
 
-        // Theme B: Neon Intelligence surface and accent check
-        com.example.ui.theme.ObsidianThemeState.activeThemeId = "neon"
-        assertEquals(0xFF060A17.toInt(), com.example.ui.theme.ObsidianBlack.value.shr(32).toInt())
-        assertEquals(0xFF00E5FF.toInt(), com.example.ui.theme.ChampagneGold.value.shr(32).toInt())
-
-        // Persistence check
+        // Verify theme lock persists "stark" (Purple Luxury)
         com.example.ui.theme.ThemePreferenceManager.saveThemePreference(context, "neon")
-        assertEquals("neon", com.example.ui.theme.ThemePreferenceManager.loadThemePreference(context))
-
-        // Reset to Theme A
-        com.example.ui.theme.ThemePreferenceManager.saveThemePreference(context, "stark")
+        assertEquals("stark", com.example.ui.theme.ThemePreferenceManager.loadThemePreference(context))
         assertEquals("stark", com.example.ui.theme.ObsidianThemeState.activeThemeId)
+        assertEquals(0xFF05050A.toInt(), com.example.ui.theme.ObsidianBlack.value.shr(32).toInt())
+        assertEquals(0xFFA855F7.toInt(), com.example.ui.theme.ChampagneGold.value.shr(32).toInt())
 
         // Voice expense entry parser check
         val parsed = com.example.ui.screens.parseSpokenExpensePhrase("Spent 350 on Zomato")
@@ -1246,10 +1231,130 @@ class ExampleUnitTest {
         assertTrue(reportText.contains("INR 50000"))
         assertTrue(reportCsv.contains("\"Category Breakdown\",\"Food\",4500"))
     }
+
+    @Test
+    fun jarvisHardening_realContextInjectionAndDeterministicRoastFallback_worksProperly() {
+        val now = System.currentTimeMillis()
+        val settings = com.example.data.model.UserSettings(userId = "jarvis_test_user", dailyLimit = 600L)
+        val sampleExpenses = listOf(
+            com.example.data.model.ExpenseRecord(
+                id = "inc_1",
+                userId = "jarvis_test_user",
+                title = "Monthly Salary",
+                category = "Income",
+                amount = 45_000L,
+                paymentMode = "Bank",
+                type = "income",
+                txEpochMillis = now - 3_600_000L
+            ),
+            com.example.data.model.ExpenseRecord(
+                id = "exp_1",
+                userId = "jarvis_test_user",
+                title = "Late Night Biryani & Dessert",
+                category = "Food",
+                amount = 950L,
+                paymentMode = "UPI",
+                type = "expense",
+                txEpochMillis = now - 1_800_000L
+            ),
+            com.example.data.model.ExpenseRecord(
+                id = "exp_2",
+                userId = "jarvis_test_user",
+                title = "Sneakers Impulse Buy",
+                category = "Shopping",
+                amount = 2_400L,
+                paymentMode = "UPI",
+                type = "expense",
+                txEpochMillis = now - 86_400_000L
+            )
+        )
+
+        val contextSnapshot = com.example.ui.viewmodel.KharcheeViewModel.buildLiveFinancialContextSnapshotFromData(
+            userDisplayName = "Prince",
+            expenses = sampleExpenses,
+            settings = settings
+        )
+        assertTrue(contextSnapshot.contains("Current Total Balance: ₹41650"))
+        assertTrue(contextSnapshot.contains("Monthly Inflow (Income): ₹45000"))
+        assertTrue(contextSnapshot.contains("Monthly Outflow (Expenses): ₹3350"))
+        assertTrue(contextSnapshot.contains("Top Spending Category: Shopping (₹2400"))
+        assertTrue(contextSnapshot.contains("Remaining Monthly Budget: ₹14650"))
+
+        val hinglishRoast = com.example.ui.viewmodel.KharcheeViewModel.buildDeterministicJarvisFallbackReply(
+            prompt = "Roast my spending today!",
+            userDisplayName = "Prince",
+            mode = "roast",
+            language = "hinglish",
+            expenses = sampleExpenses,
+            settings = settings
+        )
+        assertTrue(hinglishRoast.contains("₹41650"))
+        assertTrue(hinglishRoast.contains("+₹45000"))
+        assertTrue(hinglishRoast.contains("-₹3350"))
+        assertTrue(hinglishRoast.contains("Shopping"))
+        assertTrue(hinglishRoast.contains("₹14650"))
+
+        val englishRoast = com.example.ui.viewmodel.KharcheeViewModel.buildDeterministicJarvisFallbackReply(
+            prompt = "Analyze my budget",
+            userDisplayName = "Prince",
+            mode = "roast",
+            language = "english",
+            expenses = sampleExpenses,
+            settings = settings
+        )
+        assertTrue(englishRoast.contains("Current Total Balance: ₹41650") || englishRoast.contains("₹41650"))
+        assertTrue(englishRoast.contains("Shopping"))
+    }
+
+    @Test
+    fun smsExpenseReceiver_and_clipboardAutoDetection_parsesIndianBankUpiSmsAndBlocksOtpsAndCredits() {
+        // 1. HDFC Bank / Swiggy debit SMS
+        val hdfcSwiggy = com.example.receiver.AutoExpenseDetectionStore.parseTransactionalDebitSms(
+            sender = "AD-HDFCBK",
+            body = "Rs. 240.00 debited from a/c **4821 on 11-11-26 to VPA swiggy@axisbank (UPI Ref No 631512349876).",
+            requireKnownBankSender = true
+        )
+        assertNotNull(hdfcSwiggy)
+        assertEquals(240L, hdfcSwiggy!!.amount)
+        assertEquals("Swiggy", hdfcSwiggy.merchant)
+        assertEquals("Food", hdfcSwiggy.category)
+
+        // 2. SBI / Zomato UPI SMS
+        val sbiZomato = com.example.receiver.AutoExpenseDetectionStore.parseTransactionalDebitSms(
+            sender = "VM-SBIINB",
+            body = "Dear UPI user A/C X3012 debited by INR 385.50 on date 11Nov26 trf to Zomato Refno 430291827361 -SBI",
+            requireKnownBankSender = true
+        )
+        assertNotNull(sbiZomato)
+        assertEquals(386L, sbiZomato!!.amount)
+        assertEquals("Zomato", sbiZomato.merchant)
+        assertEquals("Food", sbiZomato.category)
+
+        // 3. Clipboard mode (sender = null) for Blinkit / GPay / PhonePe
+        val clipBlinkit = com.example.receiver.AutoExpenseDetectionStore.parseTransactionalDebitSms(
+            sender = null,
+            body = "Paid ₹410 to Blinkit via GPay UPI from ICICI Bank A/c. UTR: 431198237412",
+            requireKnownBankSender = false
+        )
+        assertNotNull(clipBlinkit)
+        assertEquals(410L, clipBlinkit!!.amount)
+        assertEquals("Blinkit", clipBlinkit.merchant)
+        assertEquals("Grocery", clipBlinkit.category)
+
+        // 4. OTP message must be ignored (returns null)
+        val otpIgnored = com.example.receiver.AutoExpenseDetectionStore.parseTransactionalDebitSms(
+            sender = "AD-HDFCBK",
+            body = "Your OTP for transaction of Rs. 240.00 at Swiggy is 839201. Do not share this OTP with anyone.",
+            requireKnownBankSender = true
+        )
+        assertNull(otpIgnored)
+
+        // 5. Pure salary credit message must be ignored (returns null)
+        val salaryCreditIgnored = com.example.receiver.AutoExpenseDetectionStore.parseTransactionalDebitSms(
+            sender = "AX-ICICIB",
+            body = "Your A/c XX9102 is credited with INR 65,000.00 on 01-Nov-26 towards Salary credit.",
+            requireKnownBankSender = true
+        )
+        assertNull(salaryCreditIgnored)
+    }
 }
-
-
-
-
-
-

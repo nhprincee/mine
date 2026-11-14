@@ -97,10 +97,20 @@ private val SUBCATEGORIES_BY_CATEGORY = mapOf(
     "Cashback" to listOf("UPI Reward", "Card Cashback", "Refund")
 )
 
+data class FrequentExpenseChipSpec(
+    val title: String,
+    val category: String,
+    val typicalAmount: Long,
+    val frequencyCount: Int
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddTransactionBottomSheet(
     initialType: String = "expense",
+    recentExpenses: List<ExpenseRecord> = emptyList(),
+    savingsGoals: List<com.example.data.model.SavingsGoalRecord> = emptyList(),
+    dailyLimit: Long = 1000L,
     onDismiss: () -> Unit,
     onSubmit: (title: String, category: String, amount: Long, paymentMode: String, type: String, note: String) -> Unit
 ) {
@@ -116,6 +126,38 @@ fun AddTransactionBottomSheet(
     var note by remember { mutableStateOf("") }
     var isRecurring by remember { mutableStateOf(false) }
     var attachedReceiptUri by remember { mutableStateOf<String?>(null) }
+
+    // Top 3 most frequently used expense titles & categories from user's Expense history
+    val topFrequentExpenseSuggestions = remember(recentExpenses) {
+        val fromHistory = recentExpenses
+            .filter { !isIncomeTransaction(it) && it.title.isNotBlank() }
+            .groupBy { it.title.trim().lowercase() }
+            .map { (_, group) ->
+                val latest = group.maxByOrNull { it.txEpochMillis } ?: group.first()
+                FrequentExpenseChipSpec(
+                    title = latest.title.trim(),
+                    category = latest.category.ifBlank { "Food" },
+                    typicalAmount = latest.amount,
+                    frequencyCount = group.size
+                )
+            }
+            .sortedWith(
+                compareByDescending<FrequentExpenseChipSpec> { it.frequencyCount }
+                    .thenByDescending { spec ->
+                        recentExpenses.firstOrNull { it.title.equals(spec.title, ignoreCase = true) }?.txEpochMillis ?: 0L
+                    }
+            )
+            .take(3)
+
+        val defaults = listOf(
+            FrequentExpenseChipSpec("Chai", "Chai & Snacks", 20L, 1),
+            FrequentExpenseChipSpec("Metro/Auto", "Transport", 40L, 1),
+            FrequentExpenseChipSpec("Lunch", "Food", 120L, 1)
+        )
+        (fromHistory + defaults)
+            .distinctBy { it.title.lowercase() }
+            .take(3)
+    }
 
     val receiptPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -175,6 +217,93 @@ fun AddTransactionBottomSheet(
                 }
             }
 
+            // RECENT FREQUENT AUTO-SUGGESTION CHIPS AT THE VERY TOP OF THE SHEET
+            if (txType == "expense" && topFrequentExpenseSuggestions.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("frequent_expense_suggestions_section"),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "⚡ FREQUENT AUTO-SUGGESTIONS (TAP TO QUICK-FILL)",
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.8.sp,
+                        color = androidx.compose.ui.graphics.Color(0xFFD8B4FE)
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        topFrequentExpenseSuggestions.forEachIndexed { idx, suggestion ->
+                            val isSelected = title.equals(suggestion.title, ignoreCase = true) &&
+                                selectedCategory.equals(suggestion.category, ignoreCase = true)
+                            Surface(
+                                color = if (isSelected) {
+                                    androidx.compose.ui.graphics.Color(0xFF7C3AED).copy(alpha = 0.28f)
+                                } else {
+                                    ObsidianBlack
+                                },
+                                shape = RoundedCornerShape(50),
+                                border = BorderStroke(
+                                    width = 1.dp,
+                                    color = if (isSelected) {
+                                        androidx.compose.ui.graphics.Color(0xFFA855F7)
+                                    } else {
+                                        androidx.compose.ui.graphics.Color(0xFF7C3AED).copy(alpha = 0.55f)
+                                    }
+                                ),
+                                modifier = Modifier
+                                    .clickable {
+                                        title = suggestion.title
+                                        if (suggestion.category in EXPENSE_CATEGORIES) {
+                                            selectedCategory = suggestion.category
+                                        }
+                                        if (suggestion.typicalAmount > 0L) {
+                                            amountStr = suggestion.typicalAmount.toString()
+                                        }
+                                    }
+                                    .testTag("frequent_suggestion_chip_$idx")
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = getCategoryIcon(suggestion.category),
+                                        contentDescription = suggestion.category,
+                                        tint = androidx.compose.ui.graphics.Color(0xFFD8B4FE),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Text(
+                                        text = "${suggestion.title} · ${suggestion.category}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = WarmIvory,
+                                        maxLines = 1
+                                    )
+                                    if (suggestion.typicalAmount > 0L) {
+                                        Text(
+                                            text = "₹${suggestion.typicalAmount}",
+                                            fontFamily = JetBrainsMonoFontFamily,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = ChampagneGold,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Type Toggle
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("expense" to "Expense (-₹)", "income" to "Income (+₹)").forEach { (typeKey, label) ->
@@ -211,6 +340,52 @@ fun AddTransactionBottomSheet(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth().testTag("modal_amount_input")
             )
+
+            // IMPULSE-BUY COOL-DOWN SHIELD ("GOAL IMPACT CALCULATOR")
+            // Shows live behavioral psychology feedback when typing > ₹500 in Shopping / Food / Entertainment
+            val enteredAmount = amountStr.trim().toLongOrNull() ?: 0L
+            val isDiscretionaryImpulseCategory = selectedCategory.equals("Shopping", ignoreCase = true) ||
+                selectedCategory.equals("Food", ignoreCase = true) ||
+                selectedCategory.equals("Chai & Snacks", ignoreCase = true) ||
+                selectedCategory.equals("Entertainment", ignoreCase = true)
+
+            if (txType == "expense" && enteredAmount > 500L && isDiscretionaryImpulseCategory) {
+                val activeGoalName = remember(savingsGoals) {
+                    savingsGoals.firstOrNull { it.savedAmount < it.targetAmount }?.title?.ifBlank { "Emergency Vault Goal" }
+                        ?: savingsGoals.firstOrNull()?.title?.ifBlank { "Emergency Vault Goal" }
+                        ?: "Emergency & Dream Goal"
+                }
+                val dailySavingsPace = remember(dailyLimit) {
+                    (dailyLimit * 0.35).toLong().coerceAtLeast(150L)
+                }
+                val delayedDays = remember(enteredAmount, dailySavingsPace) {
+                    ((enteredAmount.toDouble() / dailySavingsPace.toDouble()).toInt()).coerceAtLeast(1)
+                }
+
+                Surface(
+                    color = androidx.compose.ui.graphics.Color(0xFF281912),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(0.9.dp, ChampagneGold.copy(alpha = 0.75f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("impulse_buy_goal_impact_pill")
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
+                    ) {
+                        Text(
+                            text = "⏳ Goal Impact: This ₹$enteredAmount spend delays your '$activeGoalName' by $delayedDays ${if (delayedDays == 1) "day" else "days"}.",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = ChampagneGold,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+            }
 
             OutlinedTextField(
                 value = title,
