@@ -28,18 +28,17 @@ import androidx.compose.ui.graphics.vector.ImageVector
 // ============================================================================
 
 object ObsidianThemeState {
-    // Locked to the single universal Purple/Violet Luxury theme ("stark")
     private var _activeThemeId by mutableStateOf("stark")
     var activeThemeId: String
         get() = _activeThemeId
-        set(_) {
-            _activeThemeId = "stark"
+        set(value) {
+            _activeThemeId = ThemePreferenceManager.normalizeThemeId(value)
         }
 
     var isLightMode: Boolean
         get() = false
         set(_) {
-            _activeThemeId = "stark"
+            // Strictly dark-mode holographic themes
         }
 }
 
@@ -47,26 +46,48 @@ object ThemePreferenceManager {
     private const val PREFS_NAME = "kharchee_theme_prefs"
     private const val KEY_THEME_ID = "selected_theme_id"
 
+    val HOLOGRAPHIC_THEME_IDS = setOf(
+        "stark",
+        "matrix_emerald",
+        "cyberpunk_cyan",
+        "obsidian_void",
+        "sovereign_gold"
+    )
+
     fun loadThemePreference(context: Context): String {
-        ObsidianThemeState.activeThemeId = "stark"
-        return "stark"
+        val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_THEME_ID, "stark")
+        val normalized = normalizeThemeId(raw)
+        ObsidianThemeState.activeThemeId = normalized
+        return normalized
     }
 
     fun saveThemePreference(context: Context, themeId: String) {
-        ObsidianThemeState.activeThemeId = "stark"
+        val normalized = normalizeThemeId(themeId)
+        ObsidianThemeState.activeThemeId = normalized
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
-            .putString(KEY_THEME_ID, "stark")
+            .putString(KEY_THEME_ID, normalized)
             .apply()
     }
 
     fun loadLightModePreference(context: Context): Boolean = false
 
     fun saveLightModePreference(context: Context, isLight: Boolean) {
-        saveThemePreference(context, "stark")
+        // Keep active dark holographic theme
     }
 
-    fun normalizeThemeId(themeId: String?): String = "stark"
+    fun normalizeThemeId(themeId: String?): String {
+        val clean = themeId?.trim()?.lowercase() ?: "stark"
+        return when {
+            clean in HOLOGRAPHIC_THEME_IDS -> clean
+            clean.contains("matrix") || clean.contains("emerald") -> "matrix_emerald"
+            clean.contains("cyber") || clean.contains("cyan") -> "cyberpunk_cyan"
+            clean.contains("void") || clean.contains("obsidian") -> "obsidian_void"
+            clean.contains("gold") || clean.contains("24k") || clean.contains("royal") -> "sovereign_gold"
+            else -> "stark"
+        }
+    }
 
     fun ensureInitialized(context: Context): String {
         val loaded = loadThemePreference(context)
@@ -276,9 +297,85 @@ val StarkHudTheme = HudThemePalette(
     symbol = "◆"
 )
 
-val CyberpunkHudTheme = StarkHudTheme
-val RoyalGoldHudTheme = StarkHudTheme
+val MatrixEmeraldHudTheme = HudThemePalette(
+    id = "matrix_emerald",
+    name = "Matrix Emerald",
+    subtitle = "Bio-Digital Carbon (#020C07) · Neon Matrix Emerald (#00E676)",
+    background = Color(0xFF020C07),
+    surface = Color(0xFF06160E),
+    surfaceElevated = Color(0xFF0B2418),
+    accent = Color(0xFF00E676),
+    secondaryAccent = Color(0xFF10B981),
+    borderGlow = Color(0xFF00E676),
+    textPrimary = Color(0xFFECFDF5),
+    textSecondary = Color(0xFF6EE7B7),
+    symbol = "🟢"
+)
 
-val ALL_HUD_THEMES = listOf(StarkHudTheme)
+val CyberpunkCyanHudTheme = HudThemePalette(
+    id = "cyberpunk_cyan",
+    name = "Cyberpunk Cyan",
+    subtitle = "Night City Abyss (#030914) · High-Voltage Neon Cyan (#00E5FF)",
+    background = Color(0xFF030914),
+    surface = Color(0xFF071324),
+    surfaceElevated = Color(0xFF0D2038),
+    accent = Color(0xFF00E5FF),
+    secondaryAccent = Color(0xFF38BDF8),
+    borderGlow = Color(0xFF00E5FF),
+    textPrimary = Color(0xFFF0F9FF),
+    textSecondary = Color(0xFF7DD3FC),
+    symbol = "⚡"
+)
 
-fun getHudThemeById(id: String): HudThemePalette = StarkHudTheme
+val ObsidianVoidHudTheme = HudThemePalette(
+    id = "obsidian_void",
+    name = "Obsidian Void",
+    subtitle = "Pure OLED Pitch Void (#030712) · Brushed Titanium & Violet (#A855F7)",
+    background = Color(0xFF030712),
+    surface = Color(0xFF090D16),
+    surfaceElevated = Color(0xFF111827),
+    accent = Color(0xFFA855F7),
+    secondaryAccent = Color(0xFF6366F1),
+    borderGlow = Color(0xFF4F46E5),
+    textPrimary = Color(0xFFF9FAFB),
+    textSecondary = Color(0xFF9CA3AF),
+    symbol = "🌑"
+)
+
+val SovereignGold24KHudTheme = HudThemePalette(
+    id = "sovereign_gold",
+    name = "24K Sovereign Gold",
+    subtitle = "Imperial Bullion Vault (#0B0802) · 24K Sovereign Gold (#FFD700)",
+    background = Color(0xFF0B0802),
+    surface = Color(0xFF161105),
+    surfaceElevated = Color(0xFF241B08),
+    accent = Color(0xFFFFD700),
+    secondaryAccent = Color(0xFFD4AF37),
+    borderGlow = Color(0xFFFFD700),
+    textPrimary = Color(0xFFFFFBEB),
+    textSecondary = Color(0xFFFDE68A),
+    symbol = "👑"
+)
+
+val CyberpunkHudTheme = CyberpunkCyanHudTheme
+val RoyalGoldHudTheme = SovereignGold24KHudTheme
+
+val ALL_HUD_THEMES = listOf(
+    MatrixEmeraldHudTheme,
+    CyberpunkCyanHudTheme,
+    ObsidianVoidHudTheme,
+    SovereignGold24KHudTheme,
+    StarkHudTheme
+)
+
+val HOLOGRAPHIC_STUDIO_THEMES = listOf(
+    MatrixEmeraldHudTheme,
+    CyberpunkCyanHudTheme,
+    ObsidianVoidHudTheme,
+    SovereignGold24KHudTheme
+)
+
+fun getHudThemeById(id: String): HudThemePalette {
+    val normalized = ThemePreferenceManager.normalizeThemeId(id)
+    return ALL_HUD_THEMES.firstOrNull { it.id == normalized } ?: StarkHudTheme
+}

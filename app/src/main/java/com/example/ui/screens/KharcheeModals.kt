@@ -44,9 +44,14 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,8 +59,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import com.example.util.ContextualCouponSnifferPill
+import com.example.util.CouponSniffer
+import com.example.util.ImpulseCooldownManager
+import kotlinx.coroutines.delay
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -114,6 +124,7 @@ fun AddTransactionBottomSheet(
     onDismiss: () -> Unit,
     onSubmit: (title: String, category: String, amount: Long, paymentMode: String, type: String, note: String) -> Unit
 ) {
+    val context = LocalContext.current
     val headingFont = LocalAppFontFamily.current
     var txType by remember { mutableStateOf(initialType) }
     val categories = if (txType == "income") INCOME_CATEGORIES else EXPENSE_CATEGORIES
@@ -126,6 +137,33 @@ fun AddTransactionBottomSheet(
     var note by remember { mutableStateOf("") }
     var isRecurring by remember { mutableStateOf(false) }
     var attachedReceiptUri by remember { mutableStateOf<String?>(null) }
+
+    // AI Coupon & Cashback Auto-Sniffer State
+    var appliedCouponCode by remember { mutableStateOf<String?>(null) }
+    val matchedSmsCoupon = remember(context, selectedCategory, title) {
+        CouponSniffer.findBestMatchingCoupon(
+            context = context,
+            category = selectedCategory,
+            merchantQuery = title
+        )
+    }
+
+    // Impulse-Buy Cooldown Lock ("The Shame Vault") State
+    val isAfter10Pm = remember { ImpulseCooldownManager.isLateNightImpulseHour() }
+    var isCooldownLockActivated by remember(isAfter10Pm) { mutableStateOf(isAfter10Pm) }
+    var freezeRefreshTick by remember { mutableIntStateOf(0) }
+    var liveNowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val pendingFrozenItems = remember(context, freezeRefreshTick) {
+        ImpulseCooldownManager.getPendingFrozenItems(context)
+    }
+    var cooldownBannerMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(pendingFrozenItems.size) {
+        while (pendingFrozenItems.isNotEmpty()) {
+            liveNowMillis = System.currentTimeMillis()
+            delay(1000L)
+        }
+    }
 
     // Top 3 most frequently used expense titles & categories from user's Expense history
     val topFrequentExpenseSuggestions = remember(recentExpenses) {
@@ -341,13 +379,14 @@ fun AddTransactionBottomSheet(
                 modifier = Modifier.fillMaxWidth().testTag("modal_amount_input")
             )
 
-            // IMPULSE-BUY COOL-DOWN SHIELD ("GOAL IMPACT CALCULATOR")
-            // Shows live behavioral psychology feedback when typing > ₹500 in Shopping / Food / Entertainment
+            // IMPULSE-BUY COOL-DOWN SHIELD ("GOAL IMPACT CALCULATOR" + "15-MINUTE COOLDOWN LOCK")
             val enteredAmount = amountStr.trim().toLongOrNull() ?: 0L
             val isDiscretionaryImpulseCategory = selectedCategory.equals("Shopping", ignoreCase = true) ||
                 selectedCategory.equals("Food", ignoreCase = true) ||
                 selectedCategory.equals("Chai & Snacks", ignoreCase = true) ||
                 selectedCategory.equals("Entertainment", ignoreCase = true)
+            val isShameVaultTarget = txType == "expense" &&
+                ImpulseCooldownManager.isImpulseTargetCategoryAndAmount(enteredAmount, selectedCategory)
 
             if (txType == "expense" && enteredAmount > 500L && isDiscretionaryImpulseCategory) {
                 val activeGoalName = remember(savingsGoals) {
@@ -363,7 +402,7 @@ fun AddTransactionBottomSheet(
                 }
 
                 Surface(
-                    color = androidx.compose.ui.graphics.Color(0xFF281912),
+                    color = Color(0xFF281912),
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(0.9.dp, ChampagneGold.copy(alpha = 0.75f)),
                     modifier = Modifier
@@ -385,6 +424,242 @@ fun AddTransactionBottomSheet(
                         )
                     }
                 }
+            }
+
+            // 1. IMPULSE-BUY COOLDOWN LOCK TOGGLE (THE SHAME VAULT: >₹500 in Shopping or Entertainment)
+            if (isShameVaultTarget) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFF0A192F))
+                        .border(
+                            width = 1.dp,
+                            color = if (isCooldownLockActivated) Color(0xFF00E5FF) else Color(0xFF38BDF8).copy(alpha = 0.45f),
+                            shape = RoundedCornerShape(14.dp)
+                        )
+                        .padding(12.dp)
+                        .testTag("impulse_cooldown_lock_card"),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (isAfter10Pm) {
+                                    "🌙 AFTER 10 PM SHAME VAULT · IMPULSE SHIELD"
+                                } else {
+                                    "❄️ THE SHAME VAULT · IMPULSE COOLDOWN SHIELD"
+                                },
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF00E5FF)
+                            )
+                            Text(
+                                text = "❄️ Activate 15-Minute Cooldown Lock",
+                                fontFamily = headingFont,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.sp,
+                                color = WarmIvory
+                            )
+                        }
+                        Switch(
+                            checked = isCooldownLockActivated,
+                            onCheckedChange = { isCooldownLockActivated = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = ObsidianBlack,
+                                checkedTrackColor = Color(0xFF00E5FF)
+                            ),
+                            modifier = Modifier.testTag("impulse_cooldown_lock_toggle")
+                        )
+                    }
+                    Text(
+                        text = if (isCooldownLockActivated) {
+                            "🤖 Jarvis will hold this ₹$enteredAmount $selectedCategory spend in a 'Pending Freeze' state for 15 minutes so you can cool down before confirming."
+                        } else {
+                            "Toggle ON to freeze this >₹500 $selectedCategory spend for 15 minutes and avoid late-night buyer's remorse."
+                        },
+                        fontSize = 11.sp,
+                        color = Color(0xFFBAE6FD),
+                        lineHeight = 15.sp
+                    )
+                }
+            }
+
+            // ACTIVE "PENDING FREEZE" SHAME VAULT ITEMS WITH LIVE COUNTDOWN TIMER & JARVIS WARNING
+            if (txType == "expense" && pendingFrozenItems.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFF071324))
+                        .border(1.2.dp, Color(0xFF00E5FF), RoundedCornerShape(16.dp))
+                        .padding(14.dp)
+                        .testTag("pending_freeze_shame_vault_section"),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    pendingFrozenItems.forEach { frozen ->
+                        val countdownText = frozen.formattedCountdown(liveNowMillis)
+                        val isUnlocked = frozen.isCooldownExpired(liveNowMillis)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(ObsidianBlack)
+                                .border(0.8.dp, Color(0xFF00E5FF).copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "❄️ PENDING FREEZE · ${frozen.title} (₹${frozen.amount})",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF00E5FF)
+                                )
+                                Surface(
+                                    color = if (isUnlocked) Color(0xFF06291A) else Color(0xFF1E293B),
+                                    shape = RoundedCornerShape(50),
+                                    border = BorderStroke(
+                                        0.8.dp,
+                                        if (isUnlocked) SophisticatedEmerald else Color(0xFF00E5FF)
+                                    )
+                                ) {
+                                    Text(
+                                        text = if (isUnlocked) "✓ COOLDOWN DONE" else "⏳ $countdownText",
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = if (isUnlocked) SophisticatedEmerald else Color(0xFF00E5FF),
+                                        modifier = Modifier
+                                            .padding(horizontal = 9.dp, vertical = 3.dp)
+                                            .testTag("pending_freeze_timer_${frozen.id}")
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = frozen.jarvisWarningMessage,
+                                fontSize = 11.sp,
+                                color = WarmIvory,
+                                lineHeight = 15.sp
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        val saved = ImpulseCooldownManager.cancelFrozenImpulseAndRecordSavings(
+                                            context = context,
+                                            freezeId = frozen.id
+                                        )
+                                        freezeRefreshTick++
+                                        cooldownBannerMessage = "🎉 Impulse defeated! You saved ₹$saved from '${frozen.title}'."
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = SophisticatedEmerald,
+                                        contentColor = ObsidianBlack
+                                    ),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("cancel_frozen_impulse_button")
+                                ) {
+                                    Text(
+                                        text = "🛡️ Cancel & Save ₹${frozen.amount}",
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 10.sp
+                                    )
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        if (isUnlocked) {
+                                            ImpulseCooldownManager.removeFrozenItemAfterConfirm(context, frozen.id)
+                                            freezeRefreshTick++
+                                            onSubmit(
+                                                frozen.title,
+                                                frozen.category,
+                                                frozen.amount,
+                                                frozen.paymentMode,
+                                                "expense",
+                                                "${frozen.note} [COOLDOWN_VERIFIED]".trim()
+                                            )
+                                            onDismiss()
+                                        } else {
+                                            cooldownBannerMessage = "❄️ Locked in Shame Vault! Wait $countdownText before confirming."
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(
+                                        0.8.dp,
+                                        if (isUnlocked) ChampagneGold else HairlinePlatinum
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("confirm_frozen_impulse_button")
+                                ) {
+                                    Text(
+                                        text = if (isUnlocked) "✅ Confirm Spend" else "🔒 Locked ($countdownText)",
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 10.sp,
+                                        color = if (isUnlocked) ChampagneGold else MutedPlatinum
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (cooldownBannerMessage != null) {
+                Text(
+                    text = cooldownBannerMessage!!,
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = SophisticatedEmerald
+                )
+            }
+
+            // 3. AI COUPON & CASHBACK AUTO-SNIFFER PILL
+            if (txType == "expense" && matchedSmsCoupon != null) {
+                val isCouponApplied = appliedCouponCode == matchedSmsCoupon.code
+                ContextualCouponSnifferPill(
+                    coupon = matchedSmsCoupon,
+                    isApplied = isCouponApplied,
+                    onApplyCoupon = { coupon ->
+                        if (!isCouponApplied) {
+                            appliedCouponCode = coupon.code
+                            CouponSniffer.copyCouponToClipboard(context, coupon.code)
+                            val currentAmt = amountStr.trim().toLongOrNull() ?: 0L
+                            if (currentAmt > coupon.estimatedSavingsInr) {
+                                amountStr = (currentAmt - coupon.estimatedSavingsInr).toString()
+                            }
+                            if (title.isBlank()) {
+                                title = coupon.merchant
+                            }
+                            val tag = "[COUPON:${coupon.code} -₹${coupon.estimatedSavingsInr}]"
+                            if (!note.contains(coupon.code)) {
+                                note = "$note $tag".trim()
+                            }
+                            cooldownBannerMessage = "💡 Applied SMS Coupon ${coupon.code} (${coupon.discountSummary}) & copied code!"
+                        }
+                    }
+                )
             }
 
             OutlinedTextField(
@@ -567,19 +842,40 @@ fun AddTransactionBottomSheet(
                             if (attachedReceiptUri != null) add("[RECEIPT:$attachedReceiptUri]")
                             if (note.isNotBlank()) add(note.trim())
                         }.joinToString(" ")
-                        onSubmit(
-                            title.ifBlank { selectedCategory },
-                            selectedCategory,
-                            amt,
-                            selectedMode,
-                            txType,
-                            tags
-                        )
-                        onDismiss()
+
+                        if (isShameVaultTarget && isCooldownLockActivated) {
+                            ImpulseCooldownManager.freezeImpulseTransaction(
+                                context = context,
+                                title = title.ifBlank { selectedCategory },
+                                category = selectedCategory,
+                                amount = amt,
+                                paymentMode = selectedMode,
+                                note = tags
+                            )
+                            amountStr = ""
+                            title = ""
+                            freezeRefreshTick++
+                            liveNowMillis = System.currentTimeMillis()
+                            cooldownBannerMessage = "❄️ Frozen in Shame Vault for 15 minutes! Jarvis is holding this ₹$amt spend until you cool down."
+                        } else {
+                            onSubmit(
+                                title.ifBlank { selectedCategory },
+                                selectedCategory,
+                                amt,
+                                selectedMode,
+                                txType,
+                                tags
+                            )
+                            onDismiss()
+                        }
                     }
                 },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (txType == "income") SophisticatedEmerald else ChampagneGold,
+                    containerColor = when {
+                        txType == "income" -> SophisticatedEmerald
+                        isShameVaultTarget && isCooldownLockActivated -> Color(0xFF00E5FF)
+                        else -> ChampagneGold
+                    },
                     contentColor = ObsidianBlack
                 ),
                 shape = RoundedCornerShape(14.dp),
@@ -589,7 +885,11 @@ fun AddTransactionBottomSheet(
                     .testTag("modal_submit_transaction_button")
             ) {
                 Text(
-                    text = if (txType == "income") "Save Income Credit" else "Log Spend & Evaluate Reserve",
+                    text = when {
+                        txType == "income" -> "Save Income Credit"
+                        isShameVaultTarget && isCooldownLockActivated -> "❄️ Freeze in Shame Vault (15m Cooldown)"
+                        else -> "Log Spend & Evaluate Reserve"
+                    },
                     fontWeight = FontWeight.SemiBold
                 )
             }

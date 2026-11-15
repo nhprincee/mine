@@ -74,6 +74,15 @@ class SmsExpenseReceiver : BroadcastReceiver() {
 
         if (combinedBody.isBlank()) return
 
+        // AI Coupon & Cashback Auto-Sniffer: scan incoming bank/UPI/merchant SMS for promo codes
+        runCatching {
+            com.example.util.CouponSniffer.inspectAndRecordIncomingSms(
+                context = context.applicationContext,
+                sender = senderAddress,
+                body = combinedBody
+            )
+        }
+
         val parsed = AutoExpenseDetectionStore.parseTransactionalDebitSms(
             sender = senderAddress,
             body = combinedBody,
@@ -307,6 +316,18 @@ object AutoExpenseDetectionStore {
         return id
     }
 
+    val REQUIRED_SMS_PERMISSIONS = arrayOf(
+        Manifest.permission.RECEIVE_SMS,
+        Manifest.permission.READ_SMS
+    )
+
+    const val PROMINENT_SMS_PRIVACY_DISCLOSURE =
+        "Kharchee requests RECEIVE_SMS and READ_SMS permissions strictly to detect incoming Indian bank and UPI debit alerts on your device for automatic expense logging. All SMS parsing runs 100% locally on your phone — your personal messages, OTPs, and bank SMS content are never uploaded to external servers or shared with third parties."
+
+    /**
+     * Strict consistency check across Onboarding, Settings, Home Banner, and AndroidManifest:
+     * requires both RECEIVE_SMS and READ_SMS to be granted.
+     */
     fun hasSmsPermissions(context: Context): Boolean {
         val receiveGranted = ContextCompat.checkSelfPermission(
             context,
@@ -316,7 +337,7 @@ object AutoExpenseDetectionStore {
             context,
             Manifest.permission.READ_SMS
         ) == PackageManager.PERMISSION_GRANTED
-        return receiveGranted || readGranted
+        return receiveGranted && readGranted
     }
 
     fun isSmsRationaleDismissed(context: Context): Boolean {
@@ -379,11 +400,14 @@ object AutoExpenseDetectionStore {
             return null
         }
 
-        // 4. Extract Amount via (?:Rs\.?|INR|\u20B9)\s*([\d,]+(?:\.\d{1,2})?)
+        // 4. Extract exact 2-decimal paise amount via (?:Rs\.?|INR|\u20B9)\s*([\d,]+(?:\.\d{1,2})?)
+        // NEVER round paise (e.g., ₹385.50 stays 385.50, never rounded to 386)
         val amountMatch = AMOUNT_REGEX.find(cleanBody) ?: return null
-        val rawAmountStr = amountMatch.groupValues.getOrNull(1)?.replace(",", "") ?: return null
-        val parsedAmount = rawAmountStr.toDoubleOrNull()?.roundToLong() ?: return null
-        if (parsedAmount <= 0L) return null
+        val rawAmountStr = amountMatch.groupValues.getOrNull(1)?.replace(",", "")?.trim() ?: return null
+        val exactDecimal = rawAmountStr.toBigDecimalOrNull()?.setScale(2, java.math.RoundingMode.HALF_UP) ?: return null
+        if (exactDecimal <= java.math.BigDecimal.ZERO) return null
+        val exactAmountDouble = exactDecimal.toDouble()
+        val parsedAmountLong = exactDecimal.toLong()
 
         // 5. Extract Merchant / Recipient
         var extractedMerchant = ""
@@ -430,7 +454,8 @@ object AutoExpenseDetectionStore {
 
         return ParsedSmsTransaction(
             rawText = cleanBody,
-            amount = parsedAmount,
+            amount = parsedAmountLong,
+            exactAmount = exactAmountDouble,
             merchant = extractedMerchant.take(42),
             category = category,
             paymentMode = paymentMode,
@@ -588,6 +613,7 @@ object AutoExpenseDetectionStore {
             title = parsed.merchant,
             category = parsed.category,
             amount = parsed.amount,
+            exactAmount = parsed.exactAmount,
             paymentMode = parsed.paymentMode,
             type = "expense",
             note = note,
@@ -697,7 +723,7 @@ object AutoExpenseDetectionStore {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val title = "⚡ Auto-Logged: ₹${expense.amount} at ${expense.title}"
+        val title = "⚡ Auto-Logged: ₹${expense.formattedExactAmount} at ${expense.title}"
         val body = "Deducted from balance. Tap to edit or undo."
 
         val notification = NotificationCompat.Builder(context, CHANNEL_AUTO_SMS_TRACKER)
@@ -745,13 +771,16 @@ object AutoExpenseDetectionStore {
             val result = mutableListOf<ExpenseRecord>()
             for (i in 0 until arr.length()) {
                 val obj = arr.optJSONObject(i) ?: continue
+                val amtLong = obj.optLong("amount", 0L)
+                val exactAmt = obj.optDouble("exactAmount", amtLong.toDouble())
                 result.add(
                     ExpenseRecord(
                         id = obj.optString("id"),
                         userId = obj.optString("userId"),
                         title = obj.optString("title"),
                         category = obj.optString("category", "Food"),
-                        amount = obj.optLong("amount", 0L),
+                        amount = amtLong,
+                        exactAmount = exactAmt,
                         paymentMode = obj.optString("paymentMode", "UPI"),
                         type = obj.optString("type", "expense"),
                         note = obj.optString("note", ""),
@@ -774,6 +803,7 @@ object AutoExpenseDetectionStore {
                 put("title", rec.title)
                 put("category", rec.category)
                 put("amount", rec.amount)
+                put("exactAmount", rec.resolvedExactAmount)
                 put("paymentMode", rec.paymentMode)
                 put("type", rec.type)
                 put("note", rec.note)

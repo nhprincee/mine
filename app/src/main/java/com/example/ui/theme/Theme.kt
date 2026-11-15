@@ -33,28 +33,28 @@ fun KharcheeTheme(
         bodyFontFamily = selectedFontOption.bodyFontFamily
     )
 
-    // Always enforce the single Deep Dark Navy + Electric Purple/Violet Luxury theme
-    ObsidianThemeState.activeThemeId = "stark"
-    val hudPalette = StarkHudTheme
+    val normalizedThemeId = ThemePreferenceManager.normalizeThemeId(themeId)
+    ObsidianThemeState.activeThemeId = normalizedThemeId
+    val hudPalette = getHudThemeById(normalizedThemeId)
 
     val colorScheme = darkColorScheme(
-        primary = Color(0xFFA855F7),
-        onPrimary = Color.White,
-        primaryContainer = Color(0xFF2B185E),
-        onPrimaryContainer = Color(0xFFF3E8FF),
-        secondary = Color(0xFF7C3AED),
+        primary = hudPalette.accent,
+        onPrimary = Color(0xFF040508),
+        primaryContainer = hudPalette.surfaceElevated,
+        onPrimaryContainer = hudPalette.textPrimary,
+        secondary = hudPalette.secondaryAccent,
         onSecondary = Color.White,
-        secondaryContainer = ObsidianDarkSecondarySurface,
-        onSecondaryContainer = ObsidianDarkPrimaryText,
+        secondaryContainer = hudPalette.surfaceElevated,
+        onSecondaryContainer = hudPalette.textPrimary,
         tertiary = ObsidianDarkPositive,
         onTertiary = ObsidianDarkBackground,
-        background = ObsidianDarkBackground,
-        onBackground = ObsidianDarkPrimaryText,
-        surface = ObsidianDarkPrimarySurface,
-        onSurface = ObsidianDarkPrimaryText,
-        surfaceVariant = ObsidianDarkSecondarySurface,
-        onSurfaceVariant = ObsidianDarkSecondaryText,
-        outline = ObsidianDarkBorder,
+        background = hudPalette.background,
+        onBackground = hudPalette.textPrimary,
+        surface = hudPalette.surface,
+        onSurface = hudPalette.textPrimary,
+        surfaceVariant = hudPalette.surfaceElevated,
+        onSurfaceVariant = hudPalette.textSecondary,
+        outline = hudPalette.borderGlow.copy(alpha = 0.45f),
         error = ObsidianDarkNegative,
         onError = Color.White
     )

@@ -189,8 +189,9 @@ fun KharcheeFirstLaunchWalkthroughAndSetupOverlay(
     var smsPermissionFallbackNotice by remember { mutableStateOf<String?>(null) }
 
     val smsPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { grantMap ->
+        val isGranted = grantMap.values.all { it }
         smsPermissionGranted = isGranted
         if (isGranted) {
             AutoExpenseDetectionStore.setSmsRationaleDismissed(context, true)
@@ -390,9 +391,11 @@ fun KharcheeFirstLaunchWalkthroughAndSetupOverlay(
 
             if (activePhase == 0) {
                 // ============================================================
-                // PHASE 1: 4-STEP INTERACTIVE TUTORIAL WALKTHROUGH
+                // PHASE 1: 10-SECOND INTERACTIVE LAUNCHPAD & WELCOME COCKPIT
                 // ============================================================
                 val step = KHARCHEE_TUTORIAL_STEPS[tutorialStepIndex.coerceIn(0, KHARCHEE_TUTORIAL_STEPS.lastIndex)]
+                var showCustomLaunchpadInput by remember { mutableStateOf(false) }
+                val activeLaunchpadBudget = monthlyBudgetInput.toLongOrNull()?.coerceAtLeast(0L) ?: 15000L
 
                 AnimatedContent(
                     targetState = step,
@@ -405,8 +408,8 @@ fun KharcheeFirstLaunchWalkthroughAndSetupOverlay(
                             .clip(RoundedCornerShape(20.dp))
                             .background(Color(0xFF100B22))
                             .border(1.dp, currentStep.accentColor.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
-                            .padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                            .padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -414,7 +417,7 @@ fun KharcheeFirstLaunchWalkthroughAndSetupOverlay(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(48.dp)
+                                    .size(46.dp)
                                     .clip(RoundedCornerShape(14.dp))
                                     .background(currentStep.accentColor.copy(alpha = 0.18f))
                                     .border(1.dp, currentStep.accentColor, RoundedCornerShape(14.dp)),
@@ -424,7 +427,7 @@ fun KharcheeFirstLaunchWalkthroughAndSetupOverlay(
                                     imageVector = currentStep.icon,
                                     contentDescription = currentStep.title,
                                     tint = currentStep.accentColor,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -434,7 +437,7 @@ fun KharcheeFirstLaunchWalkthroughAndSetupOverlay(
                                     border = BorderStroke(0.8.dp, currentStep.accentColor.copy(alpha = 0.65f))
                                 ) {
                                     Text(
-                                        text = "STEP ${currentStep.stepNumber} OF 4 · ${currentStep.highlightBadge}",
+                                        text = "10-SECOND LAUNCHPAD · STEP ${currentStep.stepNumber} OF 4",
                                         fontFamily = JetBrainsMonoFontFamily,
                                         fontSize = 8.sp,
                                         fontWeight = FontWeight.Bold,
@@ -447,7 +450,7 @@ fun KharcheeFirstLaunchWalkthroughAndSetupOverlay(
                                 Text(
                                     text = currentStep.title,
                                     fontFamily = headingFont,
-                                    fontSize = 20.sp,
+                                    fontSize = 19.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = Color.White
                                 )
@@ -456,14 +459,161 @@ fun KharcheeFirstLaunchWalkthroughAndSetupOverlay(
 
                         Text(
                             text = currentStep.subtext,
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                             color = Color(0xFFEAE4F8),
-                            lineHeight = 20.sp
+                            lineHeight = 18.sp
                         )
                     }
                 }
 
-                // Bottom Controls: "Skip Tutorial" (Left) + Progress Dots (Center) + "Next" / "Get Started" (Right)
+                // 10-SECOND INTERACTIVE MONTHLY BUDGET TARGET SELECTOR RIGHT ON WELCOME CARD
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color(0xFF0C091A))
+                        .border(1.dp, Color(0xFF7C3AED).copy(alpha = 0.6f), RoundedCornerShape(18.dp))
+                        .padding(14.dp)
+                        .testTag("launchpad_interactive_budget_card"),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "🎯 1-TAP MONTHLY BUDGET TARGET",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFFD8B4FE),
+                            letterSpacing = 0.8.sp
+                        )
+                        val dailySafePreview = (activeLaunchpadBudget / 30L).coerceAtLeast(50L)
+                        Text(
+                            text = "Safe Burn: ₹$dailySafePreview/day",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF00E676)
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            5000L to "₹5,000",
+                            10000L to "₹10,000",
+                            15000L to "₹15,000",
+                            25000L to "₹25,000"
+                        ).forEach { (presetVal, presetLabel) ->
+                            val selected = !showCustomLaunchpadInput && (monthlyBudgetInput.toLongOrNull() ?: 15000L) == presetVal
+                            Surface(
+                                color = if (selected) Color(0xFF7C3AED).copy(alpha = 0.34f) else Color(0xFF140F29),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(
+                                    width = if (selected) 1.2.dp else 0.8.dp,
+                                    color = if (selected) Color(0xFF00E676) else Color(0xFF33265A)
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        showCustomLaunchpadInput = false
+                                        monthlyBudgetInput = presetVal.toString()
+                                    }
+                                    .testTag("launchpad_budget_preset_$presetVal")
+                            ) {
+                                Text(
+                                    text = presetLabel,
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (selected) Color.White else Color(0xFFD8B4FE),
+                                    maxLines = 1,
+                                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            color = if (showCustomLaunchpadInput) Color(0xFF7C3AED).copy(alpha = 0.28f) else Color(0xFF140F29),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(0.8.dp, if (showCustomLaunchpadInput) Color(0xFFA855F7) else Color(0xFF281B4D)),
+                            modifier = Modifier
+                                .clickable { showCustomLaunchpadInput = !showCustomLaunchpadInput }
+                                .testTag("launchpad_custom_budget_toggle")
+                        ) {
+                            Text(
+                                text = if (showCustomLaunchpadInput) "✓ Custom Budget" else "+ Custom Amount",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFD8B4FE),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
+
+                        // 1-Tap Instant Launch Button with Selected Budget
+                        Button(
+                            onClick = {
+                                val chosenBudget = monthlyBudgetInput.toLongOrNull()?.coerceAtLeast(0L) ?: 15000L
+                                if (chosenBudget > 0L) {
+                                    val cleanName = nameInput.trim().ifBlank { initialUserName.ifBlank { "Kharchee Member" } }
+                                    onCompleteColdStartSetup(
+                                        cleanName,
+                                        openingBalanceInput.toLongOrNull()?.coerceAtLeast(0L) ?: 0L,
+                                        chosenBudget,
+                                        selectedCurrency,
+                                        notifyPaymentReminders,
+                                        notifyNightGuard,
+                                        notifyMorningReview
+                                    )
+                                } else {
+                                    onDismissOrSkipToZeroStart()
+                                }
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF00E676),
+                                contentColor = Color(0xFF040508)
+                            ),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                            modifier = Modifier.testTag("launchpad_enter_dashboard_button")
+                        ) {
+                            Text(
+                                text = "Launch with ₹${activeLaunchpadBudget} →",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 11.sp,
+                                maxLines = 1
+                            )
+                        }
+                    }
+
+                    if (showCustomLaunchpadInput) {
+                        OutlinedTextField(
+                            value = monthlyBudgetInput,
+                            onValueChange = { monthlyBudgetInput = it.filter { ch -> ch.isDigit() } },
+                            label = { Text("Enter Custom Monthly Budget (₹)") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = fieldColors,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("launchpad_custom_budget_input")
+                        )
+                    }
+                }
+
+                // Bottom Controls: "Skip / Enter Dashboard" (1-Tap Instant Entry) + Progress Dots + "Next" / "Get Started"
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -471,9 +621,18 @@ fun KharcheeFirstLaunchWalkthroughAndSetupOverlay(
                 ) {
                     TextButton(
                         onClick = {
-                            if (showColdStartSetupAfterTutorial) {
-                                activePhase = 1
-                                setupSubStep = 0
+                            val chosenBudget = monthlyBudgetInput.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+                            if (chosenBudget > 0L) {
+                                val cleanName = nameInput.trim().ifBlank { initialUserName.ifBlank { "Kharchee Member" } }
+                                onCompleteColdStartSetup(
+                                    cleanName,
+                                    openingBalanceInput.toLongOrNull()?.coerceAtLeast(0L) ?: 0L,
+                                    chosenBudget,
+                                    selectedCurrency,
+                                    notifyPaymentReminders,
+                                    notifyNightGuard,
+                                    notifyMorningReview
+                                )
                             } else {
                                 onDismissOrSkipToZeroStart()
                             }
@@ -481,10 +640,10 @@ fun KharcheeFirstLaunchWalkthroughAndSetupOverlay(
                         modifier = Modifier.testTag("tutorial_skip_button")
                     ) {
                         Text(
-                            text = "Skip Tutorial",
+                            text = "Skip / Enter Dashboard",
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFB8B0D4),
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF00E676),
                             maxLines = 1
                         )
                     }
@@ -525,13 +684,13 @@ fun KharcheeFirstLaunchWalkthroughAndSetupOverlay(
                             containerColor = Color(0xFF7C3AED),
                             contentColor = Color.White
                         ),
-                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 9.dp),
                         modifier = Modifier.testTag("tutorial_next_button")
                     ) {
                         Text(
-                            text = if (tutorialStepIndex < KHARCHEE_TUTORIAL_STEPS.lastIndex) "Next" else "Get Started",
+                            text = if (tutorialStepIndex < KHARCHEE_TUTORIAL_STEPS.lastIndex) "Next" else "Full Setup",
                             fontWeight = FontWeight.ExtraBold,
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                             maxLines = 1
                         )
                     }
@@ -749,13 +908,13 @@ fun KharcheeFirstLaunchWalkthroughAndSetupOverlay(
                                 }
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "⚡ Auto-Track Spends (Zero Manual Typing)",
+                                        text = "⚡ Auto-Track Spends (Local On-Device Privacy)",
                                         fontWeight = FontWeight.ExtraBold,
                                         fontSize = 12.sp,
                                         color = Color.White
                                     )
                                     Text(
-                                        text = "Auto-Track Spends: Allow Kharchee to read transactional SMS so you never have to log expenses manually.",
+                                        text = AutoExpenseDetectionStore.PROMINENT_SMS_PRIVACY_DISCLOSURE,
                                         fontSize = 11.sp,
                                         color = Color(0xFFD8B4FE),
                                         lineHeight = 15.sp
@@ -778,7 +937,7 @@ fun KharcheeFirstLaunchWalkthroughAndSetupOverlay(
                             ) {
                                 Button(
                                     onClick = {
-                                        smsPermissionLauncher.launch(Manifest.permission.RECEIVE_SMS)
+                                        smsPermissionLauncher.launch(AutoExpenseDetectionStore.REQUIRED_SMS_PERMISSIONS)
                                     },
                                     shape = RoundedCornerShape(10.dp),
                                     colors = ButtonDefaults.buttonColors(

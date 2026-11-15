@@ -1319,16 +1319,26 @@ class ExampleUnitTest {
         assertEquals("Swiggy", hdfcSwiggy.merchant)
         assertEquals("Food", hdfcSwiggy.category)
 
-        // 2. SBI / Zomato UPI SMS
+        // 2. SBI / Zomato UPI SMS — must preserve exact 2-decimal paise (385.50, never rounded to 386)
         val sbiZomato = com.example.receiver.AutoExpenseDetectionStore.parseTransactionalDebitSms(
             sender = "VM-SBIINB",
             body = "Dear UPI user A/C X3012 debited by INR 385.50 on date 11Nov26 trf to Zomato Refno 430291827361 -SBI",
             requireKnownBankSender = true
         )
         assertNotNull(sbiZomato)
-        assertEquals(386L, sbiZomato!!.amount)
+        assertEquals(385.50, sbiZomato!!.exactAmount, 0.001)
+        assertEquals("385.50", sbiZomato.formattedExactAmount)
+        assertEquals(385L, sbiZomato.amount)
         assertEquals("Zomato", sbiZomato.merchant)
         assertEquals("Food", sbiZomato.category)
+
+        val modelParserZomato = com.example.data.model.SmsTransactionParser.parse(
+            "Dear UPI user A/C X3012 debited by INR 385.50 on date 11Nov26 trf to Zomato Refno 430291827361 -SBI"
+        )
+        assertNotNull(modelParserZomato)
+        assertEquals(385.50, modelParserZomato!!.exactAmount, 0.001)
+        assertEquals("385.50", modelParserZomato.formattedExactAmount)
+        assertEquals(385L, modelParserZomato.amount)
 
         // 3. Clipboard mode (sender = null) for Blinkit / GPay / PhonePe
         val clipBlinkit = com.example.receiver.AutoExpenseDetectionStore.parseTransactionalDebitSms(
@@ -1337,7 +1347,9 @@ class ExampleUnitTest {
             requireKnownBankSender = false
         )
         assertNotNull(clipBlinkit)
-        assertEquals(410L, clipBlinkit!!.amount)
+        assertEquals(410.0, clipBlinkit!!.exactAmount, 0.001)
+        assertEquals("410", clipBlinkit.formattedExactAmount)
+        assertEquals(410L, clipBlinkit.amount)
         assertEquals("Blinkit", clipBlinkit.merchant)
         assertEquals("Grocery", clipBlinkit.category)
 
@@ -1356,5 +1368,852 @@ class ExampleUnitTest {
             requireKnownBankSender = true
         )
         assertNull(salaryCreditIgnored)
+
+        // 6. PaymentUtil safety: never fabricate placeholder UPI VPAs from bill or contact names
+        assertEquals("", com.example.util.PaymentUtil.resolveBillVpa("Electricity Bill", ""))
+        assertEquals("", com.example.util.PaymentUtil.resolvePayeeVpa("", "Rahul Sharma"))
+        assertEquals("rahul@okaxis", com.example.util.PaymentUtil.resolvePayeeVpa("rahul@okaxis", "Rahul Sharma"))
+        assertEquals("9876543210@upi", com.example.util.PaymentUtil.resolvePayeeVpa("9876543210", "Rahul Sharma"))
+    }
+
+    @Test
+    fun sovereignActivationManager_hmacKeyGenerationAndDeviceBinding_preventsBypass() {
+        val deviceHashA = "A1B2C3D4"
+        val deviceHashB = "99887766"
+
+        // 1. Generate ₹299 Lifetime Sovereign key for Device A
+        val lifetimeKeyA = com.example.util.SovereignActivationManager.generateActivationCode(
+            deviceHash = deviceHashA,
+            planId = com.example.util.SovereignActivationManager.PLAN_SOVEREIGN_LIFETIME
+        )
+        assertTrue(lifetimeKeyA.startsWith("KHR-SOV-"))
+
+        val verifyLifetimeOnA = com.example.util.SovereignActivationManager.verifyActivationCode(deviceHashA, lifetimeKeyA)
+        assertTrue(verifyLifetimeOnA.isValid)
+        assertEquals("platinum", verifyLifetimeOnA.tierKey)
+        assertEquals(36500, verifyLifetimeOnA.durationDays)
+        assertEquals("₹299 Lifetime Sovereign", verifyLifetimeOnA.planDisplayName)
+
+        // 2. Generate ₹30 / Month (Starter) key for Device A
+        val starterKeyA = com.example.util.SovereignActivationManager.generateActivationCode(
+            deviceHash = deviceHashA,
+            planId = com.example.util.SovereignActivationManager.PLAN_STARTER_MONTHLY
+        )
+        assertTrue(starterKeyA.startsWith("KHR-M30-"))
+
+        val verifyStarterOnA = com.example.util.SovereignActivationManager.verifyActivationCode(deviceHashA, starterKeyA)
+        assertTrue(verifyStarterOnA.isValid)
+        assertEquals("gold", verifyStarterOnA.tierKey)
+        assertEquals(30, verifyStarterOnA.durationDays)
+        assertEquals("₹30 / Month (Starter)", verifyStarterOnA.planDisplayName)
+
+        // 3. Anti-bypass: Device A's key MUST fail on Device B
+        val verifyLifetimeOnB = com.example.util.SovereignActivationManager.verifyActivationCode(deviceHashB, lifetimeKeyA)
+        assertFalse(verifyLifetimeOnB.isValid)
+
+        // 4. Founder Master PIN check
+        assertTrue(com.example.util.SovereignActivationManager.isValidFounderMasterPin("7788"))
+        assertFalse(com.example.util.SovereignActivationManager.isValidFounderMasterPin("0000"))
+    }
+
+    @Test
+    fun nextGenSocialKhataFeatures_dostiScoreVasooliTonesPromiseCountdownAndGroupSplitter_workProperly() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val userId = "test_nextgen_khata_user"
+        com.example.data.model.AdvancedKhataStore.clearAllForUser(context, userId)
+        val now = System.currentTimeMillis()
+
+        // 1. Add a fresh Lena Hai entry (1 day old, due in 2 days) -> Fast Payer & Due in 2 days countdown
+        com.example.data.model.AdvancedKhataStore.addUdhaarEntry(
+            context = context,
+            userId = userId,
+            personName = "Rohan Fast",
+            phone = "9876500001",
+            direction = com.example.data.model.KhataDirection.LENA_HAI,
+            amount = 500L,
+            txDateMillis = now - (1L * 86_400_000L),
+            dueDateMillis = now + (2L * 86_400_000L),
+            description = "Dinner Split",
+            bypassDedupWindow = true
+        )
+
+        // 2. Add a moderate age Lena Hai entry (6 days old) -> Moderate Payer
+        com.example.data.model.AdvancedKhataStore.addUdhaarEntry(
+            context = context,
+            userId = userId,
+            personName = "Vikram Moderate",
+            phone = "9876500002",
+            direction = com.example.data.model.KhataDirection.LENA_HAI,
+            amount = 850L,
+            txDateMillis = now - (6L * 86_400_000L),
+            dueDateMillis = now + (3L * 86_400_000L),
+            description = "Movie Tickets",
+            bypassDedupWindow = true
+        )
+
+        // 3. Add an overdue Lena Hai entry (16 days old, overdue by 4 days) -> Late Payer & Overdue by 4 days
+        com.example.data.model.AdvancedKhataStore.addUdhaarEntry(
+            context = context,
+            userId = userId,
+            personName = "Karan Late",
+            phone = "9876500003",
+            direction = com.example.data.model.KhataDirection.LENA_HAI,
+            amount = 1500L,
+            txDateMillis = now - (16L * 86_400_000L),
+            dueDateMillis = now - (4L * 86_400_000L),
+            description = "Goa Trip Advance",
+            bypassDedupWindow = true
+        )
+
+        val states = com.example.data.model.AdvancedKhataStore.getAllContactStates(context, userId, now)
+        val rohanState = states.first { it.contact.name == "Rohan Fast" }
+        val vikramState = states.first { it.contact.name == "Vikram Moderate" }
+        val karanState = states.first { it.contact.name == "Karan Late" }
+
+        val rohanDosti = com.example.data.model.AdvancedKhataStore.computeDostiCreditScore(rohanState, now)
+        assertEquals(com.example.data.model.DostiReliabilityTier.FAST_PAYER, rohanDosti.tier)
+        assertEquals("⚡ 98% Fast Payer", rohanDosti.badgeLabel)
+
+        val vikramDosti = com.example.data.model.AdvancedKhataStore.computeDostiCreditScore(vikramState, now)
+        assertEquals(com.example.data.model.DostiReliabilityTier.MODERATE, vikramDosti.tier)
+        assertEquals("⏳ Moderate", vikramDosti.badgeLabel)
+
+        val karanDosti = com.example.data.model.AdvancedKhataStore.computeDostiCreditScore(karanState, now)
+        assertEquals(com.example.data.model.DostiReliabilityTier.LATE_PAYER, karanDosti.tier)
+        assertTrue(karanDosti.badgeLabel.startsWith("🐢 Late Payer •"))
+
+        // Promise-to-Pay Countdown verification
+        val rohanCountdown = com.example.data.model.AdvancedKhataStore.formatPromiseToPayCountdown(
+            rohanState.earliestUnsettledDueDateMillis,
+            rohanState.isSettled,
+            now
+        )
+        assertNotNull(rohanCountdown)
+        assertFalse(rohanCountdown!!.isOverdue)
+        assertTrue(rohanCountdown.label.contains("Due in"))
+
+        val karanCountdown = com.example.data.model.AdvancedKhataStore.formatPromiseToPayCountdown(
+            karanState.earliestUnsettledDueDateMillis,
+            karanState.isSettled,
+            now
+        )
+        assertNotNull(karanCountdown)
+        assertTrue(karanCountdown!!.isOverdue)
+        assertTrue(karanCountdown.label.contains("Overdue by"))
+
+        // 3-Tone WhatsApp Vasooli Engine verification
+        val politeMsg = com.example.util.KhataSplitCardGenerator.buildVasooliToneMessage(
+            tone = com.example.util.VasooliReminderTone.POLITE,
+            friendName = "Karan Late",
+            amountInr = 1500L,
+            itemSummary = "Goa Trip Advance",
+            userDisplayName = "Aarav",
+            userUpiId = "aarav@okicici"
+        )
+        assertTrue(politeMsg.contains("Karan Late"))
+        assertTrue(politeMsg.contains("aarav@okicici"))
+
+        val savageMsg = com.example.util.KhataSplitCardGenerator.buildVasooliToneMessage(
+            tone = com.example.util.VasooliReminderTone.BHAICHARA_SAVAGE,
+            friendName = "Karan Late",
+            amountInr = 1500L,
+            itemSummary = "Goa Trip Advance",
+            userDisplayName = "Aarav",
+            userUpiId = "aarav@okicici"
+        )
+        assertTrue(savageMsg.contains("bhej de, Jarvis mera gala daba raha hai 💀"))
+
+        val jarvisMsg = com.example.util.KhataSplitCardGenerator.buildVasooliToneMessage(
+            tone = com.example.util.VasooliReminderTone.JARVIS_OFFICIAL,
+            friendName = "Karan Late",
+            amountInr = 1500L,
+            itemSummary = "Goa Trip Advance",
+            userDisplayName = "Aarav",
+            userUpiId = "aarav@okicici"
+        )
+        assertTrue(jarvisMsg.contains("JARVIS AI CFO — OFFICIAL LEDGER NOTICE"))
+
+        // 1-Tap Group Bill & Trip Splitter verification (₹1,200 Pizza split equally between Self + 2 friends = ₹400 each)
+        val equalSplit = com.example.data.model.AdvancedKhataStore.computeGroupBillSplit(
+            totalBillAmount = 1200L,
+            selectedFriends = listOf("Dev" to "", "Kabir" to ""),
+            isEqualSplit = true,
+            includeSelf = true
+        )
+        assertTrue(equalSplit.isValid)
+        assertEquals(400L, equalSplit.myPersonalShare)
+        assertEquals(2, equalSplit.friendShares.size)
+        assertEquals(400L, equalSplit.friendShares[0].amount)
+        assertEquals(400L, equalSplit.friendShares[1].amount)
+
+        val recordSplitRes = com.example.data.model.AdvancedKhataStore.recordGroupBillSplit(
+            context = context,
+            userId = userId,
+            billTitle = "Pizza Night",
+            category = "Food & Outing",
+            splitResult = equalSplit,
+            dueDateMillis = now + (3L * 86_400_000L)
+        )
+        assertTrue(recordSplitRes.isSuccess)
+        assertEquals(2, recordSplitRes.getOrNull())
+    }
+
+    @Test
+    fun insightsNeonTelemetryEngine_donutSplineHeatmapSpeedometersAndTopMerchants_workProperly() {
+        val now = System.currentTimeMillis()
+
+        val sampleExpenses = listOf(
+            ExpenseRecord(
+                id = "e1",
+                title = "Swiggy Dinner",
+                amount = 650L,
+                category = "Food",
+                type = "expense"
+            ),
+            ExpenseRecord(
+                id = "e2",
+                title = "Amazon Headphones",
+                amount = 2400L,
+                category = "Shopping",
+                type = "expense"
+            ),
+            ExpenseRecord(
+                id = "e3",
+                title = "Uber Airport Ride",
+                amount = 850L,
+                category = "Travel",
+                type = "expense"
+            ),
+            ExpenseRecord(
+                id = "e4",
+                title = "Airtel Fiber Bill",
+                amount = 1199L,
+                category = "Bills",
+                type = "expense"
+            ),
+            ExpenseRecord(
+                id = "e5",
+                title = "Netflix Subscription",
+                amount = 649L,
+                category = "Entertainment",
+                type = "expense"
+            ),
+            ExpenseRecord(
+                id = "inc1",
+                title = "Salary Credit",
+                amount = 65000L,
+                category = "Salary",
+                type = "income"
+            )
+        )
+
+        val categoryDetails = listOf(
+            com.example.data.model.InsightCategoryDetail(
+                category = "Shopping",
+                amount = 2400L,
+                previousAmount = 1800L,
+                changePercent = 33,
+                percentOfTotal = 42,
+                transactionCount = 1,
+                transactions = emptyList<ExpenseRecord>()
+            ),
+            com.example.data.model.InsightCategoryDetail(
+                category = "Bills",
+                amount = 1199L,
+                previousAmount = 1199L,
+                changePercent = 0,
+                percentOfTotal = 21,
+                transactionCount = 1,
+                transactions = emptyList<ExpenseRecord>()
+            ),
+            com.example.data.model.InsightCategoryDetail(
+                category = "Travel",
+                amount = 850L,
+                previousAmount = 600L,
+                changePercent = 41,
+                percentOfTotal = 15,
+                transactionCount = 1,
+                transactions = emptyList<ExpenseRecord>()
+            ),
+            com.example.data.model.InsightCategoryDetail(
+                category = "Food",
+                amount = 650L,
+                previousAmount = 900L,
+                changePercent = -28,
+                percentOfTotal = 11,
+                transactionCount = 1,
+                transactions = emptyList<ExpenseRecord>()
+            ),
+            com.example.data.model.InsightCategoryDetail(
+                category = "Entertainment",
+                amount = 649L,
+                previousAmount = 649L,
+                changePercent = 0,
+                percentOfTotal = 11,
+                transactionCount = 1,
+                transactions = emptyList<ExpenseRecord>()
+            )
+        )
+
+        // 1. Verify Neon Donut Slices and exact color mapping
+        val donutSlices = com.example.ui.screens.InsightsNeonTelemetryEngine.buildNeonDonutSlices(
+            categoryDetails = categoryDetails,
+            totalSpent = 5748L
+        )
+        assertEquals(5, donutSlices.size)
+        val foodSlice = donutSlices.firstOrNull { it.category == "Food" }
+        val shoppingSlice = donutSlices.firstOrNull { it.category == "Shopping" }
+        assertNotNull(foodSlice)
+        assertNotNull(shoppingSlice)
+        assertEquals(com.example.ui.screens.NeonEmeraldFood, foodSlice!!.color)
+        assertEquals(com.example.ui.screens.NeonCrimsonShopping, shoppingSlice!!.color)
+
+        // 2. Verify TradingView Cashflow Spline Points
+        val splinePoints = com.example.ui.screens.InsightsNeonTelemetryEngine.buildMonthlyCashflowSplinePoints(
+            expenses = sampleExpenses,
+            nowMillis = now
+        )
+        assertTrue(splinePoints.isNotEmpty())
+        assertTrue(splinePoints.last().cumulativeSpend >= 1848L)
+
+        // 3. Verify 30-Day Spending Intensity Heatmap Matrix & intensity tiers
+        assertEquals(
+            com.example.ui.screens.SpendHeatmapIntensity.ZERO_SPEND,
+            com.example.ui.screens.InsightsNeonTelemetryEngine.classifyHeatmapIntensity(0L, 1000L)
+        )
+        assertEquals(
+            com.example.ui.screens.SpendHeatmapIntensity.LOW_SPEND,
+            com.example.ui.screens.InsightsNeonTelemetryEngine.classifyHeatmapIntensity(300L, 1000L)
+        )
+        assertEquals(
+            com.example.ui.screens.SpendHeatmapIntensity.MEDIUM_SPEND,
+            com.example.ui.screens.InsightsNeonTelemetryEngine.classifyHeatmapIntensity(800L, 1000L)
+        )
+        assertEquals(
+            com.example.ui.screens.SpendHeatmapIntensity.HIGH_SPIKE,
+            com.example.ui.screens.InsightsNeonTelemetryEngine.classifyHeatmapIntensity(1800L, 1000L)
+        )
+
+        val (heatmapCells, noSpendCount) = com.example.ui.screens.InsightsNeonTelemetryEngine.buildThirtyDayHeatmapMatrix(
+            expenses = sampleExpenses,
+            dailyLimit = 1000L,
+            nowMillis = now
+        )
+        assertTrue(heatmapCells.size >= 28)
+        assertTrue(noSpendCount >= 0)
+
+        // 4. Verify Dual Speedometers & Top 5 Money Drainers Leaderboard
+        val (speedometers, topMerchants) = com.example.ui.screens.InsightsNeonTelemetryEngine.computeDualSpeedometersAndTopMerchants(
+            expenses = sampleExpenses,
+            dailyLimit = 1000L,
+            nowMillis = now
+        )
+        assertTrue(speedometers.savingsEfficiencyScore in 0..100)
+        assertTrue(speedometers.savingsStatusLabel in listOf("Elite Saver", "On Track", "Critical Burn"))
+        assertTrue(topMerchants.isNotEmpty())
+        assertEquals("Amazon Headphones", topMerchants.first().merchantName)
+        assertEquals(2400L, topMerchants.first().totalAmount)
+    }
+
+    @Test
+    fun sovereignBlackClub_metalFinishesVampireScannerGhostVaultGoldVipAndJarvisPersonas_workProperly() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val testUserId = "sovereign_black_club_test_user"
+
+        // 1. Verify 3D Sovereign Metal Finishes persistence
+        com.example.ui.screens.SovereignBlackClubEngine.setSelectedMetalFinish(
+            context,
+            com.example.ui.screens.SovereignMetalFinish.CYBERPUNK_EMERALD
+        )
+        assertEquals(
+            com.example.ui.screens.SovereignMetalFinish.CYBERPUNK_EMERALD,
+            com.example.ui.screens.SovereignBlackClubEngine.getSelectedMetalFinish(context)
+        )
+
+        // 2. Verify Feature A: Vampire Money-Leak Scanner
+        val expenses = listOf(
+            ExpenseRecord(id = "v1", title = "Netflix Ultra HD", amount = 649L, category = "Entertainment", type = "expense"),
+            ExpenseRecord(id = "v2", title = "Spotify Duo", amount = 149L, category = "Subscriptions", type = "expense"),
+            ExpenseRecord(id = "v3", title = "Swiggy Midnight Pizza", amount = 540L, category = "Food", type = "expense"),
+            ExpenseRecord(id = "v4", title = "Zomato Burger Combo", amount = 420L, category = "Food", type = "expense")
+        )
+        val leakReport = com.example.ui.screens.SovereignBlackClubEngine.scanVampireMoneyLeaks(expenses)
+        assertTrue(leakReport.totalMonthlyLeakInr > 0L)
+        assertEquals(leakReport.totalMonthlyLeakInr * 12L, leakReport.totalYearlyDrainInr)
+        assertTrue(leakReport.bannerHeadline.startsWith("Detected "))
+        assertTrue(leakReport.bannerHeadline.endsWith("/mo in avoidable money leaks!"))
+        assertTrue(leakReport.leaks.isNotEmpty())
+
+        // 3. Verify Feature B: Secret Ghost Vault (Decoy Hidden Ledger with 4-digit Ghost PIN)
+        assertTrue(com.example.ui.screens.SovereignBlackClubEngine.setGhostVaultPin(context, testUserId, "4826"))
+        assertTrue(com.example.ui.screens.SovereignBlackClubEngine.hasGhostVaultPin(context, testUserId))
+        assertFalse(com.example.ui.screens.SovereignBlackClubEngine.verifyGhostVaultPin(context, testUserId, "9999"))
+        assertTrue(com.example.ui.screens.SovereignBlackClubEngine.verifyGhostVaultPin(context, testUserId, "4826"))
+
+        val afterAdd = com.example.ui.screens.SovereignBlackClubEngine.addGhostVaultEntry(
+            context = context,
+            userId = testUserId,
+            title = "Anniversary Surprise Watch",
+            amount = 8500L,
+            secretNote = "Hidden from main ledger"
+        )
+        assertEquals(1, afterAdd.size)
+        assertEquals("Anniversary Surprise Watch", afterAdd.first().title)
+        assertEquals(8500L, afterAdd.first().amount)
+
+        val afterDelete = com.example.ui.screens.SovereignBlackClubEngine.deleteGhostVaultEntry(
+            context = context,
+            userId = testUserId,
+            entryId = afterAdd.first().id
+        )
+        assertTrue(afterDelete.isEmpty())
+
+        // 4. Verify Feature C: 24K Gold VIP WhatsApp Split Cards
+        com.example.util.KhataSplitCardGenerator.setSovereignGoldVipThemeEnabled(context, true)
+        assertTrue(com.example.util.KhataSplitCardGenerator.isSovereignGoldVipThemeEnabled(context))
+        val goldVipBitmap = com.example.util.KhataSplitCardGenerator.renderDarkSplitReceiptBitmap(
+            friendName = "Vikram",
+            friendPhone = "+919876543210",
+            outstandingAmount = 1800L,
+            originalRecorded = 1800L,
+            alreadyPaid = 0L,
+            direction = com.example.data.model.KhataDirection.LENA_HAI,
+            itemSummary = "VIP Lounge Split",
+            userDisplayName = "Aarav",
+            userUpiId = "aarav@okicici",
+            isSovereignGoldVip = true
+        )
+        assertEquals(1080, goldVipBitmap.width)
+        assertEquals(1360, goldVipBitmap.height)
+
+        // 5. Verify Feature D: Jarvis Unfiltered Personas
+        val sharkRoast = com.example.ui.screens.SovereignBlackClubEngine.buildJarvisPersonaBriefing(
+            persona = com.example.ui.screens.JarvisUnfilteredPersona.BRUTAL_SHARK_ROAST,
+            userDisplayName = "Aarav",
+            expenses = expenses,
+            disciplineScore = 810,
+            streakDays = 14,
+            monthlyLeakInr = leakReport.totalMonthlyLeakInr
+        )
+        assertTrue(sharkRoast.contains("Aarav"))
+        assertTrue(sharkRoast.contains("Vampire Scanner"))
+
+        val swissBanker = com.example.ui.screens.SovereignBlackClubEngine.buildJarvisPersonaBriefing(
+            persona = com.example.ui.screens.JarvisUnfilteredPersona.SWISS_WEALTH_BANKER,
+            userDisplayName = "Aarav",
+            expenses = expenses,
+            disciplineScore = 810,
+            streakDays = 14,
+            monthlyLeakInr = leakReport.totalMonthlyLeakInr
+        )
+        assertTrue(swissBanker.contains("Zurich Private Desk"))
+
+        val desiBrother = com.example.ui.screens.SovereignBlackClubEngine.buildJarvisPersonaBriefing(
+            persona = com.example.ui.screens.JarvisUnfilteredPersona.DESI_BIG_BROTHER,
+            userDisplayName = "Aarav",
+            expenses = expenses,
+            disciplineScore = 810,
+            streakDays = 14,
+            monthlyLeakInr = leakReport.totalMonthlyLeakInr
+        )
+        assertTrue(desiBrother.contains("Sun chhote Aarav"))
+    }
+
+    @Test
+    fun homeDailyCockpit_safeBurnCalculationCustomQuickChipsAndExactPaiseFormatting_workProperly() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val testUserId = "cockpit_test_user"
+
+        // 1. Verify Launchpad budget presets (₹5,000, ₹10,000, ₹15,000, ₹25,000)
+        val presets = com.example.ui.screens.HomeDailyCockpitEngine.LAUNCHPAD_BUDGET_PRESETS
+        assertEquals(4, presets.size)
+        assertEquals(5000L, presets[0].first)
+        assertEquals(10000L, presets[1].first)
+        assertEquals(15000L, presets[2].first)
+        assertEquals(25000L, presets[3].first)
+
+        // 2. Verify Daily Safe Burn Telemetry across Emerald (<80%), Amber (80..100%), and Crimson (>100%)
+        val fixedNow = 1_731_660_000_000L // Mid-month timestamp
+        val emeraldTelemetry = com.example.ui.screens.HomeDailyCockpitEngine.computeDailySafeBurnTelemetry(
+            monthlyBudgetTarget = 15_000L,
+            monthSpent = 3_100L,
+            todaySpent = 100L,
+            fallbackDailyLimit = 500L,
+            nowMillis = fixedNow
+        )
+        assertEquals(com.example.ui.screens.SafeBurnStatusTier.EMERALD_SAFE, emeraldTelemetry.statusTier)
+        assertEquals(11_900L, emeraldTelemetry.remainingMonthlyBudget)
+        assertTrue(emeraldTelemetry.pillText.contains("Today's Safe Spend:"))
+
+        val dailySafeAllowance = emeraldTelemetry.dailySafeAllowance
+        val amberSpend = (dailySafeAllowance * 0.85).toLong()
+        val amberTelemetry = com.example.ui.screens.HomeDailyCockpitEngine.computeDailySafeBurnTelemetry(
+            monthlyBudgetTarget = 15_000L,
+            monthSpent = 3_000L + amberSpend,
+            todaySpent = amberSpend,
+            fallbackDailyLimit = 500L,
+            nowMillis = fixedNow
+        )
+        assertEquals(com.example.ui.screens.SafeBurnStatusTier.AMBER_WARNING, amberTelemetry.statusTier)
+
+        val crimsonSpend = dailySafeAllowance + 250L
+        val crimsonTelemetry = com.example.ui.screens.HomeDailyCockpitEngine.computeDailySafeBurnTelemetry(
+            monthlyBudgetTarget = 15_000L,
+            monthSpent = 3_000L + crimsonSpend,
+            todaySpent = crimsonSpend,
+            fallbackDailyLimit = 500L,
+            nowMillis = fixedNow
+        )
+        assertEquals(com.example.ui.screens.SafeBurnStatusTier.CRIMSON_EXCEEDED, crimsonTelemetry.statusTier)
+        assertEquals(0L, crimsonTelemetry.todaySafeSpendLeft)
+
+        // 3. Verify Custom Quick Chip persistence (e.g. 🥛 ₹35 Milk & 🏋️ ₹50 Eggs)
+        val afterMilk = com.example.ui.screens.HomeDailyCockpitEngine.saveCustomQuickChip(
+            context = context,
+            userId = testUserId,
+            emoji = "🥛",
+            label = "Milk",
+            amount = 35L,
+            category = "Groceries"
+        )
+        assertTrue(afterMilk.any { it.label == "Milk" && it.amount == 35L && it.emoji == "🥛" })
+
+        val afterEggs = com.example.ui.screens.HomeDailyCockpitEngine.saveCustomQuickChip(
+            context = context,
+            userId = testUserId,
+            emoji = "🏋️",
+            label = "Eggs",
+            amount = 50L,
+            category = "Fitness"
+        )
+        assertEquals(2, afterEggs.size)
+
+        val milkId = afterEggs.first { it.label == "Milk" }.id
+        val afterDeleteMilk = com.example.ui.screens.HomeDailyCockpitEngine.deleteCustomQuickChip(
+            context = context,
+            userId = testUserId,
+            chipId = milkId
+        )
+        assertEquals(1, afterDeleteMilk.size)
+        assertEquals("Eggs", afterDeleteMilk.first().label)
+
+        // 4. Verify Exact 2-Decimal Paise formatting & 1-Tap Undo Matching
+        val exactPaiseStr = com.example.ui.screens.HomeDailyCockpitEngine.formatExactTransactionAmount(
+            amountRupees = 349L,
+            amountPaise = 34950L,
+            isIncome = false
+        )
+        assertEquals("-₹349.50", exactPaiseStr)
+
+        val wholeRupeeStr = com.example.ui.screens.HomeDailyCockpitEngine.formatExactTransactionAmount(
+            amountRupees = 20L,
+            amountPaise = 2000L,
+            isIncome = false
+        )
+        assertEquals("-₹20", wholeRupeeStr)
+
+        val sampleExpenses = listOf(
+            com.example.data.model.ExpenseRecord(
+                id = "tx_1",
+                userId = testUserId,
+                title = "Chai",
+                category = "Chai & Snacks",
+                amount = 20L,
+                txEpochMillis = 1000L
+            ),
+            com.example.data.model.ExpenseRecord(
+                id = "tx_2",
+                userId = testUserId,
+                title = "Chai",
+                category = "Chai & Snacks",
+                amount = 20L,
+                txEpochMillis = 5000L
+            )
+        )
+        val undoEvent = com.example.ui.screens.QuickSpendUndoEvent(
+            timestampMillis = 5005L,
+            emoji = "☕",
+            label = "Chai",
+            category = "Chai & Snacks",
+            amount = 20L
+        )
+        val matchedUndo = com.example.ui.screens.HomeDailyCockpitEngine.findLatestMatchingExpenseForUndo(
+            expenses = sampleExpenses,
+            undoEvent = undoEvent
+        )
+        assertNotNull(matchedUndo)
+        assertEquals("tx_2", matchedUndo?.id)
+    }
+
+    @Test
+    fun sovereignEnterpriseStudios_zeroKnowledgeE2eeTaxTaggingSpareChangeSweepAndHolographicThemes_workProperly() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val testUserId = "sovereign_enterprise_test_user"
+
+        // 1. Studio 1: Zero-Knowledge E2EE Custom Salt Encryption (Never stores passphrase in cloud)
+        val customSaltHex = com.example.util.BackupManager.generateMilitaryGradeCustomSaltHex()
+        assertEquals(32, customSaltHex.length)
+        com.example.util.BackupManager.setZeroKnowledgeCustomSaltConfig(
+            context = context,
+            enabled = true,
+            customSaltHex = customSaltHex
+        )
+        assertTrue(com.example.util.BackupManager.isZeroKnowledgeCustomSaltEnabled(context))
+        com.example.util.BackupManager.setInMemoryZeroKnowledgePassphrase("MySovereignVault#2026")
+        assertEquals("MySovereignVault#2026", com.example.util.BackupManager.getInMemoryZeroKnowledgePassphrase())
+
+        val secretFinancialJson = """{"userId":"$testUserId","balance":185400,"proTier":"sovereign"}"""
+        val encryptedZeroKnowledge = com.example.util.BackupManager.encryptPayloadWithZeroKnowledgeSalt(
+            plainJson = secretFinancialJson,
+            masterPassphrase = "MySovereignVault#2026",
+            customSaltHex = customSaltHex
+        )
+        assertTrue(encryptedZeroKnowledge.startsWith("KHARCHEE_ZK_E2EE_V2:"))
+        val decryptedZeroKnowledge = com.example.util.BackupManager.decryptPayloadWithZeroKnowledgeSalt(
+            encryptedContent = encryptedZeroKnowledge,
+            masterPassphrase = "MySovereignVault#2026",
+            customSaltHex = customSaltHex
+        ).getOrThrow()
+        assertEquals(secretFinancialJson, decryptedZeroKnowledge)
+
+        // Wrong passphrase must fail decryption
+        val failedWrongPassphrase = com.example.util.BackupManager.decryptPayloadWithZeroKnowledgeSalt(
+            encryptedContent = encryptedZeroKnowledge,
+            masterPassphrase = "WrongPassphrase123",
+            customSaltHex = customSaltHex
+        )
+        assertTrue(failedWrongPassphrase.isFailure)
+        com.example.util.BackupManager.clearInMemoryZeroKnowledgePassphrase()
+        assertEquals("", com.example.util.BackupManager.getInMemoryZeroKnowledgePassphrase())
+
+        // 2. Studio 2: AI Tax & Business Expense Tagging (CA-Ready Exports)
+        val now = System.currentTimeMillis()
+        val freelanceTransactions = listOf(
+            com.example.data.model.ExpenseRecord(
+                id = "tax_tx_1",
+                userId = testUserId,
+                title = "AWS Cloud Hosting Invoice",
+                category = "Software & Cloud",
+                amount = 4_200L,
+                paymentMode = "Card",
+                txEpochMillis = now - 86_400_000L
+            ),
+            com.example.data.model.ExpenseRecord(
+                id = "tax_tx_2",
+                userId = testUserId,
+                title = "Swiggy Late Night Pizza",
+                category = "Food & Dining",
+                amount = 650L,
+                paymentMode = "UPI",
+                txEpochMillis = now - 40_000_000L
+            ),
+            com.example.data.model.ExpenseRecord(
+                id = "tax_tx_3",
+                userId = testUserId,
+                title = "WeWork Co-working Desk Pass",
+                category = "Office Workspace",
+                amount = 5_800L,
+                paymentMode = "UPI",
+                txEpochMillis = now - 20_000_000L
+            )
+        )
+        val autoTaggedCount = com.example.util.MonthlyFinancialPdfExporter.autoClassifyBusinessExpenses(
+            context = context,
+            expenses = freelanceTransactions
+        )
+        assertTrue(autoTaggedCount >= 2)
+        assertTrue(com.example.util.MonthlyFinancialPdfExporter.isTransactionBusinessDeductible(context, freelanceTransactions[0]))
+        assertFalse(com.example.util.MonthlyFinancialPdfExporter.isTransactionBusinessDeductible(context, freelanceTransactions[1]))
+
+        val taxSummary = com.example.util.MonthlyFinancialPdfExporter.computeTaxDeductibleSummary(
+            context = context,
+            expenses = freelanceTransactions
+        )
+        assertEquals(10_000L, taxSummary.totalBusinessDeductibleInr)
+        assertEquals(650L, taxSummary.totalPersonalSpendInr)
+        assertEquals(3_000L, taxSummary.estimatedIncomeTaxSaving30PctInr)
+
+        val caCsv = com.example.util.MonthlyFinancialPdfExporter.generateCaReadyTaxCsv(
+            context = context,
+            expenses = freelanceTransactions,
+            userDisplayName = "Aarav",
+            isSovereignPro = true
+        )
+        assertTrue(caCsv.contains("BUSINESS / TAX DEDUCTIBLE"))
+        assertTrue(caCsv.contains("Estimated Income Tax Deduction Saving (30% Slab),3000"))
+
+        val settings = com.example.data.model.UserSettings(userId = testUserId, isPro = true, proTier = "sovereign")
+        val bundle = com.example.data.model.InsightIntelligenceEngine.computeCompleteAnalytics(
+            expenses = freelanceTransactions,
+            settings = settings,
+            categoryBudgets = emptyMap(),
+            savingsGoals = emptyList(),
+            paymentReminders = emptyList(),
+            filter = com.example.data.model.InsightPeriodFilter.THIS_MONTH,
+            nowMillis = now
+        )
+        val (proTaxPdfBytes, proTaxPageCount) = com.example.util.MonthlyFinancialPdfExporter.generateMonthlyReportPdf(
+            bundle = bundle,
+            expenses = freelanceTransactions,
+            userDisplayName = "Aarav",
+            generatedAtMillis = now,
+            isSovereignPro = true,
+            context = context
+        )
+        assertTrue(proTaxPageCount >= 1)
+        assertTrue(proTaxPdfBytes.isNotEmpty())
+
+        // 3. Studio 3: Unlimited Savings Goals & Spare-Change Auto-Sweep
+        assertTrue(com.example.util.SavingsGoalsManager.canCreateNewSavingsGoal(2, isSovereignPro = false))
+        assertFalse(com.example.util.SavingsGoalsManager.canCreateNewSavingsGoal(3, isSovereignPro = false))
+        assertTrue(com.example.util.SavingsGoalsManager.canCreateNewSavingsGoal(25, isSovereignPro = true))
+
+        // Spare-change round-up math for ₹50 and ₹100 increments
+        assertEquals(22L, com.example.util.SavingsGoalsManager.computeSpareChangeRoundUp(128L, roundToNearest = 50L))
+        assertEquals(72L, com.example.util.SavingsGoalsManager.computeSpareChangeRoundUp(128L, roundToNearest = 100L))
+        assertEquals(30L, com.example.util.SavingsGoalsManager.computeSpareChangeRoundUp(20L, roundToNearest = 50L))
+        assertEquals(0L, com.example.util.SavingsGoalsManager.computeSpareChangeRoundUp(150L, roundToNearest = 50L))
+
+        val sampleGoal = com.example.data.model.SavingsGoalRecord(
+            id = "goal_iphone",
+            userId = testUserId,
+            title = "iPhone 17 Pro Fund",
+            targetAmount = 135_000L,
+            savedAmount = 42_000L
+        )
+        com.example.util.SavingsGoalsManager.recordSpareChangeSweep(
+            context = context,
+            userId = testUserId,
+            expenseTitle = "Filter Coffee",
+            expenseAmount = 128L,
+            sweptAmount = 22L,
+            targetGoal = sampleGoal
+        )
+        assertEquals(22L, com.example.util.SavingsGoalsManager.getTotalSpareChangeSweptInr(context, testUserId))
+        val sweepHistory = com.example.util.SavingsGoalsManager.getRecentSweepHistory(context, testUserId)
+        assertEquals(1, sweepHistory.size)
+        assertEquals("iPhone 17 Pro Fund", sweepHistory.first().targetGoalTitle)
+
+        // 4. Studio 4: Holographic Theme Studio (Matrix Emerald, Cyberpunk Cyan, Obsidian Void, 24K Gold)
+        val matrixTheme = com.example.ui.theme.getHudThemeById("matrix_emerald")
+        assertEquals(0xFF00E676, matrixTheme.accent.value.toLong() shr 32 and 0xFFFFFFFFL)
+
+        val cyberpunkTheme = com.example.ui.theme.getHudThemeById("cyberpunk_cyan")
+        assertEquals(0xFF00E5FF, cyberpunkTheme.accent.value.toLong() shr 32 and 0xFFFFFFFFL)
+
+        val obsidianVoidTheme = com.example.ui.theme.getHudThemeById("obsidian_void")
+        assertEquals(0xFF030712, obsidianVoidTheme.background.value.toLong() shr 32 and 0xFFFFFFFFL)
+
+        val goldTheme = com.example.ui.theme.getHudThemeById("sovereign_gold")
+        assertEquals(0xFFFFD700, goldTheme.accent.value.toLong() shr 32 and 0xFFFFFFFFL)
+
+        com.example.ui.theme.ThemePreferenceManager.saveThemePreference(context, "cyberpunk_cyan")
+        assertEquals("cyberpunk_cyan", com.example.ui.theme.ThemePreferenceManager.loadThemePreference(context))
+    }
+
+    @Test
+    fun finalUnfairAdvantageSuite_impulseCooldownLockGhostVaultAndCouponSniffer_workProperly() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+
+        // 1. Impulse-Buy Cooldown Lock ("The Shame Vault")
+        assertTrue(com.example.util.ImpulseCooldownManager.isImpulseTargetCategoryAndAmount(1200L, "Shopping"))
+        assertTrue(com.example.util.ImpulseCooldownManager.isImpulseTargetCategoryAndAmount(800L, "Entertainment"))
+        assertFalse(com.example.util.ImpulseCooldownManager.isImpulseTargetCategoryAndAmount(450L, "Shopping"))
+        assertFalse(com.example.util.ImpulseCooldownManager.isImpulseTargetCategoryAndAmount(1200L, "Bills"))
+        assertTrue(com.example.util.ImpulseCooldownManager.isLateNightImpulseHour(23))
+        assertFalse(com.example.util.ImpulseCooldownManager.isLateNightImpulseHour(14))
+
+        val now = 1_731_660_000_000L
+        val frozenItem = com.example.util.ImpulseCooldownManager.freezeImpulseTransaction(
+            context = context,
+            title = "Mechanical Gaming Keyboard",
+            category = "Shopping",
+            amount = 2_499L,
+            paymentMode = "UPI",
+            note = "[Electronics]",
+            nowMillis = now
+        )
+        assertEquals("15:00", frozenItem.formattedCountdown(now))
+        assertFalse(frozenItem.isCooldownExpired(now + 5 * 60 * 1000L))
+        assertTrue(frozenItem.isCooldownExpired(now + 15 * 60 * 1000L))
+        assertTrue(frozenItem.jarvisWarningMessage.contains("JARVIS SHAME VAULT"))
+
+        val savedInr = com.example.util.ImpulseCooldownManager.cancelFrozenImpulseAndRecordSavings(
+            context = context,
+            freezeId = frozenItem.id
+        )
+        assertEquals(2_499L, savedInr)
+        assertEquals(2_499L, com.example.util.ImpulseCooldownManager.getTotalSavedByCooldownInr(context))
+
+        // 2. Secret Ghost Vault (Decoy Hidden Ledger with Separate 4-Digit SHA-256 Ghost PIN)
+        assertTrue(com.example.ui.screens.GhostVaultManager.setGhostPin(context, "7391"))
+        assertTrue(com.example.ui.screens.GhostVaultManager.isGhostPinConfigured(context))
+        assertEquals(
+            com.example.ui.screens.GhostPinVerificationStatus.UNLOCKED_REAL_VAULT,
+            com.example.ui.screens.GhostVaultManager.verifyGhostPin(context, "7391")
+        )
+        assertEquals(
+            com.example.ui.screens.GhostPinVerificationStatus.UNLOCKED_DECOY_LEDGER,
+            com.example.ui.screens.GhostVaultManager.verifyGhostPin(context, "0000")
+        )
+        assertEquals(
+            com.example.ui.screens.GhostPinVerificationStatus.INVALID_PIN,
+            com.example.ui.screens.GhostVaultManager.verifyGhostPin(context, "1234")
+        )
+
+        val ghostList = com.example.ui.screens.GhostVaultManager.addGhostTransaction(
+            context = context,
+            pin = "7391",
+            title = "Anniversary Surprise Ring",
+            category = "Private Gift",
+            amountInr = 6_500L,
+            paymentMode = "Ghost UPI",
+            secretNote = "Keep hidden until Friday"
+        )
+        assertEquals(1, ghostList.size)
+        assertEquals("Anniversary Surprise Ring", ghostList.first().title)
+        // Decoy or wrong PIN must never expose real Ghost transactions
+        assertTrue(com.example.ui.screens.GhostVaultManager.getGhostTransactions(context, "0000").isEmpty())
+        assertTrue(com.example.ui.screens.GhostVaultManager.getGhostTransactions(context, "1234").isEmpty())
+
+        // 3. AI Coupon & Cashback Auto-Sniffer
+        val hdfcCoupon = com.example.util.CouponSniffer.inspectAndRecordIncomingSms(
+            context = context,
+            sender = "AD-HDFCBK",
+            body = "HDFC Bank Alert: Get flat Rs.100 cashback on Shopping & Electronics via UPI! Use HDFC100 at checkout."
+        )
+        assertNotNull(hdfcCoupon)
+        assertEquals("HDFC100", hdfcCoupon?.code)
+        assertEquals(100L, hdfcCoupon?.estimatedSavingsInr)
+
+        val zomatoCoupon = com.example.util.CouponSniffer.inspectAndRecordIncomingSms(
+            context = context,
+            sender = "VM-ZOMATO",
+            body = "Hungry tonight? Get Rs.50 OFF on your dinner order. Use code ZOMATO50 now!"
+        )
+        assertNotNull(zomatoCoupon)
+        assertEquals("ZOMATO50", zomatoCoupon?.code)
+        assertEquals("Food", zomatoCoupon?.category)
+
+        // OTP SMS must never be mistaken for a coupon code
+        val otpIgnored = com.example.util.CouponSniffer.sniffCouponFromSms(
+            sender = "VM-HDFCBK",
+            body = "Your OTP for UPI transaction of Rs.500 is 839201. Do not share OTP with anyone."
+        )
+        assertNull(otpIgnored)
+
+        val matchedFoodCoupon = com.example.util.CouponSniffer.findBestMatchingCoupon(
+            context = context,
+            category = "Food",
+            merchantQuery = "Zomato"
+        )
+        assertNotNull(matchedFoodCoupon)
+        assertEquals("ZOMATO50", matchedFoodCoupon?.code)
     }
 }
+
+
+
+
+
+

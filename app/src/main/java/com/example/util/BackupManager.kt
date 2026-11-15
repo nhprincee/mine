@@ -208,14 +208,73 @@ object BackupManager {
     }
 
     // =========================================================================
-    // 1. AES-256-GCM ENCRYPTION & DECRYPTION ENGINE
+    // 1. AES-256-GCM & ZERO-KNOWLEDGE CUSTOM SALT E2EE ENCRYPTION ENGINE
     // =========================================================================
 
-    private fun deriveAesKey(passphrase: String, salt: ByteArray): SecretKeySpec {
-        val effectivePass = passphrase.trim().ifEmpty { DEFAULT_VAULT_PASSPHRASE }
+    private const val ZERO_KNOWLEDGE_MAGIC_HEADER = "KHARCHEE_ZK_E2EE_V2"
+
+    // Master passphrase is kept strictly in volatile RAM and NEVER persisted to disk or cloud
+    @Volatile
+    private var inMemoryZeroKnowledgePassphrase: String = ""
+
+    fun setInMemoryZeroKnowledgePassphrase(passphrase: String) {
+        inMemoryZeroKnowledgePassphrase = passphrase.trim()
+    }
+
+    fun getInMemoryZeroKnowledgePassphrase(): String = inMemoryZeroKnowledgePassphrase
+
+    fun clearInMemoryZeroKnowledgePassphrase() {
+        inMemoryZeroKnowledgePassphrase = ""
+    }
+
+    fun generateMilitaryGradeCustomSaltHex(): String {
+        val bytes = ByteArray(16)
+        SecureRandom().nextBytes(bytes)
+        return bytes.joinToString("") { "%02x".format(it) }.uppercase(Locale.ENGLISH)
+    }
+
+    fun isZeroKnowledgeCustomSaltEnabled(context: Context): Boolean {
+        return prefs(context).getBoolean("zk_custom_salt_enabled", false)
+    }
+
+    fun getZeroKnowledgeCustomSaltHex(context: Context): String {
+        val existing = prefs(context).getString("zk_custom_salt_hex", null)
+        if (!existing.isNullOrBlank()) return existing
+        val generated = generateMilitaryGradeCustomSaltHex()
+        prefs(context).edit().putString("zk_custom_salt_hex", generated).apply()
+        return generated
+    }
+
+    fun setZeroKnowledgeCustomSaltConfig(
+        context: Context,
+        enabled: Boolean,
+        customSaltHex: String,
+        inMemoryPassphrase: String = inMemoryZeroKnowledgePassphrase
+    ) {
+        val cleanSalt = customSaltHex.trim().ifBlank { generateMilitaryGradeCustomSaltHex() }
+        prefs(context).edit()
+            .putBoolean("zk_custom_salt_enabled", enabled)
+            .putString("zk_custom_salt_hex", cleanSalt)
+            .apply()
+        if (inMemoryPassphrase.isNotBlank()) {
+            inMemoryZeroKnowledgePassphrase = inMemoryPassphrase.trim()
+        }
+    }
+
+    private fun deriveAesKey(passphrase: String, salt: ByteArray, customSaltMix: String = ""): SecretKeySpec {
+        val effectivePass = passphrase.trim().ifEmpty {
+            inMemoryZeroKnowledgePassphrase.ifEmpty { DEFAULT_VAULT_PASSPHRASE }
+        }
+        val combinedSaltBytes = if (customSaltMix.isNotBlank()) {
+            MessageDigest.getInstance("SHA-256")
+                .digest(salt + customSaltMix.trim().toByteArray(Charsets.UTF_8))
+                .copyOf(16)
+        } else {
+            salt
+        }
         val spec = PBEKeySpec(
-            "$DEFAULT_VAULT_PASSPHRASE::$effectivePass".toCharArray(),
-            salt,
+            "$DEFAULT_VAULT_PASSPHRASE::$effectivePass::$customSaltMix".toCharArray(),
+            combinedSaltBytes,
             PBKDF2_ITERATIONS,
             256
         )
@@ -227,6 +286,83 @@ object BackupManager {
     private fun sha256Hex(bytes: ByteArray): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
         return digest.joinToString("") { "%02x".format(it) }
+    }
+
+    /**
+     * Sovereign Pro Zero-Knowledge Custom Salt Encryption:
+     * Encrypts plaintext JSON using the user's personal Master Passphrase + Custom Salt.
+     * Cannot be decrypted without the exact Master Passphrase + Custom Salt.
+     */
+    fun encryptPayloadWithZeroKnowledgeSalt(
+        plainJson: String,
+        masterPassphrase: String,
+        customSaltHex: String
+    ): String {
+        require(masterPassphrase.trim().isNotEmpty()) {
+            "Zero-Knowledge Master Passphrase cannot be empty."
+        }
+        val cleanSaltHex = customSaltHex.trim().ifEmpty { "DEFAULT_ZK_SALT" }
+        val random = SecureRandom()
+        val randomNonceSalt = ByteArray(16).also { random.nextBytes(it) }
+        val iv = ByteArray(12).also { random.nextBytes(it) }
+        val secretKey = deriveAesKey(masterPassphrase, randomNonceSalt, cleanSaltHex)
+
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey, GCMParameterSpec(GCM_TAG_BITS, iv))
+        val plainBytes = plainJson.toByteArray(Charsets.UTF_8)
+        val cipherBytes = cipher.doFinal(plainBytes)
+        val checksumHex = sha256Hex(plainBytes)
+        val saltFingerprint = sha256Hex(cleanSaltHex.toByteArray(Charsets.UTF_8)).take(12)
+
+        val saltB64 = Base64.encodeToString(randomNonceSalt, Base64.NO_WRAP)
+        val ivB64 = Base64.encodeToString(iv, Base64.NO_WRAP)
+        val cipherB64 = Base64.encodeToString(cipherBytes, Base64.NO_WRAP)
+
+        return "$ZERO_KNOWLEDGE_MAGIC_HEADER:$saltFingerprint:$saltB64:$ivB64:$checksumHex:$cipherB64"
+    }
+
+    /**
+     * Decrypts a Zero-Knowledge Custom Salt `.enc` backup payload.
+     */
+    fun decryptPayloadWithZeroKnowledgeSalt(
+        encryptedContent: String,
+        masterPassphrase: String,
+        customSaltHex: String
+    ): Result<String> = runCatching {
+        val trimmed = encryptedContent.trim()
+        if (!trimmed.startsWith("$ZERO_KNOWLEDGE_MAGIC_HEADER:")) {
+            return decryptPayloadFromEncFormat(trimmed, masterPassphrase)
+        }
+        val parts = trimmed.split(":")
+        require(parts.size >= 6) {
+            "Corrupted Zero-Knowledge E2EE backup structure."
+        }
+        val expectedSaltFingerprint = parts[1]
+        val randomNonceSalt = Base64.decode(parts[2], Base64.NO_WRAP)
+        val iv = Base64.decode(parts[3], Base64.NO_WRAP)
+        val expectedHash = parts[4]
+        val cipherBytes = Base64.decode(parts.subList(5, parts.size).joinToString(":"), Base64.NO_WRAP)
+
+        val cleanSaltHex = customSaltHex.trim().ifEmpty { "DEFAULT_ZK_SALT" }
+        val actualSaltFingerprint = sha256Hex(cleanSaltHex.toByteArray(Charsets.UTF_8)).take(12)
+        require(actualSaltFingerprint.equals(expectedSaltFingerprint, ignoreCase = true)) {
+            "Custom cryptographic salt mismatch. Provide the exact Sovereign Salt used during encryption."
+        }
+
+        val secretKey = deriveAesKey(masterPassphrase, randomNonceSalt, cleanSaltHex)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, secretKey, GCMParameterSpec(GCM_TAG_BITS, iv))
+        val plainBytes = try {
+            cipher.doFinal(cipherBytes)
+        } catch (e: Exception) {
+            throw IllegalArgumentException("Zero-Knowledge Decryption failed: Invalid Master Passphrase.", e)
+        }
+
+        val actualHash = sha256Hex(plainBytes)
+        require(actualHash.equals(expectedHash, ignoreCase = true)) {
+            "Zero-Knowledge backup integrity check failed (SHA-256 mismatch)."
+        }
+        String(plainBytes, Charsets.UTF_8)
     }
 
     /**

@@ -11,6 +11,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Update
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.data.model.ExpenseRecord
 import com.example.data.model.SavingsGoalRecord
 import kotlinx.coroutines.flow.Flow
@@ -25,7 +27,8 @@ data class ExpenseRoomEntity(
     val paymentMode: String,
     val type: String,
     val note: String,
-    val txEpochMillis: Long
+    val txEpochMillis: Long,
+    val exactAmount: Double = amount.toDouble()
 ) {
     fun toDomainModel(): ExpenseRecord = ExpenseRecord(
         id = id,
@@ -33,6 +36,7 @@ data class ExpenseRoomEntity(
         title = title,
         category = category,
         amount = amount,
+        exactAmount = if (exactAmount > 0.0) exactAmount else amount.toDouble(),
         paymentMode = paymentMode,
         type = type,
         note = note,
@@ -49,7 +53,8 @@ data class ExpenseRoomEntity(
             paymentMode = record.paymentMode,
             type = record.type,
             note = record.note,
-            txEpochMillis = record.txEpochMillis
+            txEpochMillis = record.txEpochMillis,
+            exactAmount = record.resolvedExactAmount
         )
     }
 }
@@ -131,7 +136,7 @@ interface GoalDao {
 
 @Database(
     entities = [ExpenseRoomEntity::class, GoalRoomEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class KharcheeDatabase : RoomDatabase() {
@@ -142,6 +147,21 @@ abstract class KharcheeDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: KharcheeDatabase? = null
 
+        /**
+         * Non-destructive incremental schema migration from v1 to v2:
+         * Adds `exactAmount` (2-decimal paise precision) to `expenses` while preserving 100% of existing rows.
+         */
+        val MIGRATION_1_2: Migration = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE expenses ADD COLUMN exactAmount REAL NOT NULL DEFAULT 0.0"
+                )
+                db.execSQL(
+                    "UPDATE expenses SET exactAmount = CAST(amount AS REAL) WHERE exactAmount = 0.0"
+                )
+            }
+        }
+
         fun getInstance(context: Context): KharcheeDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -149,10 +169,8 @@ abstract class KharcheeDatabase : RoomDatabase() {
                     KharcheeDatabase::class.java,
                     "kharchee_local_cache.db"
                 )
-                    // Production Zero-Data Cold Start:
-                    // No RoomDatabase.Callback pre-population of dummy transactions, fake ₹15,000 balances,
-                    // fake Khata entries, or mock bills. Fresh installs start with 0 transactions and ₹0 balance.
-                    .fallbackToDestructiveMigration(dropAllTables = true)
+                    // Safe incremental Migration policy: NEVER drop user tables on app updates.
+                    .addMigrations(MIGRATION_1_2)
                     .build()
                     .also { INSTANCE = it }
             }

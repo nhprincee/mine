@@ -46,13 +46,28 @@ data class ExpenseRecord(
     val title: String = "",
     val category: String = "Food",
     val amount: Long = 0L,
+    val exactAmount: Double = 0.0,
     val paymentMode: String = "UPI",
     val type: String = "expense",
     val note: String = "",
     val txEpochMillis: Long = System.currentTimeMillis(),
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
-)
+) {
+    val resolvedExactAmount: Double
+        get() = if (exactAmount > 0.0) exactAmount else amount.toDouble()
+
+    val formattedExactAmount: String
+        get() {
+            val bd = java.math.BigDecimal.valueOf(resolvedExactAmount)
+                .setScale(2, java.math.RoundingMode.HALF_UP)
+            return if (bd.remainder(java.math.BigDecimal.ONE).compareTo(java.math.BigDecimal.ZERO) == 0) {
+                bd.toBigInteger().toString()
+            } else {
+                bd.toPlainString()
+            }
+        }
+}
 
 @IgnoreExtraProperties
 data class KhataFriendRecord(
@@ -165,12 +180,24 @@ fun isIncomeTransaction(record: ExpenseRecord): Boolean {
 data class ParsedSmsTransaction(
     val rawText: String,
     val amount: Long,
+    val exactAmount: Double = amount.toDouble(),
     val merchant: String,
     val category: String,
     val paymentMode: String,
     val confidence: String,
     val isIgnoredSecurityMessage: Boolean = false,
-)
+) {
+    val formattedExactAmount: String
+        get() {
+            val bd = java.math.BigDecimal.valueOf(exactAmount)
+                .setScale(2, java.math.RoundingMode.HALF_UP)
+            return if (bd.remainder(java.math.BigDecimal.ONE).compareTo(java.math.BigDecimal.ZERO) == 0) {
+                bd.toBigInteger().toString()
+            } else {
+                bd.toPlainString()
+            }
+        }
+}
 
 data class SampleBankSms(
     val label: String,
@@ -258,19 +285,22 @@ object SmsTransactionParser {
             )
         }
 
-        var extractedAmount: Long? = null
+        var extractedExactDecimal: java.math.BigDecimal? = null
         for (regex in amountRegexes) {
             val match = regex.find(normalized)
             if (match != null) {
-                val cleaned = match.groupValues[1].replace(",", "")
-                val parsed = cleaned.toDoubleOrNull()?.roundToInt()?.toLong()
-                if (parsed != null && parsed > 0L) {
-                    extractedAmount = parsed
+                val cleaned = match.groupValues[1].replace(",", "").trim()
+                val parsedDecimal = cleaned.toBigDecimalOrNull()?.setScale(2, java.math.RoundingMode.HALF_UP)
+                if (parsedDecimal != null && parsedDecimal > java.math.BigDecimal.ZERO) {
+                    extractedExactDecimal = parsedDecimal
                     break
                 }
             }
         }
-        val amount = extractedAmount ?: return null
+        val exactDecimal = extractedExactDecimal ?: return null
+        // Preserve exact decimal paise in exactAmount; never round 385.50 up to 386
+        val exactDouble = exactDecimal.toDouble()
+        val amount = exactDecimal.toLong()
 
         var merchant = ""
         for (pattern in merchantPatterns) {
@@ -311,6 +341,7 @@ object SmsTransactionParser {
         return ParsedSmsTransaction(
             rawText = normalized,
             amount = amount,
+            exactAmount = exactDouble,
             merchant = merchant.take(80),
             category = detectedCategory,
             paymentMode = paymentMode,

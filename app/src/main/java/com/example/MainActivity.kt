@@ -755,6 +755,22 @@ fun KharcheeMainShell(
                                                 paymentMode = "UPI",
                                                 note = "1-Tap Instant Log"
                                             )
+                                            if (settings.isPro && com.example.util.SavingsGoalsManager.isSpareChangeAutoSweepEnabled(context, currentUserId)) {
+                                                val increment = com.example.util.SavingsGoalsManager.getRoundUpIncrement(context, currentUserId)
+                                                val swept = com.example.util.SavingsGoalsManager.computeSpareChangeRoundUp(amt, increment)
+                                                val targetGoal = com.example.util.SavingsGoalsManager.resolveTargetSweepGoal(context, currentUserId, savingsGoals)
+                                                if (swept > 0L && targetGoal != null) {
+                                                    viewModel.addSavingsProgress(targetGoal, swept)
+                                                    com.example.util.SavingsGoalsManager.recordSpareChangeSweep(
+                                                        context = context,
+                                                        userId = currentUserId,
+                                                        expenseTitle = title,
+                                                        expenseAmount = amt,
+                                                        sweptAmount = swept,
+                                                        targetGoal = targetGoal
+                                                    )
+                                                }
+                                            }
                                         },
                                         onOpenAddExpense = { addModalType = "expense" },
                                         onOpenAddIncome = { addModalType = "income" },
@@ -890,7 +906,16 @@ fun KharcheeMainShell(
                                                 userDisplayName = effectiveDisplayName,
                                                 userUpiId = settings.myUpiId,
                                                 onShowToast = viewModel::showToast,
-                                                onOpenVaultTools = { showVaultGoalsSubScreen = true }
+                                                onOpenVaultTools = { showVaultGoalsSubScreen = true },
+                                                onLogPersonalExpenseShare = { title, category, amount, note ->
+                                                    viewModel.instantOneTapLogExpense(
+                                                        title = title,
+                                                        category = category,
+                                                        amount = amount,
+                                                        paymentMode = "UPI",
+                                                        note = note
+                                                    )
+                                                }
                                             )
                                         }
                                     }
@@ -932,7 +957,9 @@ fun KharcheeMainShell(
                                         },
                                         onProActivated = { planSummary ->
                                             viewModel.showToast("👑 Activated $planSummary!")
-                                        }
+                                        },
+                                        onCreateGoal = viewModel::createSavingsGoal,
+                                        onAddGoalProgress = viewModel::addSavingsProgress
                                     )
                                 }
                             }
@@ -949,6 +976,22 @@ fun KharcheeMainShell(
                     onDismiss = { addModalType = null },
                     onSubmit = { title, cat, amt, mode, type, note ->
                         viewModel.requestAddTransaction(title, cat, amt, mode, type, note)
+                        if (type == "expense" && settings.isPro && com.example.util.SavingsGoalsManager.isSpareChangeAutoSweepEnabled(context, currentUserId)) {
+                            val increment = com.example.util.SavingsGoalsManager.getRoundUpIncrement(context, currentUserId)
+                            val swept = com.example.util.SavingsGoalsManager.computeSpareChangeRoundUp(amt, increment)
+                            val targetGoal = com.example.util.SavingsGoalsManager.resolveTargetSweepGoal(context, currentUserId, savingsGoals)
+                            if (swept > 0L && targetGoal != null) {
+                                viewModel.addSavingsProgress(targetGoal, swept)
+                                com.example.util.SavingsGoalsManager.recordSpareChangeSweep(
+                                    context = context,
+                                    userId = currentUserId,
+                                    expenseTitle = title,
+                                    expenseAmount = amt,
+                                    sweptAmount = swept,
+                                    targetGoal = targetGoal
+                                )
+                            }
+                        }
                     }
                 )
             }
@@ -1042,6 +1085,9 @@ fun KharcheeMainShell(
                     onOpenSovereignTab = {
                         showMyProfileModal = false
                         activeTab = KharcheeTab.PRO
+                    },
+                    onUpgradeProPlan = { tier, days ->
+                        viewModel.upgradeProPlan(tier, days)
                     }
                 )
             }

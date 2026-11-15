@@ -1184,6 +1184,215 @@ object AdvancedKhataStore {
         return list.sortedByDescending { it.timestampMillis }
     }
 
+    /**
+     * FEATURE #1 — "Dosti Credit Score" & Payback Reliability Badge.
+     * Computes a contact's reliability pill based on their ledger settlement history & pending age:
+     * - ⚡ 98% Fast Payer (Emerald badge — settles within 3 days)
+     * - ⏳ Moderate (Cyan/Gold badge)
+     * - 🐢 Late Payer • 15d+ (Amber/Red warning badge for overdue balances)
+     */
+    fun computeDostiCreditScore(
+        state: KhataContactComputedState,
+        nowMillis: Long = System.currentTimeMillis()
+    ): DostiCreditScoreInfo {
+        val activeOriginalEntries = state.activeEntries.filter {
+            it.recordType == KhataRecordType.ORIGINAL_ENTRY &&
+                (state.netDirection == null || it.direction == state.netDirection)
+        }
+        val oldestActiveTxMillis = activeOriginalEntries.minOfOrNull { it.txDateMillis } ?: state.lastTransactionMillis
+        val pendingDays = if (state.isSettled) {
+            0L
+        } else {
+            ((nowMillis - oldestActiveTxMillis).coerceAtLeast(0L)) / 86_400_000L
+        }
+
+        val overdueDays = if (!state.isSettled && state.earliestUnsettledDueDateMillis != null && state.earliestUnsettledDueDateMillis < nowMillis) {
+            ((nowMillis - state.earliestUnsettledDueDateMillis).coerceAtLeast(0L)) / 86_400_000L
+        } else {
+            0L
+        }
+
+        return when {
+            state.isOverdue || pendingDays >= 11L || overdueDays >= 1L -> {
+                val displayDays = max(15L, max(pendingDays, overdueDays))
+                DostiCreditScoreInfo(
+                    tier = DostiReliabilityTier.LATE_PAYER,
+                    badgeLabel = "🐢 Late Payer • ${displayDays}d+",
+                    scorePercent = (65 - (pendingDays.toInt().coerceAtMost(30))).coerceIn(32, 65),
+                    pendingDays = pendingDays.toInt()
+                )
+            }
+            !state.isSettled && pendingDays in 4L..10L -> {
+                DostiCreditScoreInfo(
+                    tier = DostiReliabilityTier.MODERATE,
+                    badgeLabel = "⏳ Moderate",
+                    scorePercent = (88 - (pendingDays.toInt() * 2)).coerceIn(70, 86),
+                    pendingDays = pendingDays.toInt()
+                )
+            }
+            else -> {
+                DostiCreditScoreInfo(
+                    tier = DostiReliabilityTier.FAST_PAYER,
+                    badgeLabel = "⚡ 98% Fast Payer",
+                    scorePercent = 98,
+                    pendingDays = pendingDays.toInt()
+                )
+            }
+        }
+    }
+
+    /**
+     * FEATURE #3 — Promise-to-Pay Live Countdown Pill Formatter.
+     * Formats dueDateMillis into `⏰ Due in 2 days`, `⏰ Due Today`, or `🚨 Overdue by 4 days`.
+     */
+    fun formatPromiseToPayCountdown(
+        dueDateMillis: Long?,
+        isSettled: Boolean,
+        nowMillis: Long = System.currentTimeMillis()
+    ): PromiseCountdownBadge? {
+        if (isSettled || dueDateMillis == null) return null
+        val todayStart = startOfTodayMillis(nowMillis)
+        val dueStart = startOfTodayMillis(dueDateMillis)
+        val diffDays = ((dueStart - todayStart) / 86_400_000L).toInt()
+        return when {
+            diffDays < 0 -> {
+                val overdueDays = abs(diffDays).coerceAtLeast(1)
+                PromiseCountdownBadge(
+                    label = if (overdueDays == 1) "🚨 Overdue by 1 day" else "🚨 Overdue by $overdueDays days",
+                    isOverdue = true,
+                    daysDelta = diffDays
+                )
+            }
+            diffDays == 0 -> PromiseCountdownBadge(
+                label = "⏰ Due Today",
+                isOverdue = false,
+                daysDelta = 0
+            )
+            diffDays == 1 -> PromiseCountdownBadge(
+                label = "⏰ Due in 1 day",
+                isOverdue = false,
+                daysDelta = 1
+            )
+            else -> PromiseCountdownBadge(
+                label = "⏰ Due in $diffDays days",
+                isOverdue = false,
+                daysDelta = diffDays
+            )
+        }
+    }
+
+    /**
+     * FEATURE #4 — Pure calculation for 1-Tap Group Bill & Trip Splitter (Equal Split or Custom Amounts).
+     */
+    fun computeGroupBillSplit(
+        totalBillAmount: Long,
+        selectedFriends: List<Pair<String, String>>, // Pair(name, phone)
+        isEqualSplit: Boolean,
+        includeSelf: Boolean = true,
+        customFriendAmounts: Map<String, Long> = emptyMap(),
+        customSelfAmount: Long? = null
+    ): GroupSplitComputationResult {
+        val cleanTotal = totalBillAmount.coerceAtLeast(0L)
+        val cleanFriends = selectedFriends
+            .map { it.first.trim() to it.second.trim() }
+            .filter { it.first.isNotBlank() }
+            .distinctBy { it.first.lowercase() }
+
+        if (cleanTotal <= 0L || cleanFriends.isEmpty()) {
+            return GroupSplitComputationResult(
+                totalBillAmount = cleanTotal,
+                myPersonalShare = 0L,
+                friendShares = emptyList(),
+                isValid = false,
+                validationMessage = if (cleanTotal <= 0L) "Enter a valid bill amount (> ₹0)" else "Select at least 1 friend to split with"
+            )
+        }
+
+        return if (isEqualSplit) {
+            val totalParticipants = cleanFriends.size + (if (includeSelf) 1 else 0)
+            val baseShare = cleanTotal / totalParticipants
+            val remainder = cleanTotal - (baseShare * totalParticipants)
+            val myShare = if (includeSelf) baseShare + remainder else 0L
+            val friendRegistrations = cleanFriends.mapIndexed { idx, (name, phone) ->
+                val amt = if (!includeSelf && idx == 0) baseShare + remainder else baseShare
+                GroupSplitParticipantShare(name = name, phone = phone, amount = amt)
+            }.filter { it.amount > 0L }
+
+            GroupSplitComputationResult(
+                totalBillAmount = cleanTotal,
+                myPersonalShare = myShare,
+                friendShares = friendRegistrations,
+                isValid = friendRegistrations.isNotEmpty(),
+                validationMessage = "Splitting ₹$cleanTotal equally across $totalParticipants people"
+            )
+        } else {
+            val shares = cleanFriends.map { (name, phone) ->
+                val amt = (customFriendAmounts[name] ?: 0L).coerceAtLeast(0L)
+                GroupSplitParticipantShare(name = name, phone = phone, amount = amt)
+            }
+            val friendsSum = shares.sumOf { it.amount }
+            val myShare = customSelfAmount ?: (cleanTotal - friendsSum).coerceAtLeast(0L)
+            val allocatedTotal = friendsSum + (if (includeSelf) myShare else 0L)
+            val isValid = shares.any { it.amount > 0L } && friendsSum <= cleanTotal
+
+            val msg = when {
+                shares.all { it.amount <= 0L } -> "Enter custom split amounts for selected friends"
+                friendsSum > cleanTotal -> "Friends' shares (₹$friendsSum) exceed total bill (₹$cleanTotal)"
+                else -> "Your share: ₹$myShare • Friends owe: ₹$friendsSum (Total ₹$allocatedTotal)"
+            }
+            GroupSplitComputationResult(
+                totalBillAmount = cleanTotal,
+                myPersonalShare = if (includeSelf) myShare else 0L,
+                friendShares = shares.filter { it.amount > 0L },
+                isValid = isValid,
+                validationMessage = msg
+            )
+        }
+    }
+
+    /**
+     * Executes the 1-Tap Group Bill & Trip Split by creating individual "Lena Hai" entries
+     * for each selected friend in `AdvancedKhataStore`.
+     */
+    @Synchronized
+    fun recordGroupBillSplit(
+        context: Context,
+        userId: String,
+        billTitle: String,
+        category: String,
+        splitResult: GroupSplitComputationResult,
+        dueDateMillis: Long? = null,
+        notes: String = ""
+    ): Result<Int> {
+        if (!splitResult.isValid || splitResult.friendShares.isEmpty()) {
+            return Result.failure(IllegalArgumentException(splitResult.validationMessage))
+        }
+        val cleanTitle = billTitle.trim().ifBlank { "Group Split Bill" }
+        var createdCount = 0
+        splitResult.friendShares.forEach { participant ->
+            if (participant.amount > 0L) {
+                val res = addUdhaarEntry(
+                    context = context,
+                    userId = userId,
+                    personName = participant.name,
+                    phone = participant.phone,
+                    direction = KhataDirection.LENA_HAI,
+                    amount = participant.amount,
+                    txDateMillis = System.currentTimeMillis(),
+                    dueDateMillis = dueDateMillis,
+                    description = "$cleanTitle (Split of ₹${splitResult.totalBillAmount})",
+                    category = category.ifBlank { "Food & Outing" },
+                    notes = notes.ifBlank { "1-Tap Group Bill Split via Kharchee" },
+                    bypassDedupWindow = true
+                )
+                if (res.isSuccess) {
+                    createdCount++
+                }
+            }
+        }
+        return Result.success(createdCount)
+    }
+
     fun clearAllForUser(context: Context, userId: String) {
         val safeUid = userId.ifBlank { "default" }
         prefs(context).edit()
@@ -1194,3 +1403,36 @@ object AdvancedKhataStore {
         bumpVersion()
     }
 }
+
+enum class DostiReliabilityTier {
+    FAST_PAYER,
+    MODERATE,
+    LATE_PAYER
+}
+
+data class DostiCreditScoreInfo(
+    val tier: DostiReliabilityTier,
+    val badgeLabel: String,
+    val scorePercent: Int,
+    val pendingDays: Int
+)
+
+data class PromiseCountdownBadge(
+    val label: String,
+    val isOverdue: Boolean,
+    val daysDelta: Int
+)
+
+data class GroupSplitParticipantShare(
+    val name: String,
+    val phone: String = "",
+    val amount: Long
+)
+
+data class GroupSplitComputationResult(
+    val totalBillAmount: Long,
+    val myPersonalShare: Long,
+    val friendShares: List<GroupSplitParticipantShare>,
+    val isValid: Boolean,
+    val validationMessage: String
+)

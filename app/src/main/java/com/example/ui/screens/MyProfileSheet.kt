@@ -145,7 +145,8 @@ fun MyProfileBottomSheet(
     onBackupRestored: (BackupVaultSnapshot, Boolean) -> Unit = { _, _ -> },
     onShowToast: (String) -> Unit = {},
     onToggleHideBalance: (Boolean) -> Unit = {},
-    onOpenSovereignTab: (() -> Unit)? = null
+    onOpenSovereignTab: (() -> Unit)? = null,
+    onUpgradeProPlan: ((String, Int) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val headingFont = LocalAppFontFamily.current
@@ -244,6 +245,29 @@ fun MyProfileBottomSheet(
     var vaultPinEnabled by remember(initialProfile) { mutableStateOf(initialProfile.vaultPinProtectionEnabled) }
     var shareHideBalances by remember(initialProfile) { mutableStateOf(initialProfile.sharePrivacyHideBalances) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    val deviceHash = remember(context) {
+        com.example.util.SovereignActivationManager.getOrCreateDeviceHash(context)
+    }
+    var showFounderKeyGenDialog by remember { mutableStateOf(false) }
+    var versionTapCounter by remember { mutableStateOf(0) }
+    var inlineActivationCode by remember {
+        mutableStateOf(com.example.util.SovereignActivationManager.getSavedVerifiedActivationCode(context))
+    }
+    var inlineActivationFeedback by remember { mutableStateOf<String?>(null) }
+    var smsAutoTrackPermissionGranted by remember {
+        mutableStateOf(com.example.receiver.AutoExpenseDetectionStore.hasSmsPermissions(context))
+    }
+    val smsSettingsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { grantMap ->
+        val allGranted = grantMap.values.all { it }
+        smsAutoTrackPermissionGranted = allGranted
+        com.example.receiver.AutoExpenseDetectionStore.setSmsRationaleDismissed(context, true)
+        onShowToast(
+            if (allGranted) "⚡ Real-Time SMS Auto-Track (RECEIVE_SMS & READ_SMS) Active!"
+            else "📋 SMS permission not granted — Smart Clipboard fallback active."
+        )
+    }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -679,6 +703,53 @@ fun MyProfileBottomSheet(
                             vaultPinEnabled = it
                         },
                         colors = SwitchDefaults.colors(checkedThumbColor = ObsidianBlack, checkedTrackColor = ChampagneGold)
+                    )
+                }
+
+                HorizontalDivider(color = HairlinePlatinum, thickness = 0.6.dp)
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("settings_sms_auto_track_row"),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = "Real-Time SMS Auto-Track (RECEIVE_SMS & READ_SMS)",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                            color = WarmIvory
+                        )
+                        Text(
+                            text = com.example.receiver.AutoExpenseDetectionStore.PROMINENT_SMS_PRIVACY_DISCLOSURE,
+                            fontSize = 10.sp,
+                            color = MutedPlatinum,
+                            lineHeight = 14.sp
+                        )
+                    }
+                    Switch(
+                        checked = smsAutoTrackPermissionGranted,
+                        onCheckedChange = { requested ->
+                            if (requested && !smsAutoTrackPermissionGranted) {
+                                smsSettingsPermissionLauncher.launch(
+                                    com.example.receiver.AutoExpenseDetectionStore.REQUIRED_SMS_PERMISSIONS
+                                )
+                            } else {
+                                onShowToast("Manage SMS permissions anytime in Android App Settings")
+                            }
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = ObsidianBlack,
+                            checkedTrackColor = SophisticatedEmerald
+                        ),
+                        modifier = Modifier.testTag("settings_sms_auto_track_switch")
                     )
                 }
             }
@@ -1345,7 +1416,7 @@ fun MyProfileBottomSheet(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Kharchee Sovereign Lifetime",
+                        text = "Kharchee Sovereign Upgrade",
                         fontFamily = headingFont,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 14.sp,
@@ -1357,7 +1428,7 @@ fun MyProfileBottomSheet(
                         border = BorderStroke(0.8.dp, ChampagneGold.copy(alpha = 0.6f))
                     ) {
                         Text(
-                            text = "₹499 (One-Time)",
+                            text = "₹30/Mo or ₹299 Lifetime",
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -1391,6 +1462,75 @@ fun MyProfileBottomSheet(
                     }
                 }
 
+                Text(
+                    text = "DeviceHash: $deviceHash",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = ChampagneGold
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = inlineActivationCode,
+                        onValueChange = {
+                            inlineActivationCode = it.uppercase()
+                            inlineActivationFeedback = null
+                        },
+                        label = { Text("Enter Activation Code", fontSize = 10.sp) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = fieldColors,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("settings_sovereign_activation_input")
+                    )
+                    Button(
+                        onClick = {
+                            val res = com.example.util.SovereignActivationManager.verifyActivationCode(
+                                deviceHash = deviceHash,
+                                enteredCode = inlineActivationCode
+                            )
+                            if (res.isValid) {
+                                com.example.util.SovereignActivationManager.recordVerifiedActivation(
+                                    context = context,
+                                    activationCode = inlineActivationCode,
+                                    result = res
+                                )
+                                inlineActivationFeedback = "✅ Unlocked ${res.planDisplayName}!"
+                                onUpgradeProPlan?.invoke(res.tierKey, res.durationDays)
+                                onShowToast("👑 ${res.planDisplayName} Unlocked!")
+                            } else {
+                                inlineActivationFeedback = res.errorMessage
+                                onShowToast(res.errorMessage ?: "Invalid Activation Key")
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ChampagneGold,
+                            contentColor = ObsidianBlack
+                        ),
+                        modifier = Modifier
+                            .height(48.dp)
+                            .testTag("settings_verify_sovereign_key_button")
+                    ) {
+                        Text("Verify Key", fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
+                    }
+                }
+
+                if (inlineActivationFeedback != null) {
+                    Text(
+                        text = inlineActivationFeedback!!,
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 10.sp,
+                        color = if (inlineActivationFeedback!!.startsWith("✅")) SophisticatedEmerald else CrimsonRuby
+                    )
+                }
+
                 if (onOpenSovereignTab != null) {
                     OutlinedButton(
                         onClick = { onOpenSovereignTab() },
@@ -1403,12 +1543,176 @@ fun MyProfileBottomSheet(
                             .testTag("open_sovereign_tab_from_settings_button")
                     ) {
                         Text(
-                            text = "Explore Kharchee Sovereign Perks →",
+                            text = "Explore Kharchee Sovereign Perks (₹30/Mo or ₹299) →",
                             fontFamily = JetBrainsMonoFontFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = 11.sp
                         )
                     }
+                }
+            }
+
+            // ====================================================================
+            // IN-APP APK UPDATE CHECKER, FOUNDER SUPPORT & OPTIONAL DEMO SANDBOX
+            // ====================================================================
+            Text(
+                text = "APK UPDATES, FOUNDER SUPPORT & SANDBOX",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.1.sp,
+                color = MetallicSilver
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(ObsidianBlack)
+                    .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.55f), RoundedCornerShape(16.dp))
+                    .padding(14.dp)
+                    .testTag("apk_updates_and_support_section"),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            com.example.util.SovereignActivationManager.openApkUpdateReleasesPage(
+                                context = context,
+                                onStatusMessage = onShowToast
+                            )
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF0284C7),
+                            contentColor = Color.White
+                        ),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp)
+                            .testTag("check_apk_updates_button")
+                    ) {
+                        Text(
+                            text = "🚀 Check for APK Updates",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 10.sp,
+                            maxLines = 1
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            com.example.util.SovereignActivationManager.openFounderSupportAndCommunity(
+                                context = context,
+                                deviceHash = deviceHash,
+                                onStatusMessage = onShowToast
+                            )
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, SophisticatedEmerald),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = SophisticatedEmerald),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp)
+                            .testTag("founder_support_community_button")
+                    ) {
+                        Text(
+                            text = "💬 Founder Support & Community",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 10.sp,
+                            maxLines = 1
+                        )
+                    }
+                }
+
+                // Explicit Opt-In Demo Data Loader (Fresh installs start clean at ₹0.00)
+                OutlinedButton(
+                    onClick = {
+                        val now = System.currentTimeMillis()
+                        val demoExpenses = listOf(
+                            ExpenseRecord(
+                                id = "demo_salary_$now",
+                                userId = userId,
+                                title = "Monthly Salary Credit",
+                                category = "Salary",
+                                amount = 65_000L,
+                                exactAmount = 65_000.0,
+                                paymentMode = "Bank",
+                                type = "income",
+                                note = "Demo Data Sandbox",
+                                txEpochMillis = now - 86_400_000L * 2
+                            ),
+                            ExpenseRecord(
+                                id = "demo_food_$now",
+                                userId = userId,
+                                title = "Zomato Dinner Order",
+                                category = "Food",
+                                amount = 385L,
+                                exactAmount = 385.50,
+                                paymentMode = "UPI",
+                                type = "expense",
+                                note = "Demo Data Sandbox",
+                                txEpochMillis = now - 3_600_000L * 6
+                            ),
+                            ExpenseRecord(
+                                id = "demo_metro_$now",
+                                userId = userId,
+                                title = "Delhi Metro Smart Card",
+                                category = "Transport",
+                                amount = 120L,
+                                exactAmount = 120.0,
+                                paymentMode = "UPI",
+                                type = "expense",
+                                note = "Demo Data Sandbox",
+                                txEpochMillis = now - 3_600_000L * 2
+                            )
+                        )
+                        val demoSnapshot = BackupVaultSnapshot(
+                            schemaVersion = 1,
+                            exportedAtMillis = now,
+                            exportedDateFormatted = "Demo Sandbox",
+                            userId = userId,
+                            userEmail = initialProfile.email,
+                            userDisplayName = displayName.ifBlank { "Kharchee Member" },
+                            preferredCurrency = "INR",
+                            monthlyBudgetTarget = initialProfile.monthlyBudget,
+                            dailyLimit = settings.dailyLimit,
+                            netBalanceAmount = 64_495L,
+                            settings = settings,
+                            expenses = demoExpenses,
+                            savingsGoals = liveGoals,
+                            khataFriends = liveKhataFriends,
+                            advancedKhataContactsJson = "[]",
+                            advancedKhataEntriesJson = "[]",
+                            advancedKhataAuditJson = "[]",
+                            paymentReminders = liveReminders,
+                            categoryBudgets = emptyMap(),
+                            subscriptions = emptyList()
+                        )
+                        onBackupRestored(demoSnapshot, true)
+                        onShowToast("🧪 Loaded 3 sample transactions into your ledger!")
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(0.8.dp, HairlinePlatinum),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MutedIvory),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(42.dp)
+                        .testTag("load_demo_data_button")
+                ) {
+                    Text(
+                        text = "🧪 Load Demo Data (Optional Sandbox · Fresh Installs Start at ₹0.00)",
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
 
@@ -1534,8 +1838,42 @@ fun MyProfileBottomSheet(
                 }
             }
 
+            // Interactive 7-Tap App Version Footer (Unlocks Hidden Founder Admin Key Generator)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable {
+                        versionTapCounter++
+                        if (versionTapCounter >= 7) {
+                            versionTapCounter = 0
+                            showFounderKeyGenDialog = true
+                        } else if (versionTapCounter >= 4) {
+                            onShowToast("👑 ${7 - versionTapCounter} more taps to open Founder Key Generator")
+                        }
+                    }
+                    .padding(vertical = 10.dp)
+                    .testTag("settings_app_version_7tap_target"),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Kharchee ${com.example.util.SovereignActivationManager.APP_VERSION_LABEL} · DeviceHash: $deviceHash",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 10.sp,
+                    color = MutedPlatinum
+                )
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+
+    if (showFounderKeyGenDialog) {
+        com.example.util.FounderAdminKeyGeneratorDialog(
+            currentPhoneDeviceHash = deviceHash,
+            onDismiss = { showFounderKeyGenDialog = false },
+            onShowToast = onShowToast
+        )
     }
 
     if (showDeleteConfirmDialog) {

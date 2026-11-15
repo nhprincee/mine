@@ -1788,6 +1788,7 @@ fun MaiScreenUpcomingBillsCard(
     var prefillTitle by remember { mutableStateOf("") }
     var prefillAmount by remember { mutableStateOf("") }
     var prefillDays by remember { mutableStateOf("3") }
+    var pendingUpiVerificationBill by remember { mutableStateOf<PaymentReminderRecord?>(null) }
 
     data class SmartBillSuggestion(
         val id: String,
@@ -1797,7 +1798,7 @@ fun MaiScreenUpcomingBillsCard(
         val dueDays: Int,
         val badgeColor: Color,
         val icon: ImageVector,
-        val defaultVpa: String
+        val defaultVpa: String = ""
     )
 
     val smartBillRadarItems = remember {
@@ -1809,8 +1810,7 @@ fun MaiScreenUpcomingBillsCard(
                 defaultAmount = 1850L,
                 dueDays = 3,
                 badgeColor = Color(0xFFF59E0B),
-                icon = Icons.Default.Bolt,
-                defaultVpa = "electricity.biller@upi"
+                icon = Icons.Default.Bolt
             ),
             SmartBillSuggestion(
                 id = "wifi_broadband",
@@ -1819,8 +1819,7 @@ fun MaiScreenUpcomingBillsCard(
                 defaultAmount = 999L,
                 dueDays = 5,
                 badgeColor = Color(0xFF06B6D4),
-                icon = Icons.Default.Router,
-                defaultVpa = "broadband.biller@upi"
+                icon = Icons.Default.Router
             ),
             SmartBillSuggestion(
                 id = "mobile_sim",
@@ -1829,8 +1828,7 @@ fun MaiScreenUpcomingBillsCard(
                 defaultAmount = 349L,
                 dueDays = 2,
                 badgeColor = Color(0xFF3B82F6),
-                icon = Icons.Default.CellTower,
-                defaultVpa = "mobilerecharge.biller@upi"
+                icon = Icons.Default.CellTower
             ),
             SmartBillSuggestion(
                 id = "ott_sub",
@@ -1839,9 +1837,50 @@ fun MaiScreenUpcomingBillsCard(
                 defaultAmount = 499L,
                 dueDays = 7,
                 badgeColor = Color(0xFFF43F5E),
-                icon = Icons.Default.Tv,
-                defaultVpa = "subscriptions.biller@upi"
+                icon = Icons.Default.Tv
             )
+        )
+    }
+
+    val currentPendingBill = pendingUpiVerificationBill
+    if (currentPendingBill != null) {
+        val initialBillVpa = remember(currentPendingBill.id, currentPendingBill.note) {
+            com.example.util.PaymentUtil.resolveBillVpa(currentPendingBill.title, currentPendingBill.note)
+                .ifBlank { com.example.util.PaymentUtil.getSavedVerifiedVpa(context, currentPendingBill.id) }
+        }
+        com.example.util.VerifyOrEnterRecipientUpiDialog(
+            recipientName = currentPendingBill.title,
+            amountInr = currentPendingBill.amount.toString(),
+            initialVpa = initialBillVpa,
+            onConfirmVerifiedUpiPay = { enteredVpa ->
+                com.example.util.PaymentUtil.saveVerifiedVpa(context, currentPendingBill.id, enteredVpa)
+                pendingUpiVerificationBill = null
+                com.example.util.PaymentUtil.launchUpiPaymentIntent(
+                    context = context,
+                    payeeVpa = enteredVpa,
+                    payeeName = currentPendingBill.title,
+                    amount = currentPendingBill.amount.toString(),
+                    txnNote = "Settle Bill: ${currentPendingBill.title} - Kharchee",
+                    billReminderId = currentPendingBill.id
+                )
+            },
+            onOpenGenericUpiScanner = {
+                pendingUpiVerificationBill = null
+                com.example.util.PaymentUtil.launchGenericUpiAppChooser(
+                    context = context,
+                    payeeName = currentPendingBill.title,
+                    amount = currentPendingBill.amount.toString(),
+                    txnNote = "Settle Bill: ${currentPendingBill.title} - Kharchee",
+                    billReminderId = currentPendingBill.id
+                )
+            },
+            onMarkPaidManually = if (onToggleBillPaid != null && currentPendingBill.id.startsWith("radar_").not()) {
+                {
+                    pendingUpiVerificationBill = null
+                    onToggleBillPaid(currentPendingBill, true)
+                }
+            } else null,
+            onDismiss = { pendingUpiVerificationBill = null }
         )
     }
 
@@ -2019,20 +2058,32 @@ fun MaiScreenUpcomingBillsCard(
                         )
                     }
 
-                    // 1-Tap Instant UPI [⚡ Settle] Button
+                    // 1-Tap Instant UPI [⚡ Settle] Button (Prompts for verified UPI ID or opens generic UPI chooser)
                     Surface(
                         color = Color(0xFF2EE59D),
                         shape = RoundedCornerShape(50),
                         border = BorderStroke(0.8.dp, Color(0xFF6EE7B7)),
                         modifier = Modifier
                             .clickable {
-                                com.example.util.PaymentUtil.launchUpiPaymentIntent(
-                                    context = context,
-                                    payeeVpa = provider.defaultVpa,
-                                    payeeName = provider.title,
-                                    amount = provider.defaultAmount.toString(),
-                                    txnNote = "${provider.title} Bill Settlement - Kharchee"
-                                )
+                                val radarId = "radar_${provider.id}"
+                                val savedVpa = com.example.util.PaymentUtil.getSavedVerifiedVpa(context, radarId)
+                                if (savedVpa.isNotBlank()) {
+                                    com.example.util.PaymentUtil.launchUpiPaymentIntent(
+                                        context = context,
+                                        payeeVpa = savedVpa,
+                                        payeeName = provider.title,
+                                        amount = provider.defaultAmount.toString(),
+                                        txnNote = "${provider.title} Bill Settlement - Kharchee"
+                                    )
+                                } else {
+                                    pendingUpiVerificationBill = PaymentReminderRecord(
+                                        id = radarId,
+                                        title = provider.title,
+                                        amount = provider.defaultAmount,
+                                        dueEpochMillis = nowMillis + provider.dueDays * 86_400_000L,
+                                        isPaid = false
+                                    )
+                                }
                             }
                             .testTag("smart_bill_radar_settle_${provider.id}")
                     ) {
@@ -2150,14 +2201,21 @@ fun MaiScreenUpcomingBillsCard(
                                 border = BorderStroke(0.8.dp, Color(0xFF6EE7B7)),
                                 modifier = Modifier
                                     .clickable {
-                                        com.example.util.PaymentUtil.launchUpiPaymentIntent(
-                                            context = context,
-                                            payeeVpa = com.example.util.PaymentUtil.resolveBillVpa(bill.title),
-                                            payeeName = bill.title,
-                                            amount = bill.amount.toString(),
-                                            txnNote = "Settle Bill: ${bill.title} - Kharchee",
-                                            billReminderId = bill.id
-                                        )
+                                        val verifiedVpa = com.example.util.PaymentUtil
+                                            .resolveBillVpa(bill.title, bill.note)
+                                            .ifBlank { com.example.util.PaymentUtil.getSavedVerifiedVpa(context, bill.id) }
+                                        if (verifiedVpa.isNotBlank()) {
+                                            com.example.util.PaymentUtil.launchUpiPaymentIntent(
+                                                context = context,
+                                                payeeVpa = verifiedVpa,
+                                                payeeName = bill.title,
+                                                amount = bill.amount.toString(),
+                                                txnNote = "Settle Bill: ${bill.title} - Kharchee",
+                                                billReminderId = bill.id
+                                            )
+                                        } else {
+                                            pendingUpiVerificationBill = bill
+                                        }
                                     }
                                     .testTag("upcoming_bill_instant_pay_${bill.id}")
                             ) {

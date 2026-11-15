@@ -154,28 +154,27 @@ data class DaySpendPoint(
     val withinLimit: Boolean
 )
 
-// Distinct high-contrast palette for multi-category Donut & Legend (matching reference image)
+// High-visual Fintech Neon Telemetry palette for Donut & Legend
 private val InsightDonutPalette = listOf(
-    Color(0xFF3B82F6), // Electric Blue
-    Color(0xFFF43F5E), // Vibrant Rose Pink
-    Color(0xFFF59E0B), // Warm Amber Orange
-    Color(0xFFA855F7), // Royal Purple
-    Color(0xFF10B981), // Emerald Green
-    Color(0xFF06B6D4), // Cyan Highlight
-    Color(0xFFEC4899), // Magenta
-    Color(0xFF8B5CF6)  // Deep Violet
+    Color(0xFF00E676), // Emerald (Food)
+    Color(0xFFFF3366), // Crimson (Shopping)
+    Color(0xFF00E5FF), // Cyan (Travel)
+    Color(0xFFB388FF), // Electric Purple (Bills)
+    Color(0xFFFFD600), // Gold (Entertainment)
+    Color(0xFF10B981), // Deep Emerald
+    Color(0xFF38BDF8), // Sky Blue
+    Color(0xFFF472B6)  // Neon Rose
 )
 
 private fun resolveInsightCategoryColor(category: String, index: Int): Color {
     return when (category.lowercase(Locale.ENGLISH)) {
-        "food" -> Color(0xFF3B82F6)
-        "entertainment" -> Color(0xFFF43F5E)
-        "bills", "utilities" -> Color(0xFFF97316)
-        "transport" -> Color(0xFFFACC15)
-        "shopping" -> Color(0xFFA855F7)
+        "food", "dining", "groceries" -> Color(0xFF00E676)
+        "shopping", "fashion" -> Color(0xFFFF3366)
+        "travel", "transport", "cab", "fuel" -> Color(0xFF00E5FF)
+        "bills", "utilities", "rent", "recharge" -> Color(0xFFB388FF)
+        "entertainment", "movies", "subscriptions" -> Color(0xFFFFD600)
         "health" -> Color(0xFF10B981)
-        "education" -> Color(0xFF06B6D4)
-        "travel" -> Color(0xFFEC4899)
+        "education" -> Color(0xFF38BDF8)
         else -> InsightDonutPalette[index % InsightDonutPalette.size]
     }
 }
@@ -687,13 +686,11 @@ fun InsightsTab(
         }
 
         // ====================================================================
-        // 2. "3-SECOND CLARITY" TOP METRIC CARDS (NO CLUTTERED MULTI-AXIS GRAPHS)
-        //    Card 1: "Where Your Money Went" (Top 4 Categories: Food, Travel, Bills, Shopping)
-        //    Card 2: "Month-over-Month Pace" (Emerald/Amber comparison pill)
-        //    Card 3: "Month-End Forecast" (Linear daily average & projected savings)
+        // 1. INTERACTIVE GLOWING DONUT RING CHART (CATEGORY BREAKDOWN)
+        //    Food (#00E676), Shopping (#FF3366), Travel (#00E5FF), Bills (#B388FF), Entertainment (#FFD600)
         // ====================================================================
         item {
-            ThreeSecondClarityWhereMoneyWentCard(
+            InteractiveGlowingNeonDonutChartCard(
                 categoryDetails = bundle.categories.categories,
                 totalSpent = totalSpent,
                 stealthMode = stealthMode,
@@ -703,16 +700,26 @@ fun InsightsTab(
             )
         }
 
+        // ====================================================================
+        // 2. TRADINGVIEW-STYLE SMOOTH BEZIER CASHFLOW SPLINE GRAPH
+        //    Cubic Bezier cumulative curve, #6600E5FF vertical gradient fill,
+        //    dashed last-month ghost curve & horizontal touch-scrubbing crosshair
+        // ====================================================================
         item {
-            ThreeSecondClarityMonthOverMonthPaceCard(
+            TradingViewBezierCashflowSplineCard(
                 expenses = expenses,
                 bundle = bundle,
                 stealthMode = stealthMode
             )
         }
 
+        // ====================================================================
+        // 3. 30-DAY SPENDING INTENSITY HEATMAP MATRIX (CRED / GITHUB STYLE)
+        //    7-column monthly grid: ₹0 Emerald (#00E676) + No-Spend Streak badge,
+        //    Low (#004D40), Medium (#5E35B1), High (#FF1744) + drill-down card
+        // ====================================================================
         item {
-            ThreeSecondClarityMonthEndForecastCard(
+            ThirtyDaySpendingIntensityHeatmapCard(
                 expenses = expenses,
                 dailyLimit = dailyLimit,
                 stealthMode = stealthMode
@@ -720,10 +727,12 @@ fun InsightsTab(
         }
 
         // ====================================================================
-        // 3. WEEKLY SPENDING HEATMAP / BAR STRIP (MON–SUN WITH TAP INSPECTION)
+        // 4. DUAL RADIAL SPEEDOMETER GAUGES & TOP 5 MONEY DRAINERS LEADERBOARD
+        //    240° Budget Burn Speedometer + Savings Efficiency Score (0-100)
+        //    + Top 5 Money Drainers racing horizontal neon bars
         // ====================================================================
         item {
-            WeeklySpendingHeatmapBarStripCard(
+            DualRadialSpeedometersAndTopMerchantsSection(
                 expenses = expenses,
                 dailyLimit = dailyLimit,
                 stealthMode = stealthMode
@@ -1740,6 +1749,7 @@ private fun WeeklySpendingHeatmapBarStripCard(
 
 // ============================================================================
 // ONE-TAP EXPORT STATEMENT CARD ("Download Monthly Summary (PDF / CSV)")
+// Sleek Obsidian Command-Center Styling
 // ============================================================================
 @Composable
 private fun OneTapMonthlyStatementExportCard(
@@ -1754,10 +1764,26 @@ private fun OneTapMonthlyStatementExportCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(16.dp, RoundedCornerShape(22.dp), spotColor = MaiPrimaryPurpleStart)
-            .clip(RoundedCornerShape(22.dp))
-            .background(MaiCardSurface)
-            .border(1.dp, MaiCardBorderBright.copy(alpha = 0.45f), RoundedCornerShape(22.dp))
+            .shadow(18.dp, RoundedCornerShape(24.dp), spotColor = Color(0xFF00E5FF))
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF0D1422),
+                        Color(0xFF090D16)
+                    )
+                )
+            )
+            .border(
+                1.dp,
+                Brush.horizontalGradient(
+                    colors = listOf(
+                        Color(0xFF00E5FF).copy(alpha = 0.45f),
+                        Color(0xFF00E676).copy(alpha = 0.45f)
+                    )
+                ),
+                RoundedCornerShape(24.dp)
+            )
             .padding(18.dp)
             .testTag("download_monthly_summary_pdf_csv_section"),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1769,12 +1795,12 @@ private fun OneTapMonthlyStatementExportCard(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    text = "ONE-TAP STATEMENT ARCHIVE",
+                    text = "OBSIDIAN TELEMETRY ARCHIVE • 1-TAP EXPORT",
                     fontFamily = JetBrainsMonoFontFamily,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.ExtraBold,
                     letterSpacing = 1.1.sp,
-                    color = Color(0xFFD8B4FE)
+                    color = Color(0xFF00E5FF)
                 )
                 Text(
                     text = "Monthly Summary ($periodLabel)",
@@ -1784,14 +1810,30 @@ private fun OneTapMonthlyStatementExportCard(
                     color = Color.White
                 )
             }
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(Color(0x1F00E676))
+                    .border(0.8.dp, Color(0xFF00E676).copy(alpha = 0.6f), RoundedCornerShape(50))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = "PDF + CSV",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFF00E676)
+                )
+            }
         }
 
         Button(
             onClick = onDownloadAndSharePdf,
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = MaiPrimaryPurpleEnd,
-                contentColor = Color.White
+                containerColor = Color(0xFF00E5FF),
+                contentColor = Color(0xFF050811)
             ),
             modifier = Modifier
                 .fillMaxWidth()
@@ -1819,8 +1861,8 @@ private fun OneTapMonthlyStatementExportCard(
             OutlinedButton(
                 onClick = onSavePdfAs,
                 shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(0.8.dp, Color(0xFFA855F7).copy(alpha = 0.65f)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFE9D5FF)),
+                border = BorderStroke(0.9.dp, Color(0xFF00E5FF).copy(alpha = 0.65f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF00E5FF)),
                 modifier = Modifier
                     .weight(1f)
                     .height(42.dp)
@@ -1832,8 +1874,8 @@ private fun OneTapMonthlyStatementExportCard(
             OutlinedButton(
                 onClick = onExportCsv,
                 shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(0.8.dp, MaiPositiveEmerald.copy(alpha = 0.65f)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaiPositiveEmerald),
+                border = BorderStroke(0.9.dp, Color(0xFF00E676).copy(alpha = 0.65f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF00E676)),
                 modifier = Modifier
                     .weight(1f)
                     .height(42.dp)
@@ -1848,7 +1890,7 @@ private fun OneTapMonthlyStatementExportCard(
                 text = "✓ Last saved: ${lastExportedPdf.fileName}",
                 fontFamily = JetBrainsMonoFontFamily,
                 fontSize = 10.sp,
-                color = MaiPositiveEmerald
+                color = Color(0xFF00E676)
             )
         }
     }
