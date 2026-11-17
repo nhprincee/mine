@@ -406,7 +406,7 @@ fun AdvancedKhataScreen(
                 startDateMillis = startMillis,
                 endDateMillis = now,
                 selectedYear = selectedHistoryYear,
-                selectedMonthKey = selectedHistoryMonthKey
+                selectedMonthOneBased = selectedHistoryMonthKey?.substringAfter("-")?.toIntOrNull()
             )
         }
 
@@ -784,17 +784,9 @@ fun AdvancedKhataScreen(
                 item {
                     KhataIntelligenceCompactPreviewCard(
                         intelligence = lifetimeIntelligence,
+                        allContactStates = allContactStates,
                         stealthMode = stealthMode,
-                        onOpenFullIntelligence = { activeSubTab = "intelligence" },
-                        onClickTopContact = {
-                            val topName = lifetimeIntelligence.topContactName
-                            val match = allContactStates.firstOrNull { it.contact.name == topName }
-                            if (match != null) {
-                                selectedContactId = match.contact.id
-                            } else {
-                                activeSubTab = "intelligence"
-                            }
-                        }
+                        onOpenFullIntelligence = { activeSubTab = "intelligence" }
                     )
                 }
             } else if (activeSubTab == "intelligence") {
@@ -808,20 +800,16 @@ fun AdvancedKhataScreen(
                 item {
                     SmartKhataToolsSection(
                         userId = userId,
-                        contactStates = allContactStates,
+                        allContactStates = allContactStates,
                         stealthMode = stealthMode,
-                        onRefreshRequired = { localRefreshTick++ },
+                        userUpiId = userUpiId,
+                        onRefreshTriggered = { localRefreshTick++ },
+                        onOpenContact = { cid -> selectedContactId = cid },
                         onShowToast = onShowToast
                     )
                 }
             } else {
                 // --- SECTION 8. COMPLETE LIFETIME KHATA TIMELINE ---
-                val availableYears = remember(lifetimeIntelligence) {
-                    lifetimeIntelligence.yearWiseActivity.mapNotNull { it.periodKey.toIntOrNull() }
-                }
-                val availableMonths = remember(lifetimeIntelligence) {
-                    lifetimeIntelligence.monthWiseActivity.map { it.periodKey to it.periodLabel }
-                }
                 item {
                     KhataHistorySearchAndFilterBar(
                         searchQuery = historySearchQuery,
@@ -829,13 +817,7 @@ fun AdvancedKhataScreen(
                         selectedFilter = selectedHistoryFilter,
                         onSelectFilter = { selectedHistoryFilter = it },
                         customRangeDays = customRangeDaysBack,
-                        onCustomRangeDaysChange = { customRangeDaysBack = it.filter { ch -> ch.isDigit() } },
-                        availableYears = availableYears,
-                        selectedYear = selectedHistoryYear,
-                        onSelectYear = { selectedHistoryYear = it },
-                        availableMonths = availableMonths,
-                        selectedMonthKey = selectedHistoryMonthKey,
-                        onSelectMonthKey = { selectedHistoryMonthKey = it }
+                        onCustomRangeDaysChange = { customRangeDaysBack = it.filter { ch -> ch.isDigit() } }
                     )
                 }
 
@@ -1129,7 +1111,7 @@ fun AdvancedKhataScreen(
         AttachKhataProofDialog(
             entry = currentProofEntry,
             onDismiss = { attachingProofEntry = null },
-            onSaveProof = { uri, label ->
+            onAttachProof = { uri, label ->
                 val res = AdvancedKhataStore.attachProofToEntry(
                     context = context,
                     userId = userId,
@@ -1871,6 +1853,7 @@ private fun KhataIndividualPersonLedgerView(
     onSettleInFull: () -> Unit,
     onEditEntry: (KhataLedgerEntry) -> Unit,
     onRequestDeleteEntry: (KhataLedgerEntry) -> Unit,
+    @Suppress("UNUSED_PARAMETER") onAttachProof: (KhataLedgerEntry) -> Unit = {},
     onToggleReminder: (Boolean) -> Unit,
     onShowToast: (String) -> Unit = {}
 ) {

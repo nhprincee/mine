@@ -1018,15 +1018,13 @@ fun ProVaultTab(
                                 result = verification
                             )
                             activationIsError = false
-                            activationStatusMessage = "✅ Verified HMAC-SHA256 Key! Unlocked ${verification.planDisplayName} on Device [#KHR-$deviceHash]."
-                            showGoldConfettiBurst = true
+                            activationStatusMessage = "⏳ Submitted ${verification.planDisplayName} reference for server-side payment verification [#KHR-$deviceHash]. Pro unlocks once confirmed by server."
                             onUpgradeProPlan?.invoke(verification.tierKey, verification.durationDays)
-                            onProActivated?.invoke(verification.planDisplayName)
-                            onShowToast("👑 ${verification.planDisplayName} Unlocked! All 4 Enterprise Studios Active!")
+                            onShowToast("⏳ Submitted ${verification.planDisplayName} for server-side verification!")
                         } else {
                             activationIsError = true
                             activationStatusMessage = verification.errorMessage
-                            onShowToast(verification.errorMessage ?: "Invalid Activation Key")
+                            onShowToast(verification.errorMessage ?: "Invalid Activation Reference")
                         }
                     },
                     onCopyDeviceHash = {
@@ -1491,10 +1489,10 @@ fun ProVaultTab(
                                     result = verification
                                 )
                                 showCheckoutModal = false
-                                showGoldConfettiBurst = true
+                                activationIsError = false
+                                activationStatusMessage = "⏳ Submitted ${verification.planDisplayName} reference for server-side verification."
                                 onUpgradeProPlan?.invoke(verification.tierKey, verification.durationDays)
-                                onProActivated?.invoke(verification.planDisplayName)
-                                onShowToast("👑 ${verification.planDisplayName} Unlocked! All 4 Enterprise Studios Active!")
+                                onShowToast("⏳ Submitted ${verification.planDisplayName} for server-side verification!")
                             } else {
                                 activationIsError = true
                                 activationStatusMessage = verification.errorMessage

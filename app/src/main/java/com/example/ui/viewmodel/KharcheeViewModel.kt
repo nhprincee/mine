@@ -447,13 +447,28 @@ class KharcheeViewModel(
         return p
     }
 
-    fun upgradeProPlan(tier: String, durationDays: Int) {
+    fun upgradeProPlan(
+        tier: String,
+        durationDays: Int,
+        orderId: String = "",
+        paymentId: String = "",
+        utrNumber: String = "",
+        deviceHash: String = "KHARCHEE"
+    ) {
         viewModelScope.launch {
-            val res = repository.updateProMembership(tier, durationDays)
+            val res = repository.updateProMembership(
+                tier = tier,
+                durationDays = durationDays,
+                orderId = orderId,
+                paymentId = paymentId,
+                utrNumber = utrNumber,
+                deviceHash = deviceHash
+            )
             if (res.isSuccess) {
-                _toastMessage.value = "👑 Upgraded to PRO ${tier.uppercase()}! Unlocked advanced analytics & priority JARVIS."
+                _toastMessage.value = "⏳ Payment verification request submitted for ${tier.uppercase()}. Pro access activates once verified by server."
             } else {
-                _toastMessage.value = res.exceptionOrNull()?.localizedMessage ?: "Failed to upgrade Pro plan"
+                _toastMessage.value = res.exceptionOrNull()?.localizedMessage
+                    ?: "Backend payment verification service unavailable — Pro status remains unchanged."
             }
         }
     }
@@ -700,9 +715,6 @@ class KharcheeViewModel(
                 themeId = updatedLocal.themeId,
                 myUpiId = updatedLocal.myUpiId,
                 upiGuardTone = updatedLocal.upiGuardTone,
-                isPro = updatedLocal.isPro,
-                proTier = updatedLocal.proTier,
-                proExpiryMillis = updatedLocal.proExpiryMillis,
                 nightGuardEnabled = updatedLocal.nightGuardEnabled,
                 nightGuardStartHour = updatedLocal.nightGuardStartHour,
                 nightGuardStartMinute = updatedLocal.nightGuardStartMinute,

@@ -80,29 +80,33 @@ data class ActivationVerificationResult(
     val tierKey: String = "",
     val durationDays: Int = 0,
     val planDisplayName: String = "",
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val requiresServerVerification: Boolean = true,
+    val isServerVerified: Boolean = false,
+    val verificationStatus: String = "PENDING_SERVER_VERIFICATION"
 )
 
 /**
- * APK-First Offline Pro Activation & Anti-Bypass Cryptographic Engine.
+ * Payment Reference & Device-Bound Verification Helper.
  *
- * - Never auto-unlocks Pro merely from launching or returning from a UPI intent.
- * - Generates a unique 8-character hardware/install `DeviceHash` per phone.
- * - Verifies deterministic HMAC-SHA256 activation keys signed with the Founder Secret Salt.
- * - Provides the hidden Founder Admin Key Generator (unlocked by 7 taps on App Version + Master PIN).
+ * SECURITY ARCHITECTURE:
+ * - Never embeds production HMAC secrets, API keys, or master PIN backdoors in Android client code.
+ * - Never trusts local SharedPreferences, UI state, or UPI intent return codes as proof of payment.
+ * - Validates reference syntax and device binding (`DeviceHash`) client-side, then submits a
+ *   `PENDING_SERVER_VERIFICATION` document to `/users/{uid}/payment_verifications/{idempotencyKey}`
+ *   for cryptographic verification by Firebase Cloud Functions (Admin SDK).
  */
 object SovereignActivationManager {
 
     private const val PREFS_NAME = "kharchee_sovereign_activation_prefs"
     private const val KEY_CACHED_DEVICE_HASH = "cached_device_hash_v1"
-    private const val KEY_VERIFIED_ACTIVATION_CODE = "verified_activation_code_v1"
-    private const val KEY_VERIFIED_PLAN_ID = "verified_plan_id_v1"
-    private const val KEY_VERIFIED_TIMESTAMP = "verified_timestamp_v1"
+    private const val KEY_PENDING_ACTIVATION_REFERENCE = "pending_activation_reference_v2"
+    private const val KEY_PENDING_PLAN_ID = "pending_plan_id_v2"
+    private const val KEY_PENDING_TIMESTAMP = "pending_timestamp_v2"
 
-    private const val SECRET_FOUNDER_HMAC_SALT = "KHARCHEE_SOVEREIGN_FOUNDER_HMAC_SECRET_2026_V1"
-
-    // Master PINs accepted by the hidden 7-tap Founder Admin Key Generator
-    private val FOUNDER_MASTER_PINS = setOf("7788", "2026", "9999")
+    // Public non-secret domain separator used strictly for deterministic 8-char DeviceHash & reference syntax checksums.
+    // Actual payment signature verification happens exclusively in Firebase Cloud Functions using Secret Manager.
+    private const val PUBLIC_REFERENCE_CHECKSUM_DOMAIN = "KHARCHEE_PUBLIC_DEVICE_CHECKSUM_V2"
 
     const val PLAN_STARTER_MONTHLY = "starter_monthly"
     const val PLAN_SOVEREIGN_LIFETIME = "sovereign_lifetime"
@@ -132,7 +136,7 @@ object SovereignActivationManager {
      */
     fun derive8CharHashFromSeed(seed: String): String {
         val digest = MessageDigest.getInstance("SHA-256")
-            .digest("$seed|$SECRET_FOUNDER_HMAC_SALT".toByteArray(Charsets.UTF_8))
+            .digest("$seed|$PUBLIC_REFERENCE_CHECKSUM_DOMAIN".toByteArray(Charsets.UTF_8))
         return digest.take(4).joinToString("") { "%02X".format(it) }.uppercase(Locale.US)
     }
 
@@ -168,13 +172,15 @@ object SovereignActivationManager {
     }
 
     /**
-     * Computes the deterministic 8-character HMAC-SHA256 hex signature for (deviceHash + planCode).
+     * Computes a deterministic 8-character device-binding checksum for (deviceHash + planCode).
+     * Note: This is a client-side format/binding checksum, NOT a server payment proof.
+     * Pro access is never granted until Firebase Cloud Functions verifies the payment on the server.
      */
     fun computeHmacSignature(deviceHash: String, planCode: String): String {
         val cleanHash = normalizeDeviceHash(deviceHash)
         val cleanPlan = planCode.trim().uppercase(Locale.US)
         val mac = Mac.getInstance("HmacSHA256")
-        val keySpec = SecretKeySpec(SECRET_FOUNDER_HMAC_SALT.toByteArray(Charsets.UTF_8), "HmacSHA256")
+        val keySpec = SecretKeySpec(PUBLIC_REFERENCE_CHECKSUM_DOMAIN.toByteArray(Charsets.UTF_8), "HmacSHA256")
         mac.init(keySpec)
         val payload = "$cleanHash:$cleanPlan".toByteArray(Charsets.UTF_8)
         val rawHmac = mac.doFinal(payload)
@@ -182,7 +188,7 @@ object SovereignActivationManager {
     }
 
     /**
-     * Generates a formatted Founder Activation Key for a specific `DeviceHash` and plan.
+     * Formats a device-bound payment verification reference code for a specific `DeviceHash` and plan.
      *
      * - For `sovereign_lifetime` (₹299 Lifetime Sovereign): `KHR-SOV-XXXX-XXXX`
      * - For `starter_monthly` (₹30 / Month Starter): `KHR-M30-XXXX-XXXX`
@@ -203,9 +209,9 @@ object SovereignActivationManager {
     }
 
     /**
-     * Verifies an activation code entered by the user against their phone's `DeviceHash`.
-     * Supports both `KHR-SOV-XXXX-XXXX` (Lifetime ₹299) and `KHR-M30-XXXX-XXXX` (Starter ₹30/Mo),
-     * as well as compact 8-char raw HMAC signatures if pasted without the `KHR-` prefix.
+     * Validates the format and device-binding checksum of an activation reference entered by the user
+     * before submitting it to Firebase Cloud Functions for server-side payment verification.
+     * Never marks `isServerVerified = true` on the client.
      */
     fun verifyActivationCode(
         deviceHash: String,
@@ -217,7 +223,7 @@ object SovereignActivationManager {
         if (normalizedInput.isBlank()) {
             return ActivationVerificationResult(
                 isValid = false,
-                errorMessage = "Please enter the Activation Key sent on WhatsApp."
+                errorMessage = "Please enter a valid payment reference or activation code."
             )
         }
 
@@ -239,7 +245,10 @@ object SovereignActivationManager {
                     planId = PLAN_SOVEREIGN_LIFETIME,
                     tierKey = "platinum",
                     durationDays = 36500,
-                    planDisplayName = "₹299 Lifetime Sovereign"
+                    planDisplayName = "₹299 Lifetime Sovereign",
+                    requiresServerVerification = true,
+                    isServerVerified = false,
+                    verificationStatus = "PENDING_SERVER_VERIFICATION"
                 )
             }
             normalizedInput == expectedStarterFull ||
@@ -250,20 +259,24 @@ object SovereignActivationManager {
                     planId = PLAN_STARTER_MONTHLY,
                     tierKey = "gold",
                     durationDays = 30,
-                    planDisplayName = "₹30 / Month (Starter)"
+                    planDisplayName = "₹30 / Month (Starter)",
+                    requiresServerVerification = true,
+                    isServerVerified = false,
+                    verificationStatus = "PENDING_SERVER_VERIFICATION"
                 )
             }
             else -> {
                 ActivationVerificationResult(
                     isValid = false,
-                    errorMessage = "Invalid Activation Key for DeviceHash [$cleanHash]. Keys are cryptographically bound to your phone."
+                    errorMessage = "Invalid reference format for DeviceHash [$cleanHash]. References are bound to your device and verified server-side."
                 )
             }
         }
     }
 
     /**
-     * Persists a verified activation locally so offline APK restarts retain Sovereign status.
+     * Records a pending verification reference locally for UI status display only.
+     * SECURITY: Never grants Pro access from SharedPreferences.
      */
     fun recordVerifiedActivation(
         context: Context,
@@ -273,20 +286,34 @@ object SovereignActivationManager {
         if (!result.isValid) return
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
-            .putString(KEY_VERIFIED_ACTIVATION_CODE, activationCode.trim().uppercase(Locale.US))
-            .putString(KEY_VERIFIED_PLAN_ID, result.planId)
-            .putLong(KEY_VERIFIED_TIMESTAMP, System.currentTimeMillis())
+            .putString(KEY_PENDING_ACTIVATION_REFERENCE, activationCode.trim().uppercase(Locale.US))
+            .putString(KEY_PENDING_PLAN_ID, result.planId)
+            .putLong(KEY_PENDING_TIMESTAMP, System.currentTimeMillis())
             .apply()
     }
 
+    /**
+     * Always returns empty string for client-side entitlement checks so SharedPreferences
+     * can never be used to bypass server-verified Firestore Pro status.
+     */
+    @Suppress("UNUSED_PARAMETER")
     fun getSavedVerifiedActivationCode(context: Context): String {
+        return ""
+    }
+
+    fun getPendingActivationReference(context: Context): String {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_VERIFIED_ACTIVATION_CODE, "")
+            .getString(KEY_PENDING_ACTIVATION_REFERENCE, "")
             .orEmpty()
     }
 
+    /**
+     * Client-side master PIN backdoors are strictly disabled in production security mode.
+     * All Pro entitlements must be granted by server-side payment verification in Cloud Functions.
+     */
+    @Suppress("UNUSED_PARAMETER")
     fun isValidFounderMasterPin(pin: String): Boolean {
-        return pin.trim() in FOUNDER_MASTER_PINS
+        return false
     }
 
     /**

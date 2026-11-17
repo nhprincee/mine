@@ -312,3 +312,301 @@ test("Lifetime Khata Memory: owner can create, list, and update khata_contacts a
   );
 });
 
+test("Security 1: User cannot grant themselves Pro on profile creation or update", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const now = new Date(Date.now() - 5000);
+  const later = new Date(Date.now() - 1000);
+
+  // Attempt 1: Create profile with isPro: true -> MUST FAIL
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      dailyLimit: 500,
+      lockdownActive: false,
+      autoLockdownAt90: true,
+      stealthMode: false,
+      themeId: "stark",
+      myUpiId: "alice@okaxis",
+      upiGuardTone: "hinglish",
+      isPro: true,
+      proTier: "free",
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+
+  // Create legitimate free profile -> SUCCEEDS
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      dailyLimit: 500,
+      lockdownActive: false,
+      autoLockdownAt90: true,
+      stealthMode: false,
+      themeId: "stark",
+      myUpiId: "alice@okaxis",
+      upiGuardTone: "hinglish",
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+
+  // Attempt 2: Update profile to set isPro: true -> MUST FAIL
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      isPro: true,
+      updatedAt: later,
+    })
+  );
+});
+
+test("Security 2: User cannot extend their own Pro expiry (proExpiryMillis or proExpiresAtMillis)", async () => {
+  const now = new Date(Date.now() - 5000);
+  const later = new Date(Date.now() - 1000);
+
+  // Seed user via Admin context with server-granted monthly Pro
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().collection("users").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      dailyLimit: 500,
+      lockdownActive: false,
+      autoLockdownAt90: true,
+      stealthMode: false,
+      themeId: "stark",
+      myUpiId: "alice@okaxis",
+      upiGuardTone: "hinglish",
+      isPro: true,
+      proTier: "gold",
+      proExpiryMillis: 1750000000000,
+      proExpiresAtMillis: 1750000000000,
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+
+  // Attempt to extend proExpiryMillis -> MUST FAIL
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      proExpiryMillis: 1999999999999,
+      updatedAt: later,
+    })
+  );
+
+  // Attempt to extend proExpiresAtMillis -> MUST FAIL
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      proExpiresAtMillis: 1999999999999,
+      updatedAt: later,
+    })
+  );
+});
+
+test("Security 3: User cannot change their Pro tier (on create or update)", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const now = new Date(Date.now() - 5000);
+  const later = new Date(Date.now() - 1000);
+
+  // Attempt to create profile with proTier: 'platinum' -> MUST FAIL
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      dailyLimit: 500,
+      lockdownActive: false,
+      autoLockdownAt90: true,
+      stealthMode: false,
+      themeId: "stark",
+      myUpiId: "alice@okaxis",
+      upiGuardTone: "hinglish",
+      isPro: false,
+      proTier: "platinum",
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+
+  // Create valid free profile
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      dailyLimit: 500,
+      lockdownActive: false,
+      autoLockdownAt90: true,
+      stealthMode: false,
+      themeId: "stark",
+      myUpiId: "alice@okaxis",
+      upiGuardTone: "hinglish",
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+
+  // Attempt to update proTier to 'platinum' or 'gold' -> MUST FAIL
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      proTier: "platinum",
+      updatedAt: later,
+    })
+  );
+});
+
+test("Security 4: Existing legitimate Pro user can update normal profile settings while preserving server-granted Pro membership", async () => {
+  const now = new Date(Date.now() - 5000);
+  const later = new Date(Date.now() - 1000);
+
+  // Seed legitimate server-verified Sovereign Pro user
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().collection("users").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      dailyLimit: 1000,
+      lockdownActive: false,
+      autoLockdownAt90: true,
+      stealthMode: false,
+      themeId: "stark",
+      myUpiId: "alice@okaxis",
+      upiGuardTone: "hinglish",
+      isPro: true,
+      proTier: "platinum",
+      proExpiryMillis: 1990000000000,
+      proExpiresAtMillis: 1990000000000,
+      lastVerifiedPaymentId: "pay_verified_999",
+      nightGuardEnabled: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+
+  // Normal profile settings update succeeds without touching Pro fields
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      dailyLimit: 1500,
+      stealthMode: true,
+      myUpiId: "alice.pro@okicici",
+      updatedAt: later,
+    })
+  );
+});
+
+test("Security 5 & 7: Payment verification requests enforce ownership, pricing (₹30 / ₹299 INR), PENDING status, and reject duplicate idempotency keys", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const now = new Date(Date.now() - 5000);
+  const later = new Date(Date.now() - 1000);
+
+  const verificationId = "pay_ord_lifetime_1_pay_98765";
+
+  // 1. Valid first-time PENDING_SERVER_VERIFICATION request for ₹299 Lifetime Sovereign -> SUCCEEDS
+  await assertSucceeds(
+    aliceDb
+      .collection(`users/${ALICE_UID}/payment_verifications`)
+      .doc(verificationId)
+      .set({
+        userId: ALICE_UID,
+        verificationId,
+        orderId: "ord_lifetime_1",
+        paymentId: "pay_98765",
+        utrNumber: "432198765432",
+        planId: "sovereign_lifetime",
+        tierKey: "platinum",
+        amountInr: 299,
+        currency: "INR",
+        deviceHash: "A1B2C3D4",
+        status: "PENDING_SERVER_VERIFICATION",
+        idempotencyKey: verificationId,
+        createdAt: now,
+        updatedAt: now,
+      })
+  );
+
+  // 2. Duplicate payment verification with the same verificationId / idempotencyKey -> MUST FAIL
+  await assertFails(
+    aliceDb
+      .collection(`users/${ALICE_UID}/payment_verifications`)
+      .doc(verificationId)
+      .set({
+        userId: ALICE_UID,
+        verificationId,
+        orderId: "ord_lifetime_1",
+        paymentId: "pay_98765",
+        utrNumber: "432198765432",
+        planId: "sovereign_lifetime",
+        tierKey: "platinum",
+        amountInr: 299,
+        currency: "INR",
+        deviceHash: "A1B2C3D4",
+        status: "PENDING_SERVER_VERIFICATION",
+        idempotencyKey: verificationId,
+        createdAt: later,
+        updatedAt: later,
+      })
+  );
+
+  // 3. Client cannot self-mark status as "VERIFIED" on create or update -> MUST FAIL
+  await assertFails(
+    aliceDb
+      .collection(`users/${ALICE_UID}/payment_verifications`)
+      .doc("pay_forged_verified")
+      .set({
+        userId: ALICE_UID,
+        verificationId: "pay_forged_verified",
+        orderId: "ord_forged_1",
+        paymentId: "pay_forged_1",
+        utrNumber: "",
+        planId: "sovereign_lifetime",
+        tierKey: "platinum",
+        amountInr: 299,
+        currency: "INR",
+        deviceHash: "A1B2C3D4",
+        status: "VERIFIED",
+        idempotencyKey: "pay_forged_verified",
+        createdAt: now,
+        updatedAt: now,
+      })
+  );
+
+  await assertFails(
+    aliceDb
+      .collection(`users/${ALICE_UID}/payment_verifications`)
+      .doc(verificationId)
+      .update({
+        status: "VERIFIED",
+        updatedAt: later,
+      })
+  );
+
+  // 4. Tampered amount (e.g. ₹1 for sovereign_lifetime) -> MUST FAIL
+  await assertFails(
+    aliceDb
+      .collection(`users/${ALICE_UID}/payment_verifications`)
+      .doc("pay_tampered_amount")
+      .set({
+        userId: ALICE_UID,
+        verificationId: "pay_tampered_amount",
+        orderId: "ord_tampered",
+        paymentId: "pay_tampered",
+        utrNumber: "",
+        planId: "sovereign_lifetime",
+        tierKey: "platinum",
+        amountInr: 1,
+        currency: "INR",
+        deviceHash: "A1B2C3D4",
+        status: "PENDING_SERVER_VERIFICATION",
+        idempotencyKey: "pay_tampered_amount",
+        createdAt: now,
+        updatedAt: now,
+      })
+  );
+
+  // 5. Cross-user isolation: Bob cannot read Alice's payment verification records
+  await assertFails(
+    bobDb
+      .collection(`users/${ALICE_UID}/payment_verifications`)
+      .doc(verificationId)
+      .get()
+  );
+});
+
+

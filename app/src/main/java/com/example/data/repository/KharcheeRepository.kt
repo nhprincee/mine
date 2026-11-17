@@ -7,6 +7,7 @@ import com.example.data.model.JarvisChatMessage
 import com.example.data.model.KhataFriendRecord
 import com.example.data.model.NightGuardEventRecord
 import com.example.data.model.PaymentReminderRecord
+import com.example.data.model.PaymentVerificationRequestRecord
 import com.example.data.model.SavingsGoalRecord
 import com.example.data.model.UserSettings
 import com.example.data.remote.OperationType
@@ -72,6 +73,11 @@ class KharcheeRepository(private val db: FirebaseFirestore) {
         )
     }.flowOn(Dispatchers.IO)
 
+    /**
+     * Creates or updates user profile settings WITHOUT touching privileged Pro membership fields
+     * (`isPro`, `proTier`, `proExpiryMillis`, `proExpiresAtMillis`).
+     * Existing legitimate Pro membership data on `/users/{uid}` is preserved across profile updates.
+     */
     suspend fun upsertUserSettings(
         dailyLimit: Long = 500L,
         lockdownActive: Boolean = false,
@@ -80,9 +86,9 @@ class KharcheeRepository(private val db: FirebaseFirestore) {
         themeId: String = "stark",
         myUpiId: String = "",
         upiGuardTone: String = "hinglish",
-        isPro: Boolean = false,
-        proTier: String = "free",
-        proExpiryMillis: Long = 0L,
+        @Suppress("UNUSED_PARAMETER") isPro: Boolean = false,
+        @Suppress("UNUSED_PARAMETER") proTier: String = "free",
+        @Suppress("UNUSED_PARAMETER") proExpiryMillis: Long = 0L,
         nightGuardEnabled: Boolean = true,
         nightGuardStartHour: Int = 22,
         nightGuardStartMinute: Int = 0,
@@ -109,9 +115,6 @@ class KharcheeRepository(private val db: FirebaseFirestore) {
                     "themeId" to themeId,
                     "myUpiId" to myUpiId.take(100),
                     "upiGuardTone" to upiGuardTone,
-                    "isPro" to isPro,
-                    "proTier" to proTier,
-                    "proExpiryMillis" to proExpiryMillis.coerceAtLeast(0L),
                     "nightGuardEnabled" to nightGuardEnabled,
                     "nightGuardStartHour" to nightGuardStartHour.coerceIn(0, 23),
                     "nightGuardStartMinute" to nightGuardStartMinute.coerceIn(0, 59),
@@ -136,9 +139,6 @@ class KharcheeRepository(private val db: FirebaseFirestore) {
                     "themeId" to themeId,
                     "myUpiId" to myUpiId.take(100),
                     "upiGuardTone" to upiGuardTone,
-                    "isPro" to isPro,
-                    "proTier" to proTier,
-                    "proExpiryMillis" to proExpiryMillis.coerceAtLeast(0L),
                     "nightGuardEnabled" to nightGuardEnabled,
                     "nightGuardStartHour" to nightGuardStartHour.coerceIn(0, 23),
                     "nightGuardStartMinute" to nightGuardStartMinute.coerceIn(0, 59),
@@ -186,45 +186,121 @@ class KharcheeRepository(private val db: FirebaseFirestore) {
         }
     }
 
-    suspend fun updateProMembership(tier: String, durationDays: Int): Result<Unit> = runCatching {
+    /**
+     * Submits an idempotent server-side payment verification request to `/users/{uid}/payment_verifications/{idempotencyKey}`.
+     *
+     * SECURITY INVARIANT:
+     * - Never writes `isPro`, `proTier`, `proExpiryMillis`, or `proExpiresAtMillis` from the client.
+     * - Only trusted Firebase Cloud Functions (using Admin SDK after verifying the payment provider's
+     *   webhook/order signature, amount, currency, and idempotency lock) may grant or renew Pro access.
+     */
+    suspend fun submitPaymentVerificationRequest(
+        tier: String,
+        orderId: String = "",
+        paymentId: String = "",
+        utrNumber: String = "",
+        deviceHash: String = "KHARCHEE"
+    ): Result<String> = runCatching {
         val uid = requireUserId()
-        val docRef = db.collection("users").document(uid)
-        val expiryMillis = System.currentTimeMillis() + (durationDays.toLong() * 86_400_000L)
+        val isLifetime = tier.equals("platinum", ignoreCase = true) ||
+            tier.equals("sovereign", ignoreCase = true) ||
+            tier.equals("sovereign_lifetime", ignoreCase = true)
+        val resolvedPlanId = if (isLifetime) "sovereign_lifetime" else "starter_monthly"
+        val resolvedTierKey = if (isLifetime) "platinum" else "gold"
+        val resolvedAmountInr = if (isLifetime) 299L else 30L
+
+        val cleanOrder = orderId.trim().replace(Regex("[^a-zA-Z0-9_\\-]"), "_").take(96)
+            .ifEmpty { "ord_${resolvedPlanId}_${uid.take(12)}" }
+        val cleanPayment = paymentId.trim().replace(Regex("[^a-zA-Z0-9_\\-]"), "_").take(96)
+        val cleanUtr = utrNumber.trim().replace(Regex("[^a-zA-Z0-9_\\-]"), "_").take(48)
+        val cleanDeviceHash = deviceHash.trim().replace(Regex("[^a-zA-Z0-9_\\-]"), "").take(16)
+            .ifEmpty { "KHARCHEE" }
+
+        val rawIdempotencySeed = when {
+            cleanPayment.isNotEmpty() -> "pay_${cleanOrder}_${cleanPayment}"
+            cleanUtr.isNotEmpty() -> "utr_${cleanOrder}_${cleanUtr}"
+            else -> "req_${cleanOrder}_${cleanDeviceHash}"
+        }
+        val verificationId = sanitizeDocId(rawIdempotencySeed)
+        val docRef = db.collection("users")
+            .document(uid)
+            .collection("payment_verifications")
+            .document(verificationId)
+
+        val payload = mapOf(
+            "userId" to uid,
+            "verificationId" to verificationId,
+            "orderId" to cleanOrder,
+            "paymentId" to cleanPayment,
+            "utrNumber" to cleanUtr,
+            "planId" to resolvedPlanId,
+            "tierKey" to resolvedTierKey,
+            "amountInr" to resolvedAmountInr,
+            "currency" to "INR",
+            "deviceHash" to cleanDeviceHash,
+            "status" to "PENDING_SERVER_VERIFICATION",
+            "idempotencyKey" to verificationId,
+            "createdAt" to FieldValue.serverTimestamp(),
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
         try {
-            val existingSnap = docRef.get().await()
-            if (!existingSnap.exists()) {
-                val payload = mapOf(
-                    "userId" to uid,
-                    "dailyLimit" to 500L,
-                    "lockdownActive" to false,
-                    "autoLockdownAt90" to true,
-                    "stealthMode" to false,
-                    "themeId" to "stark",
-                    "myUpiId" to "",
-                    "upiGuardTone" to "hinglish",
-                    "isPro" to true,
-                    "proTier" to tier,
-                    "proExpiryMillis" to expiryMillis,
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-                docRef.set(payload).await()
-            } else {
-                val updates = mapOf(
-                    "isPro" to true,
-                    "proTier" to tier,
-                    "proExpiryMillis" to expiryMillis,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-                docRef.update(updates).await()
-            }
+            docRef.set(payload).await()
+            verificationId
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.WRITE, docRef.path)
+            handleFirestoreError(e, OperationType.CREATE, docRef.path)
             throw e
         }
     }
+
+    /**
+     * Legacy entrypoint retained for binary/call-site compatibility:
+     * Never self-grants Pro on `/users/{uid}`. Instead, queues a `PENDING_SERVER_VERIFICATION`
+     * request for server-side Cloud Functions payment verification.
+     */
+    suspend fun updateProMembership(
+        tier: String,
+        @Suppress("UNUSED_PARAMETER") durationDays: Int,
+        orderId: String = "",
+        paymentId: String = "",
+        utrNumber: String = "",
+        deviceHash: String = "KHARCHEE"
+    ): Result<Unit> = runCatching {
+        submitPaymentVerificationRequest(
+            tier = tier,
+            orderId = orderId,
+            paymentId = paymentId,
+            utrNumber = utrNumber,
+            deviceHash = deviceHash
+        ).getOrThrow()
+    }
+
+    fun observePaymentVerifications(userId: String = requireUserId()): Flow<List<PaymentVerificationRequestRecord>> = flow {
+        val path = "users/$userId/payment_verifications"
+        emitAll(
+            db.collection("users").document(userId).collection("payment_verifications")
+                .whereEqualTo("userId", userId)
+                .snapshots()
+                .map { snapshot ->
+                    snapshot.toObjects(
+                        PaymentVerificationRequestRecord::class.java,
+                        DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                    )
+                }
+                .catch { error ->
+                    val firestoreError = generateSequence(error) { it.cause }
+                        .filterIsInstance<FirebaseFirestoreException>()
+                        .firstOrNull()
+                    if (firestoreError == null && error is CancellationException) throw error
+                    val exceptionToLog = firestoreError ?: (error as? Exception)
+                    if (exceptionToLog != null && auth.currentUser?.uid == userId) {
+                        handleFirestoreError(exceptionToLog, OperationType.LIST, path)
+                    }
+                    throw error
+                }
+        )
+    }.flowOn(Dispatchers.IO)
 
     // --- EXPENSES & INCOME ---
 
@@ -567,6 +643,11 @@ class KharcheeRepository(private val db: FirebaseFirestore) {
             throw e
         }
     }
+
+    suspend fun upsertKhataEntryToCloud(
+        userId: String,
+        entry: com.example.data.model.KhataLedgerEntry
+    ): Result<Unit> = upsertKhataEntryToCloud(entry)
 
     suspend fun upsertKhataEntryToCloud(entry: com.example.data.model.KhataLedgerEntry): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid ?: return@runCatching

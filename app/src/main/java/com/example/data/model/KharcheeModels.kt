@@ -24,6 +24,8 @@ data class UserSettings(
     @get:PropertyName("isPro") @PropertyName("isPro") val isPro: Boolean = false,
     val proTier: String = "free", // "free", "gold", "platinum"
     val proExpiryMillis: Long = 0L,
+    val proExpiresAtMillis: Long = 0L,
+    val lastVerifiedPaymentId: String = "",
     val nightGuardEnabled: Boolean = true,
     val nightGuardStartHour: Int = 22,
     val nightGuardStartMinute: Int = 0,
@@ -35,6 +37,46 @@ data class UserSettings(
     val notifyPaymentReminders: Boolean = true,
     val notifyNightGuardAlert: Boolean = true,
     val notifyMorningReview: Boolean = false,
+    @ServerTimestamp val createdAt: Timestamp? = null,
+    @ServerTimestamp val updatedAt: Timestamp? = null,
+) {
+    val effectiveProExpiryMillis: Long
+        get() = max(proExpiryMillis, proExpiresAtMillis)
+
+    /**
+     * Evaluates whether the user has an active, non-expired server-verified Pro entitlement.
+     * - Time-limited tiers ("gold", "monthly", "annual") must have an expiry timestamp strictly in the future.
+     * - Lifetime tiers ("platinum", "sovereign") are active when `isPro == true` and either have no expiry (0L)
+     *   or a future expiry timestamp.
+     */
+    fun hasActiveServerVerifiedPro(nowMillis: Long = System.currentTimeMillis()): Boolean {
+        if (!isPro) return false
+        val normalizedTier = proTier.trim().lowercase()
+        if (normalizedTier.isEmpty() || normalizedTier == "free") return false
+        val expiry = effectiveProExpiryMillis
+        return if (normalizedTier == "platinum" || normalizedTier == "sovereign") {
+            expiry == 0L || expiry > nowMillis
+        } else {
+            expiry > nowMillis
+        }
+    }
+}
+
+@IgnoreExtraProperties
+data class PaymentVerificationRequestRecord(
+    @DocumentId val id: String = "",
+    val userId: String = "",
+    val verificationId: String = "",
+    val orderId: String = "",
+    val paymentId: String = "",
+    val utrNumber: String = "",
+    val planId: String = "starter_monthly",
+    val tierKey: String = "gold",
+    val amountInr: Long = 30L,
+    val currency: String = "INR",
+    val deviceHash: String = "",
+    val status: String = "PENDING_SERVER_VERIFICATION",
+    val idempotencyKey: String = "",
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
 )

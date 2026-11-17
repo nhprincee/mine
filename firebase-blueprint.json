@@ -184,12 +184,38 @@
         "updatedAt": { "type": "string", "format": "date-time", "description": "Last update server timestamp." }
       },
       "required": ["userId", "title", "category", "amount", "outcome", "bypassReason", "challengeCategory", "eventEpochMillis", "createdAt", "updatedAt"]
+    },
+    "PaymentVerificationRequestRecord": {
+      "title": "PaymentVerificationRequestRecord",
+      "description": "Idempotent server-side payment verification request submitted by an authenticated user for Cloud Functions verification. Clients may only create PENDING_SERVER_VERIFICATION documents; only the Admin SDK may transition status or grant Pro entitlements.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "verificationId": { "type": "string", "description": "Deterministic idempotency document ID." },
+        "orderId": { "type": "string", "description": "Payment order ID or reference." },
+        "paymentId": { "type": "string", "description": "Payment gateway transaction ID." },
+        "utrNumber": { "type": "string", "description": "12-digit UPI UTR reference if applicable." },
+        "planId": { "type": "string", "description": "Selected plan ID (starter_monthly or sovereign_lifetime)." },
+        "tierKey": { "type": "string", "description": "Target Pro tier key (gold or platinum)." },
+        "amountInr": { "type": "integer", "description": "Payment amount in INR (30 for monthly starter, 299 for lifetime sovereign)." },
+        "currency": { "type": "string", "description": "ISO currency code (INR)." },
+        "deviceHash": { "type": "string", "description": "8-character hardware/install DeviceHash." },
+        "status": { "type": "string", "description": "Verification lifecycle state (PENDING_SERVER_VERIFICATION, VERIFIED, REJECTED)." },
+        "idempotencyKey": { "type": "string", "description": "Deterministic idempotency token matching verificationId." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation server timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update server timestamp." }
+      },
+      "required": ["userId", "verificationId", "orderId", "paymentId", "utrNumber", "planId", "tierKey", "amountInr", "currency", "deviceHash", "status", "idempotencyKey", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/UserSettings" },
-      "description": "Root user settings document keyed by Firebase Auth UID."
+      "description": "Root user settings document keyed by Firebase Auth UID. Pro fields (isPro, proTier, proExpiryMillis, proExpiresAtMillis) are server-managed only."
+    },
+    "/users/{userId}/payment_verifications/{verificationId}": {
+      "schema": { "$ref": "#/entities/PaymentVerificationRequestRecord" },
+      "description": "Idempotent payment verification requests processed exclusively by Firebase Cloud Functions."
     },
     "/users/{userId}/expenses/{expenseId}": {
       "schema": { "$ref": "#/entities/ExpenseRecord" },

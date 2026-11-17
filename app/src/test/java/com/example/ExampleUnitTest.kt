@@ -1411,9 +1411,41 @@ class ExampleUnitTest {
         val verifyLifetimeOnB = com.example.util.SovereignActivationManager.verifyActivationCode(deviceHashB, lifetimeKeyA)
         assertFalse(verifyLifetimeOnB.isValid)
 
-        // 4. Founder Master PIN check
-        assertTrue(com.example.util.SovereignActivationManager.isValidFounderMasterPin("7788"))
+        // 4. Security hardening: client-side verification never claims server verification and disables master PIN backdoors
+        assertTrue(verifyLifetimeOnA.requiresServerVerification)
+        assertFalse(verifyLifetimeOnA.isServerVerified)
+        assertEquals("PENDING_SERVER_VERIFICATION", verifyLifetimeOnA.verificationStatus)
+        assertFalse(com.example.util.SovereignActivationManager.isValidFounderMasterPin("7788"))
         assertFalse(com.example.util.SovereignActivationManager.isValidFounderMasterPin("0000"))
+
+        // 5. Server-verified Pro expiry evaluation on UserSettings
+        val nowMillis = 1_750_000_000_000L
+        val freeUser = UserSettings(userId = "u1", isPro = false, proTier = "free")
+        assertFalse(freeUser.hasActiveServerVerifiedPro(nowMillis))
+
+        val expiredMonthlyPro = UserSettings(
+            userId = "u2",
+            isPro = true,
+            proTier = "gold",
+            proExpiryMillis = nowMillis - 60_000L
+        )
+        assertFalse("Expired monthly subscription must not be treated as active Pro", expiredMonthlyPro.hasActiveServerVerifiedPro(nowMillis))
+
+        val activeMonthlyPro = UserSettings(
+            userId = "u3",
+            isPro = true,
+            proTier = "gold",
+            proExpiryMillis = nowMillis + 86_400_000L
+        )
+        assertTrue(activeMonthlyPro.hasActiveServerVerifiedPro(nowMillis))
+
+        val activeLifetimePro = UserSettings(
+            userId = "u4",
+            isPro = true,
+            proTier = "platinum",
+            proExpiryMillis = 0L
+        )
+        assertTrue(activeLifetimePro.hasActiveServerVerifiedPro(nowMillis))
     }
 
     @Test

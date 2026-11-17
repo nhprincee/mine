@@ -58,7 +58,18 @@ service cloud.firestore {
       return (!('isPro' in data) || data.isPro is bool)
         && (!('proTier' in data) || (data.proTier is string && isValidProTier(data.proTier)))
         && (!('proExpiryMillis' in data) || (data.proExpiryMillis is int && data.proExpiryMillis >= 0))
-        && (!('proExpiresAtMillis' in data) || (data.proExpiresAtMillis is int && data.proExpiresAtMillis >= 0));
+        && (!('proExpiresAtMillis' in data) || (data.proExpiresAtMillis is int && data.proExpiresAtMillis >= 0))
+        && (!('lastVerifiedPaymentId' in data) || (data.lastVerifiedPaymentId is string && data.lastVerifiedPaymentId.size() <= 128));
+    }
+
+    // Clients may NEVER grant themselves Pro access, a paid tier, or a non-zero expiry on profile creation.
+    // Only trusted server-side Firebase Cloud Functions (Admin SDK) may write Pro entitlements.
+    function hasNoClientProGrantOnCreate(data) {
+      return (!('isPro' in data) || data.isPro == false)
+        && (!('proTier' in data) || data.proTier == 'free')
+        && (!('proExpiryMillis' in data) || data.proExpiryMillis == 0)
+        && (!('proExpiresAtMillis' in data) || data.proExpiresAtMillis == 0)
+        && !('lastVerifiedPaymentId' in data);
     }
 
     function isValidOptionalNightGuardAndNotifyFields(data) {
@@ -101,6 +112,7 @@ service cloud.firestore {
           'proTier',
           'proExpiryMillis',
           'proExpiresAtMillis',
+          'lastVerifiedPaymentId',
           'nightGuardEnabled',
           'nightGuardStartHour',
           'nightGuardStartMinute',
@@ -458,10 +470,64 @@ service cloud.firestore {
         && data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
 
+    function isValidPaymentVerificationRequest(data, userId, verificationId) {
+      return data.keys().hasAll([
+          'userId',
+          'verificationId',
+          'orderId',
+          'paymentId',
+          'utrNumber',
+          'planId',
+          'tierKey',
+          'amountInr',
+          'currency',
+          'deviceHash',
+          'status',
+          'idempotencyKey',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'userId',
+          'verificationId',
+          'orderId',
+          'paymentId',
+          'utrNumber',
+          'planId',
+          'tierKey',
+          'amountInr',
+          'currency',
+          'deviceHash',
+          'status',
+          'idempotencyKey',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.userId is string && data.userId == userId
+        && data.verificationId is string && data.verificationId == verificationId
+        && data.orderId is string && data.orderId.size() >= 1 && data.orderId.size() <= 128
+        && data.paymentId is string && data.paymentId.size() <= 128
+        && data.utrNumber is string && data.utrNumber.size() <= 64
+        && data.planId is string && data.planId in ['starter_monthly', 'sovereign_lifetime']
+        && data.tierKey is string && data.tierKey in ['gold', 'platinum']
+        && data.amountInr is int && (
+          (data.planId == 'starter_monthly' && data.tierKey == 'gold' && data.amountInr == 30)
+          || (data.planId == 'sovereign_lifetime' && data.tierKey == 'platinum' && data.amountInr == 299)
+        )
+        && data.currency is string && data.currency == 'INR'
+        && data.deviceHash is string && data.deviceHash.size() >= 4 && data.deviceHash.size() <= 32
+        && data.status is string && data.status == 'PENDING_SERVER_VERIFICATION'
+        && data.idempotencyKey is string && data.idempotencyKey == verificationId
+        && data.createdAt is timestamp && data.createdAt <= request.time
+        && data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
     match /users/{userId} {
       allow get: if isOwner(userId);
       allow list: if isOwner(userId);
-      allow create: if isOwner(userId) && isValidUserSettings(request.resource.data, userId);
+      allow create: if isOwner(userId)
+                    && isValidUserSettings(request.resource.data, userId)
+                    && hasNoClientProGrantOnCreate(request.resource.data);
       allow update: if isOwner(userId)
                     && isValidUserSettings(request.resource.data, userId)
                     && request.resource.data.userId == resource.data.userId
@@ -474,10 +540,6 @@ service cloud.firestore {
                       'themeId',
                       'myUpiId',
                       'upiGuardTone',
-                      'isPro',
-                      'proTier',
-                      'proExpiryMillis',
-                      'proExpiresAtMillis',
                       'nightGuardEnabled',
                       'nightGuardStartHour',
                       'nightGuardStartMinute',
@@ -492,6 +554,16 @@ service cloud.firestore {
                       'updatedAt'
                     ]);
       allow delete: if isOwner(userId);
+
+      match /payment_verifications/{verificationId} {
+        allow get: if isOwner(userId) && isValidId(verificationId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId)
+                      && isValidId(verificationId)
+                      && !exists(/databases/$(database)/documents/users/$(userId)/payment_verifications/$(verificationId))
+                      && isValidPaymentVerificationRequest(request.resource.data, userId, verificationId);
+        allow update, delete: if false;
+      }
 
       match /expenses/{expenseId} {
         allow get: if isOwner(userId);

@@ -1501,12 +1501,12 @@ fun MyProfileBottomSheet(
                                     activationCode = inlineActivationCode,
                                     result = res
                                 )
-                                inlineActivationFeedback = "✅ Unlocked ${res.planDisplayName}!"
+                                inlineActivationFeedback = "⏳ Submitted ${res.planDisplayName} for server-side verification."
                                 onUpgradeProPlan?.invoke(res.tierKey, res.durationDays)
-                                onShowToast("👑 ${res.planDisplayName} Unlocked!")
+                                onShowToast("⏳ ${res.planDisplayName} submitted for server verification!")
                             } else {
                                 inlineActivationFeedback = res.errorMessage
-                                onShowToast(res.errorMessage ?: "Invalid Activation Key")
+                                onShowToast(res.errorMessage ?: "Invalid Activation Reference")
                             }
                         },
                         shape = RoundedCornerShape(10.dp),

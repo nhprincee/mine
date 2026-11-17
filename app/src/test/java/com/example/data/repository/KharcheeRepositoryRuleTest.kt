@@ -187,6 +187,59 @@ class KharcheeRepositoryRuleTest : FirestoreEmulatorTestBase() {
         assertTrue(emitted.any { it.id == eventId && it.outcome == "cancelled" && it.amount == 2499L })
     }
 
+    @Test
+    fun proMembershipSecurity_clientCannotSelfGrantProAndPaymentVerificationIsIdempotent() = runBlocking {
+        val uid = signInTestUser(ALICE_EMAIL)
+        val repository = KharcheeRepository(firestore)
+
+        // 1. Client upsertUserSettings creates profile without granting Pro even if caller passes isPro = true
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            repository.upsertUserSettings(
+                dailyLimit = 750L,
+                isPro = true,
+                proTier = "platinum",
+                proExpiryMillis = System.currentTimeMillis() + 86_400_000L
+            ).getOrThrow()
+        }
+
+        val initialSettings = withTimeout(FLOW_TIMEOUT_MS) {
+            repository.observeUserSettings(uid).first { it != null }
+        }
+        assertNotNull(initialSettings)
+        assertEquals(false, initialSettings?.isPro)
+        assertEquals("free", initialSettings?.proTier)
+
+        // 2. Submitting a payment verification request creates a PENDING_SERVER_VERIFICATION doc without mutating isPro
+        val uniqueSuffix = System.currentTimeMillis()
+        val testOrderId = "ord_test_$uniqueSuffix"
+        val testPaymentId = "pay_test_$uniqueSuffix"
+        val verificationId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            repository.submitPaymentVerificationRequest(
+                tier = "platinum",
+                orderId = testOrderId,
+                paymentId = testPaymentId,
+                utrNumber = "430011223344",
+                deviceHash = "A1B2C3D4"
+            ).getOrThrow()
+        }
+        assertTrue(verificationId.isNotEmpty())
+
+        // 3. Replaying the exact same payment/order ID fails with PERMISSION_DENIED due to idempotency rule
+        val duplicateAttempt = withTimeout(DEFAULT_TIMEOUT_MS) {
+            repository.submitPaymentVerificationRequest(
+                tier = "platinum",
+                orderId = testOrderId,
+                paymentId = testPaymentId,
+                utrNumber = "430011223344",
+                deviceHash = "A1B2C3D4"
+            )
+        }
+        assertTrue(duplicateAttempt.isFailure)
+        val duplicateEx = duplicateAttempt.exceptionOrNull()?.unwrapFirestoreException()
+        assertNotNull(duplicateEx)
+        assertEquals(FirebaseFirestoreException.Code.PERMISSION_DENIED, duplicateEx?.code)
+    }
+
     private companion object {
         const val ALICE_EMAIL = "alice@kharchee.test"
         const val BOB_EMAIL = "bob@kharchee.test"
