@@ -379,3 +379,40 @@ fun getHudThemeById(id: String): HudThemePalette {
     val normalized = ThemePreferenceManager.normalizeThemeId(id)
     return ALL_HUD_THEMES.firstOrNull { it.id == normalized } ?: StarkHudTheme
 }
+
+// ============================================================================
+// KHATA DEEP BURGUNDY × OBSIDIAN × PLATINUM × MUTED ROSE PALETTE (PHASE 1)
+// ============================================================================
+
+// Background
+val KhataPrimaryBackground = Color(0xFF090609)
+val KhataSecondaryBackground = Color(0xFF10090E)
+val KhataCardSurface = Color(0xFF190E17)
+val KhataElevatedCardSurface = Color(0xFF21121D)
+
+// Burgundy
+val KhataDeepBurgundy = Color(0xFF351322)
+val KhataBurgundySurface = Color(0xFF48182B)
+val KhataBurgundyBorder = Color(0xFF78334F)
+
+// Platinum
+val KhataPrimaryText = Color(0xFFF4EDF1)
+val KhataSecondaryText = Color(0xFFBBAAB4)
+val KhataMutedText = Color(0xFF897985)
+val KhataPlatinumHighlight = Color(0xFFD5C3CE)
+
+// Financial Colours
+val KhataLenaReceive = Color(0xFF55D6A5)
+val KhataDenaPay = Color(0xFFE78AA5)
+val KhataNetPositionHighlight = Color(0xFFD78BAE)
+
+// Brand Accent
+val KhataBrandPurple = Color(0xFFB66BEA)
+
+// Supporting Khata Surface & Glass Tokens
+val KhataLenaDarkGlassSurface = Color(0xFF0C1A15)
+val KhataLenaGlassOverlay = Color(0x1455D6A5)
+val KhataDenaDarkGlassSurface = Color(0xFF221019)
+val KhataDenaGlassOverlay = Color(0x14E78AA5)
+val KhataSettledRoseSlate = Color(0xFF6B5B66)
+

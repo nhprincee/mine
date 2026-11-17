@@ -519,6 +519,202 @@ class KharcheeRepository(private val db: FirebaseFirestore) {
         }
     }
 
+    // --- LIFETIME KHATA UNIVERSE (FIRESTORE CLOUD MEMORY SYNC) ---
+
+    private fun sanitizeDocId(rawId: String): String {
+        val cleaned = rawId.trim().replace(Regex("[^a-zA-Z0-9_\\-]"), "_")
+        return cleaned.ifBlank { "khata_${System.currentTimeMillis()}" }.take(128)
+    }
+
+    suspend fun upsertKhataContactToCloud(contact: com.example.data.model.KhataContact): Result<Unit> = runCatching {
+        val uid = auth.currentUser?.uid ?: return@runCatching
+        val docId = sanitizeDocId(contact.id)
+        val docRef = db.collection("users").document(uid).collection("khata_contacts").document(docId)
+        try {
+            val snap = docRef.get().await()
+            if (!snap.exists()) {
+                val payload = mapOf(
+                    "userId" to uid,
+                    "contactId" to docId,
+                    "name" to contact.name.trim().take(80).ifEmpty { "Contact" },
+                    "phone" to contact.phone.trim().take(40),
+                    "avatarInitials" to contact.avatarInitials.trim().take(8).ifEmpty { "KH" },
+                    "notes" to contact.notes.trim().take(400),
+                    "reminderEnabled" to contact.reminderEnabled,
+                    "createdAtMillis" to contact.createdAtMillis.coerceAtLeast(1L),
+                    "updatedAtMillis" to contact.updatedAtMillis.coerceAtLeast(1L),
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+                docRef.set(payload).await()
+            } else {
+                val updates = mapOf(
+                    "name" to contact.name.trim().take(80).ifEmpty { "Contact" },
+                    "phone" to contact.phone.trim().take(40),
+                    "avatarInitials" to contact.avatarInitials.trim().take(8).ifEmpty { "KH" },
+                    "notes" to contact.notes.trim().take(400),
+                    "reminderEnabled" to contact.reminderEnabled,
+                    "updatedAtMillis" to contact.updatedAtMillis.coerceAtLeast(1L),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+                docRef.update(updates).await()
+            }
+            com.example.data.model.AdvancedKhataStore.updateCloudSyncStatus("☁️ Lifetime Memory Synced")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, docRef.path)
+            throw e
+        }
+    }
+
+    suspend fun upsertKhataEntryToCloud(entry: com.example.data.model.KhataLedgerEntry): Result<Unit> = runCatching {
+        val uid = auth.currentUser?.uid ?: return@runCatching
+        val docId = sanitizeDocId(entry.id)
+        val cleanContactId = sanitizeDocId(entry.contactId)
+        val docRef = db.collection("users").document(uid).collection("khata_entries").document(docId)
+        try {
+            val snap = docRef.get().await()
+            if (!snap.exists()) {
+                val payload = mapOf(
+                    "userId" to uid,
+                    "entryId" to docId,
+                    "contactId" to cleanContactId,
+                    "contactName" to entry.contactName.trim().take(80).ifEmpty { "Contact" },
+                    "direction" to entry.direction.name,
+                    "recordType" to entry.recordType.name,
+                    "parentEntryId" to (entry.parentEntryId?.take(128) ?: ""),
+                    "amount" to entry.amount.coerceIn(1L, 100000000L),
+                    "txDateMillis" to entry.txDateMillis.coerceAtLeast(1L),
+                    "dueDateMillis" to (entry.dueDateMillis ?: -1L),
+                    "description" to entry.description.trim().take(300),
+                    "category" to entry.category.trim().take(80).ifEmpty { "Personal Udhaar" },
+                    "notes" to entry.notes.trim().take(500),
+                    "deleted" to entry.isDeleted,
+                    "archived" to entry.isArchived,
+                    "edited" to entry.isEdited,
+                    "previousAmountBeforeEdit" to (entry.previousAmountBeforeEdit ?: -1L),
+                    "previousDescriptionBeforeEdit" to (entry.previousDescriptionBeforeEdit?.take(300) ?: ""),
+                    "editCount" to entry.editCount.coerceAtLeast(0),
+                    "proofAttachmentUri" to entry.proofAttachmentUri.trim().take(1000),
+                    "proofAttachmentLabel" to entry.proofAttachmentLabel.trim().take(160),
+                    "idempotencyKey" to entry.idempotencyKey.trim().take(180),
+                    "createdAtMillis" to entry.createdAtMillis.coerceAtLeast(1L),
+                    "updatedAtMillis" to entry.updatedAtMillis.coerceAtLeast(1L),
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+                docRef.set(payload).await()
+            } else {
+                val updates = mapOf(
+                    "contactName" to entry.contactName.trim().take(80).ifEmpty { "Contact" },
+                    "amount" to entry.amount.coerceIn(1L, 100000000L),
+                    "dueDateMillis" to (entry.dueDateMillis ?: -1L),
+                    "description" to entry.description.trim().take(300),
+                    "category" to entry.category.trim().take(80).ifEmpty { "Personal Udhaar" },
+                    "notes" to entry.notes.trim().take(500),
+                    "deleted" to entry.isDeleted,
+                    "archived" to entry.isArchived,
+                    "edited" to entry.isEdited,
+                    "previousAmountBeforeEdit" to (entry.previousAmountBeforeEdit ?: -1L),
+                    "previousDescriptionBeforeEdit" to (entry.previousDescriptionBeforeEdit?.take(300) ?: ""),
+                    "editCount" to entry.editCount.coerceAtLeast(0),
+                    "proofAttachmentUri" to entry.proofAttachmentUri.trim().take(1000),
+                    "proofAttachmentLabel" to entry.proofAttachmentLabel.trim().take(160),
+                    "updatedAtMillis" to entry.updatedAtMillis.coerceAtLeast(1L),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+                docRef.update(updates).await()
+            }
+            com.example.data.model.AdvancedKhataStore.updateCloudSyncStatus("☁️ Lifetime Memory Synced")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, docRef.path)
+            throw e
+        }
+    }
+
+    suspend fun syncLifetimeKhataMemoryWithCloud(context: Context): Result<Unit> = runCatching {
+        val uid = auth.currentUser?.uid ?: return@runCatching
+        val userDoc = db.collection("users").document(uid)
+        val contactsSnap = userDoc.collection("khata_contacts").whereEqualTo("userId", uid).get().await()
+        val entriesSnap = userDoc.collection("khata_entries").whereEqualTo("userId", uid).get().await()
+
+        val cloudContacts = contactsSnap.documents.mapNotNull { doc ->
+            val cid = doc.getString("contactId") ?: doc.id
+            val name = doc.getString("name")?.trim() ?: return@mapNotNull null
+            if (name.isEmpty()) return@mapNotNull null
+            com.example.data.model.KhataContact(
+                id = cid,
+                userId = uid,
+                name = name,
+                phone = doc.getString("phone") ?: "",
+                avatarInitials = doc.getString("avatarInitials") ?: com.example.data.model.AdvancedKhataStore.computeInitials(name),
+                notes = doc.getString("notes") ?: "",
+                reminderEnabled = doc.getBoolean("reminderEnabled") ?: true,
+                createdAtMillis = doc.getLong("createdAtMillis") ?: System.currentTimeMillis(),
+                updatedAtMillis = doc.getLong("updatedAtMillis") ?: System.currentTimeMillis()
+            )
+        }
+
+        val cloudEntries = entriesSnap.documents.mapNotNull { doc ->
+            val eid = doc.getString("entryId") ?: doc.id
+            val cid = doc.getString("contactId") ?: return@mapNotNull null
+            val cname = doc.getString("contactName") ?: "Contact"
+            val dirStr = doc.getString("direction") ?: "LENA_HAI"
+            val typeStr = doc.getString("recordType") ?: "ORIGINAL_ENTRY"
+            val dueRaw = doc.getLong("dueDateMillis") ?: -1L
+            val prevAmtRaw = doc.getLong("previousAmountBeforeEdit") ?: -1L
+            val prevDescRaw = doc.getString("previousDescriptionBeforeEdit") ?: ""
+            val parentRaw = doc.getString("parentEntryId") ?: ""
+            com.example.data.model.KhataLedgerEntry(
+                id = eid,
+                userId = uid,
+                contactId = cid,
+                contactName = cname,
+                direction = runCatching { com.example.data.model.KhataDirection.valueOf(dirStr) }
+                    .getOrDefault(com.example.data.model.KhataDirection.LENA_HAI),
+                recordType = runCatching { com.example.data.model.KhataRecordType.valueOf(typeStr) }
+                    .getOrDefault(com.example.data.model.KhataRecordType.ORIGINAL_ENTRY),
+                parentEntryId = parentRaw.ifBlank { null },
+                amount = (doc.getLong("amount") ?: 0L).coerceAtLeast(1L),
+                txDateMillis = doc.getLong("txDateMillis") ?: System.currentTimeMillis(),
+                dueDateMillis = if (dueRaw > 0L) dueRaw else null,
+                description = doc.getString("description") ?: "",
+                category = doc.getString("category") ?: "Personal Udhaar",
+                notes = doc.getString("notes") ?: "",
+                isDeleted = doc.getBoolean("deleted") ?: false,
+                isArchived = doc.getBoolean("archived") ?: false,
+                isEdited = doc.getBoolean("edited") ?: false,
+                previousAmountBeforeEdit = if (prevAmtRaw > 0L) prevAmtRaw else null,
+                previousDescriptionBeforeEdit = prevDescRaw.ifBlank { null },
+                editCount = (doc.getLong("editCount") ?: 0L).toInt(),
+                proofAttachmentUri = doc.getString("proofAttachmentUri") ?: "",
+                proofAttachmentLabel = doc.getString("proofAttachmentLabel") ?: "",
+                idempotencyKey = doc.getString("idempotencyKey") ?: "",
+                syncStatus = "SYNCED",
+                createdAtMillis = doc.getLong("createdAtMillis") ?: System.currentTimeMillis(),
+                updatedAtMillis = doc.getLong("updatedAtMillis") ?: System.currentTimeMillis()
+            )
+        }
+
+        val (contactsToUpload, entriesToUpload) = com.example.data.model.AdvancedKhataStore.mergeCloudSnapshot(
+            context = context,
+            userId = uid,
+            cloudContacts = cloudContacts,
+            cloudEntries = cloudEntries
+        )
+
+        contactsToUpload.forEach { c ->
+            upsertKhataContactToCloud(c)
+        }
+        entriesToUpload.forEach { e ->
+            upsertKhataEntryToCloud(e)
+        }
+        com.example.data.model.AdvancedKhataStore.updateCloudSyncStatus("☁️ Lifetime Memory Synced")
+    }
+
     // --- SAVINGS GOALS ---
 
     fun observeSavingsGoals(userId: String = requireUserId()): Flow<List<SavingsGoalRecord>> = flow {

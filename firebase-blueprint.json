@@ -66,6 +66,59 @@
       },
       "required": ["userId", "name", "phone", "upiId", "netBalance", "lastNote", "createdAt", "updatedAt"]
     },
+    "KhataContactRecord": {
+      "title": "KhataContactRecord",
+      "description": "Lifetime Khata Universe contact profile persisted in Firestore per user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "contactId": { "type": "string", "description": "Stable unique contact ID." },
+        "name": { "type": "string", "description": "Contact display name." },
+        "phone": { "type": "string", "description": "Contact phone or UPI identifier." },
+        "avatarInitials": { "type": "string", "description": "1-4 character avatar initials." },
+        "notes": { "type": "string", "description": "Optional relationship notes." },
+        "reminderEnabled": { "type": "boolean", "description": "Whether payment reminders are enabled for this contact." },
+        "createdAtMillis": { "type": "integer", "description": "Original creation epoch milliseconds." },
+        "updatedAtMillis": { "type": "integer", "description": "Latest update epoch milliseconds." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation server timestamp via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Update server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": ["userId", "contactId", "name", "phone", "avatarInitials", "notes", "reminderEnabled", "createdAtMillis", "updatedAtMillis", "createdAt", "updatedAt"]
+    },
+    "KhataEntryRecord": {
+      "title": "KhataEntryRecord",
+      "description": "Immutable-origin Lifetime Khata transaction record (original entry, partial repayment, or full settlement) with soft-archive, edit audit trail, and Proof Vault support.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "entryId": { "type": "string", "description": "Stable unique transaction ID." },
+        "contactId": { "type": "string", "description": "Associated KhataContact ID." },
+        "contactName": { "type": "string", "description": "Associated contact display name." },
+        "direction": { "type": "string", "description": "LENA_HAI or DENA_HAI." },
+        "recordType": { "type": "string", "description": "ORIGINAL_ENTRY, PARTIAL_PAYMENT, or FULL_SETTLEMENT." },
+        "parentEntryId": { "type": "string", "description": "Optional parent entry ID for linked repayments." },
+        "amount": { "type": "integer", "description": "Transaction amount in INR." },
+        "txDateMillis": { "type": "integer", "description": "Original transaction timestamp in epoch milliseconds." },
+        "dueDateMillis": { "type": "integer", "description": "Promise-to-pay due date in epoch milliseconds (-1 if none)." },
+        "description": { "type": "string", "description": "Transaction description or reason." },
+        "category": { "type": "string", "description": "Khata category label." },
+        "notes": { "type": "string", "description": "Optional notes." },
+        "deleted": { "type": "boolean", "description": "Soft-deleted flag (never hard-erased)." },
+        "archived": { "type": "boolean", "description": "Soft-archived flag." },
+        "edited": { "type": "boolean", "description": "Whether this transaction was edited." },
+        "previousAmountBeforeEdit": { "type": "integer", "description": "Original amount prior to edit (-1 if unedited)." },
+        "previousDescriptionBeforeEdit": { "type": "string", "description": "Original description prior to edit." },
+        "editCount": { "type": "integer", "description": "Number of edits applied." },
+        "proofAttachmentUri": { "type": "string", "description": "Proof Vault receipt/document URI." },
+        "proofAttachmentLabel": { "type": "string", "description": "Proof Vault attachment label." },
+        "idempotencyKey": { "type": "string", "description": "Deterministic idempotency token preventing duplicate writes on retry." },
+        "createdAtMillis": { "type": "integer", "description": "Original creation epoch milliseconds." },
+        "updatedAtMillis": { "type": "integer", "description": "Last modification epoch milliseconds." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation server timestamp via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Update server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": ["userId", "entryId", "contactId", "contactName", "direction", "recordType", "parentEntryId", "amount", "txDateMillis", "dueDateMillis", "description", "category", "notes", "deleted", "archived", "edited", "previousAmountBeforeEdit", "previousDescriptionBeforeEdit", "editCount", "proofAttachmentUri", "proofAttachmentLabel", "idempotencyKey", "createdAtMillis", "updatedAtMillis", "createdAt", "updatedAt"]
+    },
     "SavingsGoal": {
       "title": "SavingsGoal",
       "description": "Micro-savings target tracked by the user.",
@@ -145,6 +198,14 @@
     "/users/{userId}/khata_friends/{friendId}": {
       "schema": { "$ref": "#/entities/KhataFriend" },
       "description": "Private subcollection of Khata friends and Lena/Dena balances belonging to the user."
+    },
+    "/users/{userId}/khata_contacts/{contactId}": {
+      "schema": { "$ref": "#/entities/KhataContactRecord" },
+      "description": "Private subcollection of Lifetime Khata Universe contacts belonging to the user."
+    },
+    "/users/{userId}/khata_entries/{entryId}": {
+      "schema": { "$ref": "#/entities/KhataEntryRecord" },
+      "description": "Private subcollection of Lifetime Khata transaction entries, repayments, settlements, and Proof Vault metadata belonging to the user."
     },
     "/users/{userId}/savings_goals/{goalId}": {
       "schema": { "$ref": "#/entities/SavingsGoal" },

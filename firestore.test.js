@@ -214,3 +214,101 @@ test("Authenticated user: can create and query own payment_reminders and night_g
     bobDb.collection(`users/${ALICE_UID}/night_guard_events`).doc("ng_1").get()
   );
 });
+
+test("Lifetime Khata Memory: owner can create, list, and update khata_contacts and khata_entries; cross-user access and hard delete are rejected", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const now = new Date(Date.now() - 5000);
+  const later = new Date(Date.now() - 1000);
+
+  // 1. Create Khata Contact
+  await assertSucceeds(
+    aliceDb.collection(`users/${ALICE_UID}/khata_contacts`).doc("contact_aman_1").set({
+      userId: ALICE_UID,
+      contactId: "contact_aman_1",
+      name: "Aman Verma",
+      phone: "9876543210",
+      avatarInitials: "AV",
+      notes: "College friend",
+      reminderEnabled: true,
+      createdAtMillis: 1700000000000,
+      updatedAtMillis: 1700000000000,
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+
+  // 2. Create Original Khata Entry
+  await assertSucceeds(
+    aliceDb.collection(`users/${ALICE_UID}/khata_entries`).doc("entry_1").set({
+      userId: ALICE_UID,
+      entryId: "entry_1",
+      contactId: "contact_aman_1",
+      contactName: "Aman Verma",
+      direction: "LENA_HAI",
+      recordType: "ORIGINAL_ENTRY",
+      parentEntryId: "",
+      amount: 1000,
+      txDateMillis: 1700000000000,
+      dueDateMillis: 1700600000000,
+      description: "Dinner & Movie Split",
+      category: "Food & Outing",
+      notes: "Paid via UPI",
+      deleted: false,
+      archived: false,
+      edited: false,
+      previousAmountBeforeEdit: -1,
+      previousDescriptionBeforeEdit: "",
+      editCount: 0,
+      proofAttachmentUri: "",
+      proofAttachmentLabel: "",
+      idempotencyKey: "idem_entry_1",
+      createdAtMillis: 1700000000000,
+      updatedAtMillis: 1700000000000,
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+
+  // 3. Partial update (Edit + Proof Vault attachment) preserves createdAtMillis
+  await assertSucceeds(
+    aliceDb.collection(`users/${ALICE_UID}/khata_entries`).doc("entry_1").update({
+      amount: 1200,
+      description: "Dinner, Movie & Cab Split",
+      edited: true,
+      previousAmountBeforeEdit: 1000,
+      previousDescriptionBeforeEdit: "Dinner & Movie Split",
+      editCount: 1,
+      proofAttachmentUri: "content://media/external/images/media/42",
+      proofAttachmentLabel: "UPI Receipt #42",
+      updatedAtMillis: 1700050000000,
+      updatedAt: later,
+    })
+  );
+
+  // 4. Tampering with immutable createdAtMillis or direction is rejected
+  await assertFails(
+    aliceDb.collection(`users/${ALICE_UID}/khata_entries`).doc("entry_1").update({
+      createdAtMillis: 1710000000000,
+      updatedAtMillis: 1710000000000,
+      updatedAt: later,
+    })
+  );
+
+  // 5. Hard deletion is strictly prohibited (soft-archive / soft-delete only)
+  await assertFails(
+    aliceDb.collection(`users/${ALICE_UID}/khata_entries`).doc("entry_1").delete()
+  );
+  await assertFails(
+    aliceDb.collection(`users/${ALICE_UID}/khata_contacts`).doc("contact_aman_1").delete()
+  );
+
+  // 6. Cross-user isolation: Bob cannot read or modify Alice's Khata contacts or entries
+  await assertFails(
+    bobDb.collection(`users/${ALICE_UID}/khata_contacts`).doc("contact_aman_1").get()
+  );
+  await assertFails(
+    bobDb.collection(`users/${ALICE_UID}/khata_entries`).doc("entry_1").get()
+  );
+});
+

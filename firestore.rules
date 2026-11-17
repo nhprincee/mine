@@ -2,45 +2,9 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // ===============================================================
-    // Assumed Data Model
-    // ===============================================================
-    //
-    // Collection: /users/{userId}
-    // Document ID: {userId} (matches request.auth.uid)
-    // Fields:
-    //   - userId: string (required, immutable, == request.auth.uid)
-    //   - dailyLimit: int (required, 50 <= dailyLimit <= 500000)
-    //   - lockdownActive: bool (required)
-    //   - autoLockdownAt90: bool (required)
-    //   - stealthMode: bool (required)
-    //   - themeId: string (required, in ['stark', 'mark85', 'stealth'])
-    //   - myUpiId: string (required, size <= 100)
-    //   - upiGuardTone: string (required, in ['roast', 'hinglish', 'disciplined'])
-    //   - isPro: bool (optional)
-    //   - proTier: string (optional, in ['free', 'monthly', 'annual', 'sovereign'])
-    //   - proExpiresAtMillis: int (optional, >= 0)
-    //   - nightGuardEnabled: bool (optional)
-    //   - nightGuardStartHour: int (optional, 0..23)
-    //   - nightGuardStartMinute: int (optional, 0..59)
-    //   - nightGuardEndHour: int (optional, 0..23)
-    //   - nightGuardEndMinute: int (optional, 0..59)
-    //   - nightGuardCooldownEndMillis: int (optional, >= 0)
-    //   - lastChallengeId: string (optional, size <= 64)
-    //   - enablePreSpendConfirm: bool (optional)
-    //   - notifyPaymentReminders: bool (optional)
-    //   - notifyNightGuardAlert: bool (optional)
-    //   - notifyMorningReview: bool (optional)
-    //   - createdAt: timestamp (required, immutable, <= request.time)
-    //   - updatedAt: timestamp (required, <= request.time)
-    //
-    // Subcollection: /users/{userId}/expenses/{expenseId}
-    // Subcollection: /users/{userId}/khata_friends/{friendId}
-    // Subcollection: /users/{userId}/savings_goals/{goalId}
-    // Subcollection: /users/{userId}/jarvis_messages/{messageId}
-    // Subcollection: /users/{userId}/payment_reminders/{reminderId}
-    // Subcollection: /users/{userId}/night_guard_events/{eventId}
-    // ===============================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
 
     function isAuthenticated() {
       return request.auth != null;
@@ -48,6 +12,10 @@ service cloud.firestore {
 
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
     function isValidCategory(cat) {
@@ -231,6 +199,131 @@ service cloud.firestore {
         && (!('settled' in data) || data.settled is bool)
         && (!('netBalance' in data) || (data.netBalance is int && data.netBalance >= -10000000 && data.netBalance <= 10000000))
         && (!('lastNote' in data) || (data.lastNote is string && data.lastNote.size() <= 240))
+        && data.createdAt is timestamp && data.createdAt <= request.time
+        && data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidKhataContact(data, userId) {
+      return data.keys().hasAll([
+          'userId',
+          'contactId',
+          'name',
+          'phone',
+          'avatarInitials',
+          'notes',
+          'reminderEnabled',
+          'createdAtMillis',
+          'updatedAtMillis',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'userId',
+          'contactId',
+          'name',
+          'phone',
+          'avatarInitials',
+          'notes',
+          'reminderEnabled',
+          'createdAtMillis',
+          'updatedAtMillis',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.userId is string && data.userId == userId
+        && data.contactId is string && data.contactId.size() >= 1 && data.contactId.size() <= 128
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 80
+        && data.phone is string && data.phone.size() <= 40
+        && data.avatarInitials is string && data.avatarInitials.size() <= 8
+        && data.notes is string && data.notes.size() <= 400
+        && data.reminderEnabled is bool
+        && data.createdAtMillis is int && data.createdAtMillis > 0
+        && data.updatedAtMillis is int && data.updatedAtMillis > 0
+        && data.createdAt is timestamp && data.createdAt <= request.time
+        && data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidKhataEntry(data, userId) {
+      return data.keys().hasAll([
+          'userId',
+          'entryId',
+          'contactId',
+          'contactName',
+          'direction',
+          'recordType',
+          'parentEntryId',
+          'amount',
+          'txDateMillis',
+          'dueDateMillis',
+          'description',
+          'category',
+          'notes',
+          'deleted',
+          'archived',
+          'edited',
+          'previousAmountBeforeEdit',
+          'previousDescriptionBeforeEdit',
+          'editCount',
+          'proofAttachmentUri',
+          'proofAttachmentLabel',
+          'idempotencyKey',
+          'createdAtMillis',
+          'updatedAtMillis',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'userId',
+          'entryId',
+          'contactId',
+          'contactName',
+          'direction',
+          'recordType',
+          'parentEntryId',
+          'amount',
+          'txDateMillis',
+          'dueDateMillis',
+          'description',
+          'category',
+          'notes',
+          'deleted',
+          'archived',
+          'edited',
+          'previousAmountBeforeEdit',
+          'previousDescriptionBeforeEdit',
+          'editCount',
+          'proofAttachmentUri',
+          'proofAttachmentLabel',
+          'idempotencyKey',
+          'createdAtMillis',
+          'updatedAtMillis',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.userId is string && data.userId == userId
+        && data.entryId is string && data.entryId.size() >= 1 && data.entryId.size() <= 128
+        && data.contactId is string && data.contactId.size() >= 1 && data.contactId.size() <= 128
+        && data.contactName is string && data.contactName.size() >= 1 && data.contactName.size() <= 80
+        && data.direction is string && data.direction in ['LENA_HAI', 'DENA_HAI']
+        && data.recordType is string && data.recordType in ['ORIGINAL_ENTRY', 'PARTIAL_PAYMENT', 'FULL_SETTLEMENT']
+        && data.parentEntryId is string && data.parentEntryId.size() <= 128
+        && data.amount is int && data.amount > 0 && data.amount <= 100000000
+        && data.txDateMillis is int && data.txDateMillis > 0
+        && data.dueDateMillis is int && data.dueDateMillis >= -1
+        && data.description is string && data.description.size() <= 300
+        && data.category is string && data.category.size() <= 80
+        && data.notes is string && data.notes.size() <= 500
+        && data.deleted is bool
+        && data.archived is bool
+        && data.edited is bool
+        && data.previousAmountBeforeEdit is int && data.previousAmountBeforeEdit >= -1
+        && data.previousDescriptionBeforeEdit is string && data.previousDescriptionBeforeEdit.size() <= 300
+        && data.editCount is int && data.editCount >= 0
+        && data.proofAttachmentUri is string && data.proofAttachmentUri.size() <= 1000
+        && data.proofAttachmentLabel is string && data.proofAttachmentLabel.size() <= 160
+        && data.idempotencyKey is string && data.idempotencyKey.size() <= 180
+        && data.createdAtMillis is int && data.createdAtMillis > 0
+        && data.updatedAtMillis is int && data.updatedAtMillis > 0
         && data.createdAt is timestamp && data.createdAt <= request.time
         && data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
@@ -442,6 +535,68 @@ service cloud.firestore {
                         'updatedAt'
                       ]);
         allow delete: if isOwner(userId);
+      }
+
+      match /khata_contacts/{contactId} {
+        allow get: if isOwner(userId) && isValidId(contactId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId)
+                      && isValidId(contactId)
+                      && isValidKhataContact(request.resource.data, userId);
+        allow update: if isOwner(userId)
+                      && isValidId(contactId)
+                      && isValidKhataContact(request.resource.data, userId)
+                      && request.resource.data.userId == resource.data.userId
+                      && request.resource.data.contactId == resource.data.contactId
+                      && request.resource.data.createdAtMillis == resource.data.createdAtMillis
+                      && request.resource.data.createdAt == resource.data.createdAt
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                        'name',
+                        'phone',
+                        'avatarInitials',
+                        'notes',
+                        'reminderEnabled',
+                        'updatedAtMillis',
+                        'updatedAt'
+                      ]);
+        allow delete: if false;
+      }
+
+      match /khata_entries/{entryId} {
+        allow get: if isOwner(userId) && isValidId(entryId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId)
+                      && isValidId(entryId)
+                      && isValidKhataEntry(request.resource.data, userId);
+        allow update: if isOwner(userId)
+                      && isValidId(entryId)
+                      && isValidKhataEntry(request.resource.data, userId)
+                      && request.resource.data.userId == resource.data.userId
+                      && request.resource.data.entryId == resource.data.entryId
+                      && request.resource.data.contactId == resource.data.contactId
+                      && request.resource.data.direction == resource.data.direction
+                      && request.resource.data.recordType == resource.data.recordType
+                      && request.resource.data.createdAtMillis == resource.data.createdAtMillis
+                      && request.resource.data.createdAt == resource.data.createdAt
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                        'contactName',
+                        'amount',
+                        'dueDateMillis',
+                        'description',
+                        'category',
+                        'notes',
+                        'deleted',
+                        'archived',
+                        'edited',
+                        'previousAmountBeforeEdit',
+                        'previousDescriptionBeforeEdit',
+                        'editCount',
+                        'proofAttachmentUri',
+                        'proofAttachmentLabel',
+                        'updatedAtMillis',
+                        'updatedAt'
+                      ]);
+        allow delete: if false;
       }
 
       match /savings_goals/{goalId} {

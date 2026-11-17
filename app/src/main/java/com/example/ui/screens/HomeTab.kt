@@ -324,9 +324,22 @@ fun HomeTab(
         )
     }
 
-    val khataSummaryMetrics = remember(context, userId, khataStoreVersion) {
-        val states = AdvancedKhataStore.getAllContactStates(context, userId)
-        AdvancedKhataStore.computeSummaryMetrics(states)
+    val khataContactStates = remember(context, userId, khataStoreVersion, khataFriends) {
+        AdvancedKhataStore.syncLegacyFirestoreFriendsIfNeeded(context, userId, khataFriends)
+        AdvancedKhataStore.getAllContactStates(context, userId)
+    }
+    val khataSummaryMetrics = remember(khataContactStates) {
+        AdvancedKhataStore.computeSummaryMetrics(khataContactStates)
+    }
+    val hallOfShameDefaulters = remember(khataContactStates) {
+        HomeDailyCockpitEngine.computeHallOfShameDefaulters(khataContactStates)
+    }
+
+    var midnightShieldEnabled by remember(context, userId) {
+        mutableStateOf(HomeDailyCockpitEngine.isMidnightMunchiesShieldEnabled(context, userId))
+    }
+    var quarantinedMidnightEntries by remember(context, userId) {
+        mutableStateOf(HomeDailyCockpitEngine.getQuarantinedEntries(context, userId))
     }
 
     var customQuickChips by remember(context, userId) {
@@ -343,7 +356,7 @@ fun HomeTab(
         }
     }
 
-    var isFinancialHealthExpanded by remember { mutableStateOf(false) }
+    var isFinancialHealthExpanded by remember { mutableStateOf(true) }
 
     Box(
         modifier = modifier
@@ -361,9 +374,11 @@ fun HomeTab(
                 top = 16.dp,
                 bottom = 96.dp
             ),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            // Post-Payment UPI Sync Confirmation Badge (shown when returning from UPI app)
+            // =========================================================================
+            // SECTION 1 — INTERACTIVE PIE/DONUT CHART HERO + OXYGEN BURN TANK
+            // =========================================================================
             if (pendingUpiSession?.hasReturnedToApp == true) {
                 item {
                     Row(
@@ -400,53 +415,82 @@ fun HomeTab(
                 }
             }
 
-            // 1. HERO BALANCE CARD: Ultra-clean obsidian card showing Remaining Monthly Budget, Daily Safe Burn Pill, and Discipline Streak Badge
+            val currentClipSms = detectedClipboardSms
+            if (currentClipSms != null) {
+                item {
+                    SmartClipboardDetectedFloatingCard(
+                        detected = currentClipSms,
+                        selectedCategory = clipboardAssignedCategory,
+                        onCycleCategory = {
+                            val idx = EXPENSE_CATEGORIES.indexOf(clipboardAssignedCategory)
+                            clipboardAssignedCategory = EXPENSE_CATEGORIES[(idx + 1).coerceAtLeast(0) % EXPENSE_CATEGORIES.size]
+                        },
+                        onLogNowOneTap = {
+                            onQuickAdd(
+                                currentClipSms.merchant,
+                                clipboardAssignedCategory,
+                                currentClipSms.amount
+                            )
+                            detectedClipboardSms = null
+                        },
+                        onDismiss = {
+                            detectedClipboardSms = null
+                        }
+                    )
+                }
+            }
+
+            // 1. GORGEOUS INTERACTIVE DONUT / PIE CHART HERO
             item {
-                CredBlackTitaniumCard(
-                    totalBalance = totalBalance,
-                    disciplineScore = disciplineScore,
-                    streakDays = streakDays,
-                    remainingToday = dailySafeBurnTelemetry.todaySafeSpendLeft,
-                    stealthMode = settings.stealthMode,
-                    isPro = settings.isPro,
-                    proTier = settings.proTier,
-                    monthSpent = monthSpent,
+                HomeInteractiveDonutChartHero(
+                    expenses = expenses,
                     monthlyBudgetTarget = monthlyBudgetTargetTop,
+                    monthSpent = monthSpent,
+                    todaySpent = todaySpent,
+                    dailyLimit = dailyLimit,
+                    streakDays = streakDays,
+                    disciplineScore = disciplineScore,
+                    stealthMode = settings.stealthMode,
                     safeBurnTelemetry = dailySafeBurnTelemetry,
                     onToggleStealth = onToggleStealth
                 )
             }
 
-            // 1B. UNIFIED LIVE STATUS TICKER: Single-line glassmorphic strip below Hero Card combining Khata & Bills awareness
+            // 2. OXYGEN BURN TANK (RUNWAY PROGRESS BAR) IMMEDIATELY BELOW DONUT CHART
             item {
-                val pendingBillCountTicker = remember(paymentReminders) {
-                    paymentReminders.count { !it.isPaid }
-                }
-                UnifiedLiveKhataAndBillsTickerStrip(
-                    lenaTotal = khataSummaryMetrics.totalLenaHai,
-                    denaTotal = khataSummaryMetrics.totalDenaHai,
-                    pendingBillsCount = pendingBillCountTicker,
-                    stealthMode = settings.stealthMode,
-                    onRemindClicked = onNavigateToVault,
-                    onPayNowClicked = onNavigateToVault,
-                    onBillsClicked = { isFinancialHealthExpanded = true }
+                MonthlyOxygenTankProgressBar(
+                    monthlyBudgetTarget = monthlyBudgetTargetTop,
+                    monthSpent = monthSpent,
+                    todaySpent = todaySpent,
+                    dailyLimit = dailyLimit,
+                    stealthMode = settings.stealthMode
                 )
             }
 
-            // 2. 1-TAP QUICK SPEND STRIP: Compact horizontal chips [☕ ₹20 Chai] [🚇 ₹40 Metro] [🛵 ₹50 Auto] [🍔 ₹120 Snacks] + [+ Custom Chip]
+            // 3. SLEEK 1-TAP QUICK SPEND CHIPS ROW IMMEDIATELY BELOW OXYGEN TANK
             item {
                 OneTapQuickRepeatingSpendStrip(
                     customChips = customQuickChips,
                     onInstantLogSpend = { emoji, title, category, amount ->
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onQuickAdd(title, category, amount)
-                        activeQuickSpendUndoEvent = QuickSpendUndoEvent(
-                            timestampMillis = System.currentTimeMillis(),
-                            emoji = emoji,
-                            label = title,
-                            category = category,
-                            amount = amount
-                        )
+                        if (HomeDailyCockpitEngine.shouldQuarantineMidnightExpense(context, userId, category)) {
+                            quarantinedMidnightEntries = HomeDailyCockpitEngine.quarantineMidnightExpense(
+                                context = context,
+                                userId = userId,
+                                title = title,
+                                category = category,
+                                amountInr = amount
+                            )
+                        } else {
+                            onQuickAdd(title, category, amount)
+                            activeQuickSpendUndoEvent = QuickSpendUndoEvent(
+                                timestampMillis = System.currentTimeMillis(),
+                                emoji = emoji,
+                                label = title,
+                                category = category,
+                                amount = amount
+                            )
+                        }
                     },
                     onOpenAddCustomChip = { showCreateCustomChipDialog = true },
                     onDeleteCustomChip = { chipId ->
@@ -455,101 +499,508 @@ fun HomeTab(
                 )
             }
 
-            // 3. PRIMARY ACTION ROW: 3 clean, evenly-spaced rounded buttons: [+ Add Spend] [+ Add Income] [Split/Khata]
+            // 4. HALL OF SHAME OVERDUE CAROUSEL (>₹500 and >7 days late with 1-tap WhatsApp Vasooli)
             item {
-                Row(
+                HallOfShameOverdueCarousel(
+                    defaulters = hallOfShameDefaulters,
+                    stealthMode = settings.stealthMode,
+                    onTriggerWhatsAppVasooli = { defaulter ->
+                        val profileMeta = KharcheeProfileAndToolsStore.getProfileMetadata(
+                            context = context,
+                            userId = userId,
+                            defaultName = "Kharchee Member",
+                            dailyLimit = dailyLimit
+                        )
+                        val senderName = profileMeta.customDisplayName.ifBlank { "Kharchee Member" }
+                        val senderUpi = settings.myUpiId
+                        val savageCaption = com.example.util.KhataSplitCardGenerator.buildVasooliToneMessage(
+                            tone = com.example.util.VasooliReminderTone.BHAICHARA_SAVAGE,
+                            friendName = defaulter.friendName,
+                            amountInr = defaulter.overdueAmountInr,
+                            itemSummary = "${defaulter.itemSummary} (${defaulter.daysLate}d overdue)",
+                            userDisplayName = senderName,
+                            userUpiId = senderUpi
+                        )
+                        com.example.util.KhataSplitCardGenerator.shareSplitReceiptCardOnWhatsApp(
+                            context = context,
+                            contactState = defaulter.contactState,
+                            userDisplayName = senderName,
+                            userUpiId = senderUpi,
+                            specificEntryDescription = "${defaulter.itemSummary} (${defaulter.daysLate}d overdue)",
+                            specificEntryAmount = defaulter.overdueAmountInr,
+                            customCaptionText = savageCaption
+                        )
+                    },
+                    onOpenKhataLedger = onNavigateToVault
+                )
+            }
+
+            // 5. MIDNIGHT MUNCHIES & IMPULSE SHIELD (11 PM - 5 AM QUARANTINE HOLD)
+            item {
+                MidnightMunchiesImpulseShieldCard(
+                    shieldEnabled = midnightShieldEnabled,
+                    quarantinedEntries = quarantinedMidnightEntries,
+                    stealthMode = settings.stealthMode,
+                    onToggleShield = { enabled ->
+                        midnightShieldEnabled = enabled
+                        HomeDailyCockpitEngine.setMidnightMunchiesShieldEnabled(context, userId, enabled)
+                    },
+                    onConfirmQuarantinedEntry = { entry ->
+                        onQuickAdd(entry.title, entry.category, entry.amountInr)
+                        quarantinedMidnightEntries = HomeDailyCockpitEngine.dismissQuarantinedEntry(
+                            context = context,
+                            userId = userId,
+                            entryId = entry.id
+                        )
+                    },
+                    onDiscardQuarantinedEntry = { entry ->
+                        quarantinedMidnightEntries = HomeDailyCockpitEngine.dismissQuarantinedEntry(
+                            context = context,
+                            userId = userId,
+                            entryId = entry.id
+                        )
+                    },
+                    onSimulateQuarantineHold = {
+                        quarantinedMidnightEntries = HomeDailyCockpitEngine.quarantineMidnightExpense(
+                            context = context,
+                            userId = userId,
+                            title = "1:15 AM Swiggy Midnight Combo",
+                            category = "Food",
+                            amountInr = 480L
+                        )
+                    }
+                )
+            }
+
+            // =========================================================================
+            // SECTION 2 — JARVIS INTELLIGENCE
+            // =========================================================================
+            if (latestAlert != null) {
+                item {
+                    AccountabilityBannerCard(
+                        evaluation = latestAlert,
+                        onDismiss = onDismissAlert
+                    )
+                }
+            }
+
+            item {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag("home_primary_action_row"),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .testTag("home_section_jarvis_intelligence"),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Button(
-                        onClick = onOpenAddExpense,
-                        enabled = !settings.lockdownActive,
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF7C3AED),
-                            contentColor = Color.White,
-                            disabledContainerColor = ElevatedGraphite,
-                            disabledContentColor = MutedIvory
-                        ),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                            .testTag("add_expense_button")
-                    ) {
-                        Text(
-                            text = "+ Add Spend",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
+                    MaiScreenJarvisInsightBanner(
+                        monthSpent = monthSpent,
+                        monthlyBudgetTarget = monthlyBudgetTargetTop,
+                        proactiveInsights = proactiveInsights,
+                        onOpenJarvis = {
+                            val topPrompt = proactiveInsights.firstOrNull()?.suggestedPrompt
+                            if (!topPrompt.isNullOrBlank() && onOpenJarvisWithPrompt != null) {
+                                onOpenJarvisWithPrompt(topPrompt)
+                            } else {
+                                onOpenJarvisTab()
+                            }
+                        }
+                    )
 
-                    OutlinedButton(
-                        onClick = onOpenAddIncome,
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Color(0xFF2EE59D).copy(alpha = 0.55f)),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = Color(0xFF0D1F1B),
-                            contentColor = Color(0xFF2EE59D)
-                        ),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                            .testTag("add_income_button")
-                    ) {
-                        Text(
-                            text = "+ Add Income",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-
-                    OutlinedButton(
-                        onClick = onNavigateToVault,
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Color(0xFFA855F7).copy(alpha = 0.55f)),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = Color(0xFF151128),
-                            contentColor = Color(0xFFD8B4FE)
-                        ),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                            .testTag("open_khata_split_button")
-                    ) {
-                        Text(
-                            text = "Split/Khata",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            softWrap = false
-                        )
+                    if (proactiveInsights.size > 1) {
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(proactiveInsights.drop(1).take(3), key = { it.id }) { insight ->
+                                Surface(
+                                    color = Color(0xFF0D0E17),
+                                    shape = RoundedCornerShape(50),
+                                    border = BorderStroke(0.8.dp, Color(0xFF7C3AED).copy(alpha = 0.55f)),
+                                    modifier = Modifier.clickable {
+                                        if (insight.suggestedPrompt.isNotBlank() && onOpenJarvisWithPrompt != null) {
+                                            onOpenJarvisWithPrompt(insight.suggestedPrompt)
+                                        } else {
+                                            onOpenJarvisTab()
+                                        }
+                                    }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(text = insight.iconEmoji, fontSize = 12.sp)
+                                        Text(
+                                            text = insight.title,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color(0xFFD8B4FE),
+                                            maxLines = 1
+                                        )
+                                        if (insight.highlightStat.isNotBlank()) {
+                                            Text(
+                                                text = "· ${insight.highlightStat}",
+                                                fontFamily = JetBrainsMonoFontFamily,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF2EE59D)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
 
-            // 4. RECENT SPENDS: Strictly limited to the last 3 transactions with clean category icons, exact paise formatting, and 1-tap edit/delete
+            // =========================================================================
+            // SECTION 3 — QUICK ACTIONS
+            // =========================================================================
             item {
-                HomeRecentActivitySection(
-                    expenses = expenses,
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("home_section_quick_actions"),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    MaiScreenQuickActionsSection(
+                        onScanAndPay = onOpenSnapAndTrack,
+                        onAddExpense = onOpenAddExpense,
+                        onAddIncome = onOpenAddIncome,
+                        onOpenAnalytics = onNavigateToAnalytics,
+                        onOpenSavingsGoals = onOpenAddGoal,
+                        onOpenBills = onOpenSmartReminders,
+                        onOpenVault = onNavigateToVault,
+                        onOpenSettings = onOpenSettings,
+                        onViewAllTools = onOpenFinanceTools
+                    )
+
+                    // Primary 3-Button Action Bar (preserves existing test tags & rapid access)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("home_primary_action_row"),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = onOpenAddExpense,
+                            enabled = !settings.lockdownActive,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF7C3AED),
+                                contentColor = Color.White,
+                                disabledContainerColor = ElevatedGraphite,
+                                disabledContentColor = MutedIvory
+                            ),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("add_expense_button")
+                        ) {
+                            Text(
+                                text = "+ Add Spend",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = onOpenAddIncome,
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, Color(0xFF2EE59D).copy(alpha = 0.55f)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = Color(0xFF0D1F1B),
+                                contentColor = Color(0xFF2EE59D)
+                            ),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("add_income_button")
+                        ) {
+                            Text(
+                                text = "+ Add Income",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = onNavigateToVault,
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, Color(0xFFA855F7).copy(alpha = 0.55f)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = Color(0xFF151128),
+                                contentColor = Color(0xFFD8B4FE)
+                            ),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("open_khata_split_button")
+                        ) {
+                            Text(
+                                text = "Split/Khata",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
+
+                    // Secondary 4-Pill Utility Row (Analytics, Savings Goals, Scan Receipt, Finance Tools)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        DashboardSecondaryActionChip(
+                            emoji = "📸",
+                            label = "Scan Receipt",
+                            onClick = onOpenSnapAndTrack,
+                            testTag = "quick_chip_scan_receipt"
+                        )
+                        DashboardSecondaryActionChip(
+                            emoji = "📊",
+                            label = "Analytics",
+                            onClick = onNavigateToAnalytics,
+                            testTag = "quick_chip_analytics"
+                        )
+                        DashboardSecondaryActionChip(
+                            emoji = "🎯",
+                            label = "Savings Goals",
+                            onClick = onOpenAddGoal,
+                            testTag = "quick_chip_savings_goals"
+                        )
+                        DashboardSecondaryActionChip(
+                            emoji = "🧮",
+                            label = "Finance Tools",
+                            onClick = onOpenFinanceTools,
+                            testTag = "quick_chip_finance_tools"
+                        )
+                        DashboardSecondaryActionChip(
+                            emoji = "🧾",
+                            label = "SMS Parser",
+                            onClick = onOpenSmsParser,
+                            testTag = "quick_chip_sms_parser"
+                        )
+                    }
+
+                    // 1-Tap Quick Repeating Spend Strip
+                    OneTapQuickRepeatingSpendStrip(
+                        customChips = customQuickChips,
+                        onInstantLogSpend = { emoji, title, category, amount ->
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onQuickAdd(title, category, amount)
+                            activeQuickSpendUndoEvent = QuickSpendUndoEvent(
+                                timestampMillis = System.currentTimeMillis(),
+                                emoji = emoji,
+                                label = title,
+                                category = category,
+                                amount = amount
+                            )
+                        },
+                        onOpenAddCustomChip = { showCreateCustomChipDialog = true },
+                        onDeleteCustomChip = { chipId ->
+                            customQuickChips = HomeDailyCockpitEngine.deleteCustomQuickChip(context, userId, chipId)
+                        }
+                    )
+                }
+            }
+
+            // =========================================================================
+            // SECTION 4 — SPENDING OVERVIEW
+            // =========================================================================
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("home_section_spending_overview"),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // Today vs This Month Live Telemetry Strip
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color(0xFF0D0E17))
+                            .border(1.dp, Color(0xFF2B224C), RoundedCornerShape(18.dp))
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "TODAY'S SPENDING",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFB8B0D4),
+                                letterSpacing = 0.8.sp
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = if (settings.stealthMode) "₹••••" else "₹${formatIndianAmount(todaySpent)}",
+                                fontFamily = headingFont,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = if (isOverLimit) Color(0xFFFF4D8D) else Color.White
+                            )
+                            Text(
+                                text = if (settings.stealthMode) "Daily limit masked" else "Daily cap: ₹${formatIndianAmount(dailyLimit)}",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 10.sp,
+                                color = Color(0xFF2EE59D)
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(38.dp)
+                                .background(Color(0xFF2B224C))
+                        )
+
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(start = 14.dp),
+                            horizontalAlignment = Alignment.End
+                        ) {
+                            Text(
+                                text = "THIS MONTH'S SPEND",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFB8B0D4),
+                                letterSpacing = 0.8.sp
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = if (settings.stealthMode) "₹••••" else "₹${formatIndianAmount(monthSpent)}",
+                                fontFamily = headingFont,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFFD8B4FE)
+                            )
+                            Text(
+                                text = if (settings.stealthMode) "Budget left: ₹••••" else "Left: ₹${formatIndianAmount(dailySafeBurnTelemetry.remainingMonthlyBudget)}",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 10.sp,
+                                color = Color(0xFFB8B0D4)
+                            )
+                        }
+                    }
+
+                    MaiScreenBudgetOverviewCard(
+                        monthSpent = monthSpent,
+                        monthlyBudgetTarget = monthlyBudgetTargetTop,
+                        expenses = expenses,
+                        stealthMode = settings.stealthMode,
+                        onEditBudgetClick = { showLimitEditor = !showLimitEditor }
+                    )
+
+                    AnimatedVisibility(visible = showLimitEditor) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(Color(0xFF120F24))
+                                .border(1.dp, Color(0xFF7C3AED).copy(alpha = 0.6f), RoundedCornerShape(18.dp))
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "DAILY SAFE SPEND LIMIT",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFFD8B4FE)
+                                )
+                                Text(
+                                    text = "₹${formatIndianAmount(sliderLimit.roundToLong())}/day",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF2EE59D)
+                                )
+                            }
+                            Slider(
+                                value = sliderLimit,
+                                onValueChange = { sliderLimit = it },
+                                valueRange = 100f..5000f,
+                                steps = 48,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color(0xFFA855F7),
+                                    activeTrackColor = Color(0xFF7C3AED),
+                                    inactiveTrackColor = Color(0xFF241E38)
+                                )
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedButton(
+                                    onClick = { showLimitEditor = false },
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(0.8.dp, Color(0xFF3E2D6E))
+                                ) {
+                                    Text("Cancel", fontSize = 11.sp, color = Color(0xFFB8B0D4))
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = {
+                                        val updatedDaily = sliderLimit.roundToLong().coerceAtLeast(100L)
+                                        onUpdateDailyLimit(updatedDaily)
+                                        showLimitEditor = false
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED))
+                                ) {
+                                    Text("Save Limit", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                }
+                            }
+                        }
+                    }
+
+                    MaiScreenSpendingOverviewCard(
+                        expenses = expenses,
+                        stealthMode = settings.stealthMode,
+                        onOpenAnalytics = onNavigateToAnalytics
+                    )
+                }
+            }
+
+            // =========================================================================
+            // SECTION 5 — SAVINGS GOALS
+            // =========================================================================
+            item {
+                HomeSavingsGoalsSection(
+                    savingsGoals = savingsGoals,
                     stealthMode = settings.stealthMode,
-                    onViewAllClicked = onNavigateToPassbook,
-                    onEditTransaction = onEditExpense,
-                    onDeleteTransaction = onDeleteExpense,
-                    onAddTransaction = onOpenAddExpense
+                    onOpenAddGoal = onOpenAddGoal,
+                    onAddGoalProgress = onAddGoalProgress
                 )
             }
 
-            // 5. EXPANDABLE "FINANCIAL HEALTH & DUES" DRAWER CARD (Collapses 2x2 KPI Grid & Smart Bill Radar out of main scroll)
+            // =========================================================================
+            // SECTION 6 — FINANCIAL HEALTH
+            // =========================================================================
             item {
                 val remainingMonthlyBudget = (monthlyBudgetTargetTop - monthSpent).coerceAtLeast(0L)
                 val pendingBillCount = remember(paymentReminders) {
@@ -559,9 +1010,9 @@ fun HomeTab(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp))
+                        .clip(RoundedCornerShape(22.dp))
                         .background(Color(0xFF0D0E17))
-                        .border(1.dp, Color(0xFF2B224C), RoundedCornerShape(20.dp))
+                        .border(1.dp, Color(0xFF2B224C), RoundedCornerShape(22.dp))
                         .padding(16.dp)
                         .testTag("financial_health_and_bills_drawer"),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -589,14 +1040,14 @@ fun HomeTab(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.WorkspacePremium,
-                                    contentDescription = "Financial Health & Dues",
+                                    contentDescription = "Financial Health & Telemetry",
                                     tint = Color(0xFFD8B4FE),
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
                             Column {
                                 Text(
-                                    text = "Financial Health & Dues",
+                                    text = "Financial Health & KPIs",
                                     fontFamily = headingFont,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.ExtraBold,
@@ -604,7 +1055,7 @@ fun HomeTab(
                                     maxLines = 1
                                 )
                                 Text(
-                                    text = "Score ${disciplineScore.coerceIn(0, 900)}/900 · ${if (pendingBillCount == 0) "No pending dues" else "$pendingBillCount due(s) pending"}",
+                                    text = "Score ${disciplineScore.coerceIn(0, 900)}/900 · ${streakDays.coerceAtLeast(1)}d Streak · ${if (pendingBillCount == 0) "All bills clear" else "$pendingBillCount due(s)"}",
                                     fontSize = 11.sp,
                                     color = Color(0xFFB8B0D4),
                                     maxLines = 1
@@ -618,7 +1069,7 @@ fun HomeTab(
                             border = BorderStroke(0.8.dp, Color(0xFF7C3AED).copy(alpha = 0.6f))
                         ) {
                             Text(
-                                text = if (isFinancialHealthExpanded) "Hide ↑" else "Expand ↓",
+                                text = if (isFinancialHealthExpanded) "Compact ↑" else "Expand ↓",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFD8B4FE),
@@ -627,191 +1078,320 @@ fun HomeTab(
                         }
                     }
 
-                    AnimatedVisibility(visible = isFinancialHealthExpanded) {
-                        Column(
+                    // 2x2 KPI Grid — always visible so core health indicators are never buried
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("home_core_kpis_grid"),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // 2x2 KPI Grid
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("home_core_kpis_grid"),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    HomeCoreKpiCard(
-                                        icon = Icons.Default.TrendingUp,
-                                        label = "Total Income",
-                                        value = if (settings.stealthMode) "₹••••" else "+₹${formatIndianAmount(totalIncomeAll)}",
-                                        accentColor = Color(0xFF2EE59D),
-                                        onClick = onOpenAddIncome,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    HomeCoreKpiCard(
-                                        icon = Icons.Default.TrendingDown,
-                                        label = "Total Outflow",
-                                        value = if (settings.stealthMode) "₹••••" else "-₹${formatIndianAmount(totalExpenseAll)}",
-                                        accentColor = Color(0xFFFF4D8D),
-                                        onClick = onOpenAddExpense,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    HomeCoreKpiCard(
-                                        icon = Icons.Default.AccountBalanceWallet,
-                                        label = "Budget Left",
-                                        value = if (settings.stealthMode) "₹••••" else "₹${formatIndianAmount(remainingMonthlyBudget)}",
-                                        accentColor = Color(0xFFA855F7),
-                                        onClick = { showLimitEditor = !showLimitEditor },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    HomeCoreKpiCard(
-                                        icon = Icons.Default.WorkspacePremium,
-                                        label = "Discipline",
-                                        value = "${disciplineScore.coerceIn(0, 900)}/900",
-                                        accentColor = Color(0xFFD8B4FE),
-                                        onClick = onNavigateToAnalytics,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-                            }
-
-                            // Pending Khata Payouts (Dena Hai) with 1-Tap [⚡ Pay ₹Amount] UPI Intent
-                            val pendingDenaHaiContacts = remember(userId, khataStoreVersion, khataFriends) {
-                                AdvancedKhataStore.syncLegacyFirestoreFriendsIfNeeded(context, userId, khataFriends)
-                                AdvancedKhataStore.getAllContactStates(context, userId).filter {
-                                    !it.isSettled && it.netDirection == com.example.data.model.KhataDirection.DENA_HAI && it.outstandingAmount > 0L
-                                }
-                            }
-                            if (pendingDenaHaiContacts.isNotEmpty()) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(18.dp))
-                                        .background(Color(0xFF130D24))
-                                        .border(1.dp, Color(0xFFFF4D8D).copy(alpha = 0.45f), RoundedCornerShape(18.dp))
-                                        .padding(14.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "PENDING KHATA PAYOUTS (DENA HAI)",
-                                            fontFamily = JetBrainsMonoFontFamily,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            letterSpacing = 0.8.sp,
-                                            color = Color(0xFFFF4D8D)
-                                        )
-                                        Text(
-                                            text = "Open Khata →",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFD8B4FE),
-                                            modifier = Modifier.clickable { onNavigateToVault() }
-                                        )
-                                    }
-                                    pendingDenaHaiContacts.take(3).forEach { contactState ->
-                                        val verifiedVpa = com.example.util.PaymentUtil
-                                            .resolvePayeeVpa(contactState.contact.phone, contactState.contact.name)
-                                            .ifBlank { com.example.util.PaymentUtil.getSavedVerifiedVpa(context, contactState.contact.id) }
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .background(Color(0xFF0A0A14))
-                                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = contactState.contact.name,
-                                                    fontSize = 13.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = Color.White,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                Text(
-                                                    text = verifiedVpa.ifBlank { "Tap ⚡ Pay to verify UPI ID or scan QR" },
-                                                    fontFamily = JetBrainsMonoFontFamily,
-                                                    fontSize = 10.sp,
-                                                    color = Color(0xFFB8B0D4)
-                                                )
-                                            }
-                                            Surface(
-                                                color = Color(0xFF2EE59D),
-                                                shape = RoundedCornerShape(50),
-                                                border = BorderStroke(1.dp, Color(0xFF6EE7B7)),
-                                                modifier = Modifier
-                                                    .clickable {
-                                                        if (verifiedVpa.isNotBlank()) {
-                                                            com.example.util.PaymentUtil.launchUpiPaymentIntent(
-                                                                context = context,
-                                                                payeeVpa = verifiedVpa,
-                                                                payeeName = contactState.contact.name,
-                                                                amount = contactState.outstandingAmount.toString(),
-                                                                txnNote = "Settle Khata Due - Kharchee",
-                                                                contactId = contactState.contact.id
-                                                            )
-                                                        } else {
-                                                            pendingUpiVerificationContact = contactState
-                                                        }
-                                                    }
-                                                    .testTag("home_khata_due_instant_pay_${contactState.contact.name}")
-                                            ) {
-                                                Text(
-                                                    text = if (settings.stealthMode) "⚡ Pay ₹•••" else "⚡ Pay ₹${formatIndianAmount(contactState.outstandingAmount)}",
-                                                    fontFamily = JetBrainsMonoFontFamily,
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    color = Color(0xFF040508),
-                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (showSmsPermissionRationaleBanner && !smsPermissionGranted) {
-                                SmsAutoTrackPermissionRationaleBanner(
-                                    onAllowClicked = {
-                                        smsPermissionLauncher.launch(AutoExpenseDetectionStore.REQUIRED_SMS_PERMISSIONS)
-                                    },
-                                    onFallbackClipboardClicked = {
-                                        AutoExpenseDetectionStore.setSmsRationaleDismissed(context, true)
-                                        showSmsPermissionRationaleBanner = false
-                                        detectedClipboardSms = AutoExpenseDetectionStore.inspectClipboardForBankSms(context)
-                                    }
-                                )
-                            }
-
-                            // Smart Bill Radar / Upcoming Bills
-                            MaiScreenUpcomingBillsCard(
-                                paymentReminders = paymentReminders,
-                                stealthMode = settings.stealthMode,
-                                onOpenBillsManager = onOpenSmartReminders,
-                                onCreateBill = onCreateBillReminder,
-                                onToggleBillPaid = onToggleBillPaid,
-                                onDeleteBill = onDeleteBillReminder
+                            HomeCoreKpiCard(
+                                icon = Icons.Default.TrendingUp,
+                                label = "Total Income",
+                                value = if (settings.stealthMode) "₹••••" else "+₹${formatIndianAmount(totalIncomeAll)}",
+                                accentColor = Color(0xFF2EE59D),
+                                onClick = onOpenAddIncome,
+                                modifier = Modifier.weight(1f)
+                            )
+                            HomeCoreKpiCard(
+                                icon = Icons.Default.TrendingDown,
+                                label = "Total Outflow",
+                                value = if (settings.stealthMode) "₹••••" else "-₹${formatIndianAmount(totalExpenseAll)}",
+                                accentColor = Color(0xFFFF4D8D),
+                                onClick = onOpenAddExpense,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            HomeCoreKpiCard(
+                                icon = Icons.Default.AccountBalanceWallet,
+                                label = "Budget Left",
+                                value = if (settings.stealthMode) "₹••••" else "₹${formatIndianAmount(remainingMonthlyBudget)}",
+                                accentColor = Color(0xFFA855F7),
+                                onClick = { showLimitEditor = !showLimitEditor },
+                                modifier = Modifier.weight(1f)
+                            )
+                            HomeCoreKpiCard(
+                                icon = Icons.Default.WorkspacePremium,
+                                label = "Discipline",
+                                value = "${disciplineScore.coerceIn(0, 900)}/900",
+                                accentColor = Color(0xFFD8B4FE),
+                                onClick = onNavigateToAnalytics,
+                                modifier = Modifier.weight(1f)
                             )
                         }
                     }
+
+                    AnimatedVisibility(visible = isFinancialHealthExpanded) {
+                        MaiScreenMetallicSilverHealthScoreCard(
+                            disciplineScore = (disciplineScore / 9).coerceIn(0, 100),
+                            monthSpent = monthSpent,
+                            monthlyBudgetTarget = monthlyBudgetTargetTop,
+                            onCardClick = onNavigateToAnalytics
+                        )
+                    }
                 }
+            }
+
+            // =========================================================================
+            // SECTION 7 — BILLS AND KHATA
+            // =========================================================================
+            item {
+                val pendingBillCountTicker = remember(paymentReminders) {
+                    paymentReminders.count { !it.isPaid }
+                }
+                val pendingDenaHaiContacts = remember(userId, khataStoreVersion, khataFriends) {
+                    AdvancedKhataStore.syncLegacyFirestoreFriendsIfNeeded(context, userId, khataFriends)
+                    AdvancedKhataStore.getAllContactStates(context, userId).filter {
+                        !it.isSettled && it.netDirection == com.example.data.model.KhataDirection.DENA_HAI && it.outstandingAmount > 0L
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("home_section_bills_and_khata"),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    UnifiedLiveKhataAndBillsTickerStrip(
+                        lenaTotal = khataSummaryMetrics.totalLenaHai,
+                        denaTotal = khataSummaryMetrics.totalDenaHai,
+                        pendingBillsCount = pendingBillCountTicker,
+                        stealthMode = settings.stealthMode,
+                        onRemindClicked = onNavigateToVault,
+                        onPayNowClicked = onNavigateToVault,
+                        onBillsClicked = onOpenSmartReminders
+                    )
+
+                    // Khata Split & Ledger Summary Card (You Get vs You Owe + 1-Tap UPI Settle)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xFF0D0E17))
+                            .border(1.dp, Color(0xFF2B224C), RoundedCornerShape(20.dp))
+                            .padding(16.dp)
+                            .testTag("home_khata_summary_card"),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "KHATA LEDGER SUMMARY",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 0.9.sp,
+                                    color = Color(0xFFD8B4FE)
+                                )
+                                Text(
+                                    text = "Shared dues, split tabs & 1-tap UPI settlements",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFB8B0D4)
+                                )
+                            }
+                            Surface(
+                                color = Color(0xFF17122E),
+                                shape = RoundedCornerShape(50),
+                                border = BorderStroke(0.8.dp, Color(0xFF7C3AED).copy(alpha = 0.6f)),
+                                modifier = Modifier.clickable { onNavigateToVault() }
+                            ) {
+                                Text(
+                                    text = "Open Khata →",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFD8B4FE),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            // Lena Hai (You Will Receive)
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0xFF071E17))
+                                    .border(0.8.dp, Color(0xFF00E676).copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+                                    .clickable { onNavigateToVault() }
+                                    .padding(12.dp)
+                            ) {
+                                Text(
+                                    text = "↙ LENA HAI (YOU GET)",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF00E676)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = if (settings.stealthMode) "₹••••" else "₹${formatIndianAmount(khataSummaryMetrics.totalLenaHai)}",
+                                    fontFamily = headingFont,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White
+                                )
+                            }
+
+                            // Dena Hai (You Owe)
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0xFF230B16))
+                                    .border(0.8.dp, Color(0xFFFF3366).copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+                                    .clickable { onNavigateToVault() }
+                                    .padding(12.dp)
+                            ) {
+                                Text(
+                                    text = "↗ DENA HAI (YOU OWE)",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFFFF4D8D)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = if (settings.stealthMode) "₹••••" else "₹${formatIndianAmount(khataSummaryMetrics.totalDenaHai)}",
+                                    fontFamily = headingFont,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+
+                        if (pendingDenaHaiContacts.isNotEmpty()) {
+                            pendingDenaHaiContacts.take(3).forEach { contactState ->
+                                val verifiedVpa = com.example.util.PaymentUtil
+                                    .resolvePayeeVpa(contactState.contact.phone, contactState.contact.name)
+                                    .ifBlank { com.example.util.PaymentUtil.getSavedVerifiedVpa(context, contactState.contact.id) }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color(0xFF0A0A14))
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = contactState.contact.name,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = verifiedVpa.ifBlank { "Tap ⚡ Pay to verify UPI ID or scan QR" },
+                                            fontFamily = JetBrainsMonoFontFamily,
+                                            fontSize = 10.sp,
+                                            color = Color(0xFFB8B0D4)
+                                        )
+                                    }
+                                    Surface(
+                                        color = Color(0xFF2EE59D),
+                                        shape = RoundedCornerShape(50),
+                                        border = BorderStroke(1.dp, Color(0xFF6EE7B7)),
+                                        modifier = Modifier
+                                            .clickable {
+                                                if (verifiedVpa.isNotBlank()) {
+                                                    com.example.util.PaymentUtil.launchUpiPaymentIntent(
+                                                        context = context,
+                                                        payeeVpa = verifiedVpa,
+                                                        payeeName = contactState.contact.name,
+                                                        amount = contactState.outstandingAmount.toString(),
+                                                        txnNote = "Settle Khata Due - Kharchee",
+                                                        contactId = contactState.contact.id
+                                                    )
+                                                } else {
+                                                    pendingUpiVerificationContact = contactState
+                                                }
+                                            }
+                                            .testTag("home_khata_due_instant_pay_${contactState.contact.name}")
+                                    ) {
+                                        Text(
+                                            text = if (settings.stealthMode) "⚡ Pay ₹•••" else "⚡ Pay ₹${formatIndianAmount(contactState.outstandingAmount)}",
+                                            fontFamily = JetBrainsMonoFontFamily,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = Color(0xFF040508),
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (showSmsPermissionRationaleBanner && !smsPermissionGranted) {
+                        SmsAutoTrackPermissionRationaleBanner(
+                            onAllowClicked = {
+                                smsPermissionLauncher.launch(AutoExpenseDetectionStore.REQUIRED_SMS_PERMISSIONS)
+                            },
+                            onFallbackClipboardClicked = {
+                                AutoExpenseDetectionStore.setSmsRationaleDismissed(context, true)
+                                showSmsPermissionRationaleBanner = false
+                                detectedClipboardSms = AutoExpenseDetectionStore.inspectClipboardForBankSms(context)
+                            }
+                        )
+                    }
+
+                    // Smart Bill Radar / Upcoming Bills
+                    MaiScreenUpcomingBillsCard(
+                        paymentReminders = paymentReminders,
+                        stealthMode = settings.stealthMode,
+                        onOpenBillsManager = onOpenSmartReminders,
+                        onCreateBill = onCreateBillReminder,
+                        onToggleBillPaid = onToggleBillPaid,
+                        onDeleteBill = onDeleteBillReminder
+                    )
+                }
+            }
+
+            // =========================================================================
+            // SECTION 8 — NIGHT GUARD
+            // =========================================================================
+            item {
+                HomeNightGuardDashboardCard(
+                    settings = settings,
+                    onOpenNightGuardSettings = onOpenNightGuardSettings,
+                    onTestNightGuard = onTestNightGuard,
+                    onToggleLockdown = onToggleLockdown
+                )
+            }
+
+            // =========================================================================
+            // SECTION 9 — RECENT TRANSACTIONS
+            // =========================================================================
+            item {
+                HomeRecentActivitySection(
+                    expenses = expenses,
+                    stealthMode = settings.stealthMode,
+                    onViewAllClicked = onNavigateToPassbook,
+                    onEditTransaction = onEditExpense,
+                    onDeleteTransaction = onDeleteExpense,
+                    onAddTransaction = onOpenAddExpense
+                )
             }
         }
 
@@ -2322,3 +2902,361 @@ fun TransactionRowCard(
         }
     }
 }
+
+@Composable
+private fun DashboardSecondaryActionChip(
+    emoji: String,
+    label: String,
+    onClick: () -> Unit,
+    testTag: String
+) {
+    Surface(
+        color = Color(0xFF0D0E17),
+        shape = RoundedCornerShape(50),
+        border = BorderStroke(0.8.dp, Color(0xFF3E2D6E)),
+        modifier = Modifier
+            .clickable { onClick() }
+            .testTag(testTag)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(text = emoji, fontSize = 12.sp)
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFFD8B4FE),
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeSavingsGoalsSection(
+    savingsGoals: List<SavingsGoalRecord>,
+    stealthMode: Boolean,
+    onOpenAddGoal: () -> Unit,
+    onAddGoalProgress: (SavingsGoalRecord, Long) -> Unit
+) {
+    val headingFont = LocalAppFontFamily.current
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(Color(0xFF0D0E17))
+            .border(1.dp, Color(0xFF2B224C), RoundedCornerShape(22.dp))
+            .padding(16.dp)
+            .testTag("home_section_savings_goals"),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "SAVINGS GOALS",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.sp,
+                    color = Color(0xFF00E676)
+                )
+                Text(
+                    text = if (savingsGoals.isEmpty()) "Set a target & sweep spare change" else "${savingsGoals.size} active goal(s) in progress",
+                    fontSize = 11.sp,
+                    color = Color(0xFFB8B0D4)
+                )
+            }
+
+            Surface(
+                color = Color(0xFF07291E),
+                shape = RoundedCornerShape(50),
+                border = BorderStroke(0.8.dp, Color(0xFF00E676).copy(alpha = 0.7f)),
+                modifier = Modifier
+                    .clickable { onOpenAddGoal() }
+                    .testTag("home_add_goal_button")
+            ) {
+                Text(
+                    text = "+ New Goal",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF00E676),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            }
+        }
+
+        if (savingsGoals.isEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xFF090A12))
+                    .border(0.8.dp, Color(0xFF231E38), RoundedCornerShape(14.dp))
+                    .clickable { onOpenAddGoal() }
+                    .padding(14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "🎯 No savings goals yet. Tap '+ New Goal' to build your Emergency or Gadget fund.",
+                    fontSize = 11.sp,
+                    color = Color(0xFFB8B0D4),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        } else {
+            savingsGoals.take(3).forEach { goal ->
+                val target = max(1L, goal.targetAmount)
+                val saved = goal.savedAmount.coerceAtLeast(0L)
+                val remaining = (target - saved).coerceAtLeast(0L)
+                val ratio = (saved.toFloat() / target.toFloat()).coerceIn(0f, 1f)
+                val pct = kotlin.math.round(ratio * 100f).toInt()
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFF090A12))
+                        .border(0.8.dp, Color(0xFF282042), RoundedCornerShape(16.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = goal.title,
+                            fontFamily = headingFont,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "$pct%",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF00E676)
+                        )
+                    }
+
+                    LinearProgressIndicator(
+                        progress = { ratio },
+                        color = Color(0xFF00E676),
+                        trackColor = Color(0xFF1C1830),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(7.dp)
+                            .clip(RoundedCornerShape(50))
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (stealthMode) "Saved: ₹•••• / ₹••••" else "Saved ₹${formatIndianAmount(saved)} of ₹${formatIndianAmount(target)} (₹${formatIndianAmount(remaining)} left)",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 10.sp,
+                            color = Color(0xFFB8B0D4),
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Surface(
+                                color = Color(0xFF151228),
+                                shape = RoundedCornerShape(50),
+                                border = BorderStroke(0.7.dp, Color(0xFF00E676).copy(alpha = 0.6f)),
+                                modifier = Modifier.clickable { onAddGoalProgress(goal, 100L) }
+                            ) {
+                                Text(
+                                    text = "+₹100",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF00E676),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                            Surface(
+                                color = Color(0xFF151228),
+                                shape = RoundedCornerShape(50),
+                                border = BorderStroke(0.7.dp, Color(0xFFA855F7).copy(alpha = 0.6f)),
+                                modifier = Modifier.clickable { onAddGoalProgress(goal, 500L) }
+                            ) {
+                                Text(
+                                    text = "+₹500",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFD8B4FE),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeNightGuardDashboardCard(
+    settings: UserSettings,
+    onOpenNightGuardSettings: () -> Unit,
+    onTestNightGuard: () -> Unit,
+    onToggleLockdown: () -> Unit
+) {
+    val headingFont = LocalAppFontFamily.current
+    val formattedWindowText = remember(settings) {
+        String.format(
+            Locale.ENGLISH,
+            "%02d:%02d – %02d:%02d",
+            settings.nightGuardStartHour,
+            settings.nightGuardStartMinute,
+            settings.nightGuardEndHour,
+            settings.nightGuardEndMinute
+        )
+    }
+    val statusColor = when {
+        settings.lockdownActive -> Color(0xFFFF3366)
+        settings.nightGuardEnabled -> Color(0xFF00E5FF)
+        else -> Color(0xFFB8B0D4)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(Color(0xFF0D0E17))
+            .border(1.dp, statusColor.copy(alpha = 0.45f), RoundedCornerShape(22.dp))
+            .padding(16.dp)
+            .testTag("home_section_night_guard"),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF151228))
+                        .border(0.8.dp, statusColor.copy(alpha = 0.6f), RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (settings.lockdownActive) Icons.Default.Lock else Icons.Default.NightlightRound,
+                        contentDescription = "Night Guard",
+                        tint = statusColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Column {
+                    Text(
+                        text = "Night Guard & UPI Shield",
+                        fontFamily = headingFont,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "Window $formattedWindowText · Tone: ${settings.upiGuardTone.uppercase(Locale.ENGLISH)}",
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 10.sp,
+                        color = Color(0xFFB8B0D4)
+                    )
+                }
+            }
+
+            Surface(
+                color = statusColor.copy(alpha = 0.14f),
+                shape = RoundedCornerShape(50),
+                border = BorderStroke(0.8.dp, statusColor.copy(alpha = 0.7f))
+            ) {
+                Text(
+                    text = when {
+                        settings.lockdownActive -> "LOCKDOWN"
+                        settings.nightGuardEnabled -> "ARMED"
+                        else -> "STANDBY"
+                    },
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = statusColor,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = onOpenNightGuardSettings,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(0.8.dp, Color(0xFF3E2D6E)),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(38.dp)
+            ) {
+                Text("Guard Settings", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFD8B4FE), maxLines = 1)
+            }
+            OutlinedButton(
+                onClick = onTestNightGuard,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(0.8.dp, Color(0xFF00E5FF).copy(alpha = 0.55f)),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(38.dp)
+            ) {
+                Text("Test Guard", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00E5FF), maxLines = 1)
+            }
+            Button(
+                onClick = onToggleLockdown,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (settings.lockdownActive) Color(0xFFFF3366) else Color(0xFF231A3A),
+                    contentColor = Color.White
+                ),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(38.dp)
+            ) {
+                Text(
+                    text = if (settings.lockdownActive) "Unlock" else "Lockdown",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+

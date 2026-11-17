@@ -71,6 +71,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -105,8 +106,30 @@ import com.example.data.model.KhataRecordType
 import com.example.data.model.KhataSummaryMetrics
 import com.example.data.model.UnifiedActivityKind
 import com.example.data.model.UnifiedRecentActivityItem
+import com.example.data.repository.KharcheeRepository
 import com.example.ui.components.KharcheeCompactHeaderBranding
+import kotlinx.coroutines.launch
 import com.example.ui.theme.JetBrainsMonoFontFamily
+import com.example.ui.theme.KhataBrandPurple
+import com.example.ui.theme.KhataBurgundyBorder
+import com.example.ui.theme.KhataBurgundySurface
+import com.example.ui.theme.KhataCardSurface
+import com.example.ui.theme.KhataDeepBurgundy
+import com.example.ui.theme.KhataDenaDarkGlassSurface
+import com.example.ui.theme.KhataDenaGlassOverlay
+import com.example.ui.theme.KhataDenaPay
+import com.example.ui.theme.KhataElevatedCardSurface
+import com.example.ui.theme.KhataLenaDarkGlassSurface
+import com.example.ui.theme.KhataLenaGlassOverlay
+import com.example.ui.theme.KhataLenaReceive
+import com.example.ui.theme.KhataMutedText
+import com.example.ui.theme.KhataNetPositionHighlight
+import com.example.ui.theme.KhataPlatinumHighlight
+import com.example.ui.theme.KhataPrimaryBackground
+import com.example.ui.theme.KhataPrimaryText
+import com.example.ui.theme.KhataSecondaryBackground
+import com.example.ui.theme.KhataSecondaryText
+import com.example.ui.theme.KhataSettledRoseSlate
 import com.example.ui.theme.LocalAppFontFamily
 import com.example.util.KhataSplitCardGenerator
 import com.example.util.PaymentUtil
@@ -123,16 +146,16 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
 
-// Strict Next-Gen Social Fintech High-Contrast Palette
-private val KhataNeonEmerald = Color(0xFF00E676)
-private val KhataEmeraldGlassBg = Color(0x0D00E676)
-private val KhataCoralCrimson = Color(0xFFFF3366)
-private val KhataCrimsonGlassBg = Color(0x0DFF3366)
-private val KhataSettledSlate = Color(0xFF475569)
+// Deep Burgundy × Obsidian × Platinum × Muted Rose Palette (Phase 1)
+private val KhataNeonEmerald = KhataLenaReceive // #55D6A5
+private val KhataEmeraldGlassBg = KhataLenaGlassOverlay // #1455D6A5
+private val KhataCoralCrimson = KhataDenaPay // #E78AA5
+private val KhataCrimsonGlassBg = KhataDenaGlassOverlay // #14E78AA5
+private val KhataSettledSlate = KhataSettledRoseSlate // #6B5B66
 
 /**
  * Production-quality KHATA (Next-Gen Social Fintech Ledger & Digital Bahi-Khata) Screen.
- * Built with strict high-contrast Neon Emerald (#00E676) vs Coral Crimson (#FF3366) differentiation.
+ * Styled with the Deep Burgundy × Obsidian × Platinum × Muted Rose visual identity.
  */
 @Composable
 fun AdvancedKhataScreen(
@@ -149,11 +172,24 @@ fun AdvancedKhataScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val headingFont = LocalAppFontFamily.current
+    val coroutineScope = rememberCoroutineScope()
+    val repository = remember(context) { KharcheeRepository(context.applicationContext) }
     val storeVersion by AdvancedKhataStore.versionFlow.collectAsState()
+    val cloudSyncStatus by AdvancedKhataStore.cloudSyncStatusFlow.collectAsState()
     val pendingUpiSession by PaymentUtil.activePendingSessionFlow.collectAsState()
     var localRefreshTick by remember { mutableLongStateOf(0L) }
 
-    androidx.compose.runtime.DisposableEffect(lifecycleOwner, context) {
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner, context, userId) {
+        AdvancedKhataStore.onCloudWriteHook = { uid, updatedContact, updatedEntry ->
+            coroutineScope.launch {
+                if (updatedContact != null) {
+                    repository.upsertKhataContactToCloud(updatedContact)
+                }
+                if (updatedEntry != null) {
+                    repository.upsertKhataEntryToCloud(uid, updatedEntry)
+                }
+            }
+        }
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 val resumedSession = PaymentUtil.onAppResumedAfterUpiIntent(
@@ -172,7 +208,10 @@ fun AdvancedKhataScreen(
     }
 
     LaunchedEffect(userId, legacyFriends) {
+        AdvancedKhataStore.migrateDefaultSlotToUserIfNeeded(context, userId)
         AdvancedKhataStore.syncLegacyFirestoreFriendsIfNeeded(context, userId, legacyFriends)
+        localRefreshTick++
+        repository.syncLifetimeKhataMemoryWithCloud(context.applicationContext)
         localRefreshTick++
     }
 
@@ -182,6 +221,9 @@ fun AdvancedKhataScreen(
     val summaryMetrics = remember(allContactStates) {
         AdvancedKhataStore.computeSummaryMetrics(allContactStates)
     }
+    val lifetimeIntelligence = remember(allContactStates) {
+        AdvancedKhataStore.computeLifetimeKhataIntelligence(allContactStates)
+    }
     val auditHistory = remember(userId, storeVersion, localRefreshTick) {
         AdvancedKhataStore.loadAuditHistory(context, userId)
     }
@@ -189,8 +231,8 @@ fun AdvancedKhataScreen(
         allContactStates.associateBy { it.contact.id }
     }
 
-    // Sub-navigation: "overview" (Contacts & Summary), "history" (Full Khata History), or individual contactId
-    var activeSubTab by remember { mutableStateOf("overview") } // "overview" or "history"
+    // Sub-navigation: "overview" (Contacts & Summary), "history" (Lifetime Timeline), "intelligence" (Lifetime Insights), "smart_tools" (Voice/Settle/Calendar/Backup)
+    var activeSubTab by remember { mutableStateOf("overview") }
     var selectedContactId by remember { mutableStateOf<String?>(null) }
 
     // Search, Filter & Sort state for Contacts
@@ -202,6 +244,8 @@ fun AdvancedKhataScreen(
     var historySearchQuery by remember { mutableStateOf("") }
     var selectedHistoryFilter by remember { mutableStateOf(KhataHistoryFilter.ALL) }
     var customRangeDaysBack by remember { mutableStateOf("30") }
+    var selectedHistoryYear by remember { mutableStateOf<Int?>(null) }
+    var selectedHistoryMonthKey by remember { mutableStateOf<String?>(null) }
 
     // Modals state
     var activeAddEntryDirection by remember { mutableStateOf<KhataDirection?>(null) }
@@ -216,6 +260,7 @@ fun AdvancedKhataScreen(
     var promiseDateModalContactState by remember { mutableStateOf<KhataContactComputedState?>(null) }
     var editingEntry by remember { mutableStateOf<KhataLedgerEntry?>(null) }
     var deletingEntry by remember { mutableStateOf<KhataLedgerEntry?>(null) }
+    var attachingProofEntry by remember { mutableStateOf<KhataLedgerEntry?>(null) }
 
     val currentPendingUpiContact = pendingUpiVerifyContactState
     if (currentPendingUpiContact != null) {
@@ -264,7 +309,7 @@ fun AdvancedKhataScreen(
         selectedContactId?.let { id -> allContactStates.find { it.contact.id == id } }
     }
 
-    BackHandler(enabled = selectedContactId != null || activeSubTab == "history") {
+    BackHandler(enabled = selectedContactId != null || activeSubTab != "overview") {
         if (selectedContactId != null) {
             selectedContactId = null
         } else {
@@ -273,7 +318,7 @@ fun AdvancedKhataScreen(
     }
 
     if (selectedContactState != null) {
-        // --- SECTION 5. INDIVIDUAL PERSON LEDGER ---
+        // --- SECTION 5. INDIVIDUAL PERSON LEDGER + LIFETIME KHATA PROFILE ---
         KhataIndividualPersonLedgerView(
             state = selectedContactState,
             stealthMode = stealthMode,
@@ -315,6 +360,7 @@ fun AdvancedKhataScreen(
             },
             onEditEntry = { entry -> editingEntry = entry },
             onRequestDeleteEntry = { entry -> deletingEntry = entry },
+            onAttachProof = { entry -> attachingProofEntry = entry },
             onToggleReminder = { enabled ->
                 AdvancedKhataStore.toggleContactReminder(
                     context = context,
@@ -328,7 +374,7 @@ fun AdvancedKhataScreen(
             onShowToast = onShowToast
         )
     } else {
-        // --- SECTION 2, 3, 4 & 8: KHATA OVERVIEW & KHATA HISTORY ---
+        // --- SECTION 2, 3, 4 & 8: KHATA OVERVIEW, TIMELINE, INTELLIGENCE & SMART TOOLS ---
         val filteredContacts = remember(allContactStates, contactSearchQuery, selectedContactFilter, selectedContactSort) {
             AdvancedKhataStore.filterAndSortContacts(
                 states = allContactStates,
@@ -338,7 +384,15 @@ fun AdvancedKhataScreen(
             )
         }
 
-        val filteredHistory = remember(auditHistory, contactStateMap, historySearchQuery, selectedHistoryFilter, customRangeDaysBack) {
+        val filteredHistory = remember(
+            auditHistory,
+            contactStateMap,
+            historySearchQuery,
+            selectedHistoryFilter,
+            customRangeDaysBack,
+            selectedHistoryYear,
+            selectedHistoryMonthKey
+        ) {
             val now = System.currentTimeMillis()
             val days = (customRangeDaysBack.toLongOrNull() ?: 30L).coerceAtLeast(1L)
             val startMillis = if (selectedHistoryFilter == KhataHistoryFilter.CUSTOM_DATE_RANGE) {
@@ -350,89 +404,107 @@ fun AdvancedKhataScreen(
                 searchQuery = historySearchQuery,
                 filter = selectedHistoryFilter,
                 startDateMillis = startMillis,
-                endDateMillis = now
+                endDateMillis = now,
+                selectedYear = selectedHistoryYear,
+                selectedMonthKey = selectedHistoryMonthKey
             )
         }
 
         LazyColumn(
             modifier = modifier
                 .fillMaxSize()
-                .background(MaiDeepCanvas)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            KhataPrimaryBackground,
+                            KhataSecondaryBackground,
+                            KhataPrimaryBackground
+                        )
+                    )
+                )
                 .testTag("khata_tab_list"),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Top Branding & Horizontal Action Header ("Contacts (0)" + "History")
+            // Top Branding & Horizontal Sub-Navigation Header
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(end = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        KharcheeCompactHeaderBranding(sectionLabel = "KHATA")
-                        Text(
-                            text = "Digital Bahi-Khata Ledger",
-                            fontFamily = headingFont,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Surface(
-                            color = if (activeSubTab == "overview") MaiPrimaryPurpleEnd else Color(0xFF0D0E17),
-                            shape = RoundedCornerShape(50),
-                            border = BorderStroke(
-                                1.dp,
-                                if (activeSubTab == "overview") Color(0xFFD8B4FE) else Color(0xFF7C3AED)
-                            ),
+                        Column(
                             modifier = Modifier
-                                .clickable { activeSubTab = "overview" }
-                                .testTag("khata_subtab_contacts")
+                                .weight(1f)
+                                .padding(end = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
+                            KharcheeCompactHeaderBranding(sectionLabel = "KHATA")
                             Text(
-                                text = "Contacts (${allContactStates.size})",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
+                                text = "Digital Bahi-Khata Ledger",
+                                fontFamily = headingFont,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = KhataPrimaryText,
                                 maxLines = 1,
-                                softWrap = false,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
                         Surface(
-                            color = if (activeSubTab == "history") MaiPrimaryPurpleEnd else Color(0xFF0D0E17),
+                            color = KhataCardSurface,
                             shape = RoundedCornerShape(50),
-                            border = BorderStroke(
-                                1.dp,
-                                if (activeSubTab == "history") Color(0xFFD8B4FE) else Color(0xFF7C3AED)
-                            ),
-                            modifier = Modifier
-                                .clickable { activeSubTab = "history" }
-                                .testTag("khata_subtab_history")
+                            border = BorderStroke(0.8.dp, KhataBurgundyBorder.copy(alpha = 0.7f))
                         ) {
                             Text(
-                                text = "History",
-                                fontSize = 11.sp,
+                                text = "☁ $cloudSyncStatus",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White,
+                                color = KhataPlatinumHighlight,
                                 maxLines = 1,
-                                softWrap = false,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                             )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val subTabs = listOf(
+                            Triple("overview", "Contacts (${allContactStates.size})", "khata_subtab_contacts"),
+                            Triple("history", "History", "khata_subtab_history"),
+                            Triple("intelligence", "✨ Intelligence", "khata_subtab_intelligence"),
+                            Triple("smart_tools", "🎙️ Smart Tools", "khata_subtab_smart_tools")
+                        )
+                        subTabs.forEach { (tabId, label, tag) ->
+                            val isSelected = activeSubTab == tabId
+                            Surface(
+                                color = if (isSelected) KhataBurgundySurface else KhataCardSurface,
+                                shape = RoundedCornerShape(50),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isSelected) KhataBrandPurple else KhataBurgundyBorder.copy(alpha = 0.65f)
+                                ),
+                                modifier = Modifier
+                                    .clickable { activeSubTab = tabId }
+                                    .testTag(tag)
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) KhataPrimaryText else KhataSecondaryText,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -445,8 +517,8 @@ fun AdvancedKhataScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
-                            .background(Color(0xFF0A241C))
-                            .border(1.dp, MaiPositiveEmerald.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
+                            .background(KhataLenaDarkGlassSurface)
+                            .border(1.dp, KhataLenaReceive.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
                             .padding(horizontal = 12.dp, vertical = 10.dp)
                             .testTag("khata_post_payment_sync_badge"),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -456,7 +528,7 @@ fun AdvancedKhataScreen(
                             text = "⚡ ${PaymentUtil.POST_PAYMENT_SYNC_MESSAGE}",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF2EE59D),
+                            color = KhataLenaReceive,
                             lineHeight = 15.sp,
                             modifier = Modifier
                                 .weight(1f)
@@ -466,7 +538,7 @@ fun AdvancedKhataScreen(
                             text = "✕",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaiLavenderSubtext,
+                            color = KhataSecondaryText,
                             modifier = Modifier
                                 .clickable { PaymentUtil.clearPendingUpiSession(context) }
                                 .padding(4.dp)
@@ -497,20 +569,20 @@ fun AdvancedKhataScreen(
                                 activeAddEntryDirection = KhataDirection.LENA_HAI
                             },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF061B12),
-                                contentColor = Color.White
+                                containerColor = KhataLenaDarkGlassSurface,
+                                contentColor = KhataPrimaryText
                             ),
                             shape = RoundedCornerShape(18.dp),
                             contentPadding = PaddingValues(vertical = 14.dp, horizontal = 12.dp),
                             modifier = Modifier
                                 .weight(1f)
-                                .border(1.4.dp, KhataNeonEmerald, RoundedCornerShape(18.dp))
+                                .border(1.2.dp, KhataLenaReceive.copy(alpha = 0.85f), RoundedCornerShape(18.dp))
                                 .testTag("khata_add_lena_hai_button")
                         ) {
                             Icon(
                                 imageVector = Icons.Default.CallReceived,
                                 contentDescription = "Add Lena Hai",
-                                tint = KhataNeonEmerald,
+                                tint = KhataLenaReceive,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
@@ -518,7 +590,7 @@ fun AdvancedKhataScreen(
                                 text = "+ Add Lena Hai",
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 13.sp,
-                                color = KhataNeonEmerald
+                                color = KhataLenaReceive
                             )
                         }
 
@@ -529,20 +601,20 @@ fun AdvancedKhataScreen(
                                 activeAddEntryDirection = KhataDirection.DENA_HAI
                             },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF1F0912),
-                                contentColor = Color.White
+                                containerColor = KhataDeepBurgundy,
+                                contentColor = KhataPrimaryText
                             ),
                             shape = RoundedCornerShape(18.dp),
                             contentPadding = PaddingValues(vertical = 14.dp, horizontal = 12.dp),
                             modifier = Modifier
                                 .weight(1f)
-                                .border(1.4.dp, KhataCoralCrimson, RoundedCornerShape(18.dp))
+                                .border(1.2.dp, KhataDenaPay.copy(alpha = 0.85f), RoundedCornerShape(18.dp))
                                 .testTag("khata_add_dena_hai_button")
                         ) {
                             Icon(
                                 imageVector = Icons.Default.CallMade,
                                 contentDescription = "Add Dena Hai",
-                                tint = KhataCoralCrimson,
+                                tint = KhataDenaPay,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
@@ -550,25 +622,34 @@ fun AdvancedKhataScreen(
                                 text = "+ Add Dena Hai",
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 13.sp,
-                                color = KhataCoralCrimson
+                                color = KhataDenaPay
                             )
                         }
                     }
 
                     // FEATURE #4 — Prominent 1-Tap Group Bill & Trip Splitter Button
                     Surface(
-                        color = Color(0xFF150E2E),
+                        color = KhataCardSurface,
                         shape = RoundedCornerShape(16.dp),
-                        border = BorderStroke(1.2.dp, Color(0xFFA855F7).copy(alpha = 0.85f)),
+                        border = BorderStroke(1.2.dp, KhataBurgundyBorder),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .shadow(10.dp, RoundedCornerShape(16.dp), spotColor = Color(0xFF8B5CF6))
+                            .shadow(10.dp, RoundedCornerShape(16.dp), spotColor = KhataDeepBurgundy)
                             .clickable { showGroupBillSplitterModal = true }
                             .testTag("khata_split_group_bill_button")
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .background(
+                                    Brush.horizontalGradient(
+                                        colors = listOf(
+                                            KhataDeepBurgundy.copy(alpha = 0.78f),
+                                            KhataCardSurface,
+                                            KhataElevatedCardSurface
+                                        )
+                                    )
+                                )
                                 .padding(horizontal = 16.dp, vertical = 12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
@@ -580,7 +661,7 @@ fun AdvancedKhataScreen(
                                 Icon(
                                     imageVector = Icons.Default.People,
                                     contentDescription = "Split Group Bill",
-                                    tint = Color(0xFFD8B4FE),
+                                    tint = KhataPlatinumHighlight,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Column {
@@ -589,26 +670,26 @@ fun AdvancedKhataScreen(
                                         fontFamily = headingFont,
                                         fontWeight = FontWeight.ExtraBold,
                                         fontSize = 14.sp,
-                                        color = Color.White
+                                        color = KhataPrimaryText
                                     )
                                     Text(
                                         text = "1-Tap Equal or Custom split • Auto-logs your share + Friends' Lena Hai",
                                         fontSize = 10.sp,
-                                        color = MaiLavenderSubtext
+                                        color = KhataSecondaryText
                                     )
                                 }
                             }
                             Surface(
-                                color = KhataNeonEmerald.copy(alpha = 0.16f),
+                                color = KhataBurgundySurface,
                                 shape = RoundedCornerShape(50),
-                                border = BorderStroke(0.8.dp, KhataNeonEmerald)
+                                border = BorderStroke(0.9.dp, KhataBrandPurple)
                             ) {
                                 Text(
                                     text = "1-TAP SPLIT",
                                     fontFamily = JetBrainsMonoFontFamily,
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.ExtraBold,
-                                    color = KhataNeonEmerald,
+                                    color = KhataPrimaryText,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                 )
                             }
@@ -618,6 +699,21 @@ fun AdvancedKhataScreen(
             }
 
             if (activeSubTab == "overview") {
+                val khataHallOfShame = HomeDailyCockpitEngine.computeHallOfShameDefaulters(allContactStates)
+                if (khataHallOfShame.isNotEmpty()) {
+                    item {
+                        HallOfShameOverdueCarousel(
+                            defaulters = khataHallOfShame,
+                            stealthMode = stealthMode,
+                            onTriggerWhatsAppVasooli = { defaulter ->
+                                vasooliSpecificEntry = null
+                                vasooliModalContactState = defaulter.contactState
+                            },
+                            onOpenKhataLedger = { selectedContactFilter = KhataContactFilter.OVERDUE }
+                        )
+                    }
+                }
+
                 // --- SECTION 4. CONTACT-WISE KHATA (SEARCH + FILTER + SORT + LIST) ---
                 item {
                     KhataContactsSearchFilterAndSortBar(
@@ -683,8 +779,49 @@ fun AdvancedKhataScreen(
                         )
                     }
                 }
+
+                // Khata Intelligence Compact Preview Card (matches Deep Burgundy reference design)
+                item {
+                    KhataIntelligenceCompactPreviewCard(
+                        intelligence = lifetimeIntelligence,
+                        stealthMode = stealthMode,
+                        onOpenFullIntelligence = { activeSubTab = "intelligence" },
+                        onClickTopContact = {
+                            val topName = lifetimeIntelligence.topContactName
+                            val match = allContactStates.firstOrNull { it.contact.name == topName }
+                            if (match != null) {
+                                selectedContactId = match.contact.id
+                            } else {
+                                activeSubTab = "intelligence"
+                            }
+                        }
+                    )
+                }
+            } else if (activeSubTab == "intelligence") {
+                item {
+                    LifetimeKhataIntelligenceDashboard(
+                        intelligence = lifetimeIntelligence,
+                        stealthMode = stealthMode
+                    )
+                }
+            } else if (activeSubTab == "smart_tools") {
+                item {
+                    SmartKhataToolsSection(
+                        userId = userId,
+                        contactStates = allContactStates,
+                        stealthMode = stealthMode,
+                        onRefreshRequired = { localRefreshTick++ },
+                        onShowToast = onShowToast
+                    )
+                }
             } else {
-                // --- SECTION 8. COMPLETE KHATA HISTORY ---
+                // --- SECTION 8. COMPLETE LIFETIME KHATA TIMELINE ---
+                val availableYears = remember(lifetimeIntelligence) {
+                    lifetimeIntelligence.yearWiseActivity.mapNotNull { it.periodKey.toIntOrNull() }
+                }
+                val availableMonths = remember(lifetimeIntelligence) {
+                    lifetimeIntelligence.monthWiseActivity.map { it.periodKey to it.periodLabel }
+                }
                 item {
                     KhataHistorySearchAndFilterBar(
                         searchQuery = historySearchQuery,
@@ -692,7 +829,13 @@ fun AdvancedKhataScreen(
                         selectedFilter = selectedHistoryFilter,
                         onSelectFilter = { selectedHistoryFilter = it },
                         customRangeDays = customRangeDaysBack,
-                        onCustomRangeDaysChange = { customRangeDaysBack = it.filter { ch -> ch.isDigit() } }
+                        onCustomRangeDaysChange = { customRangeDaysBack = it.filter { ch -> ch.isDigit() } },
+                        availableYears = availableYears,
+                        selectedYear = selectedHistoryYear,
+                        onSelectYear = { selectedHistoryYear = it },
+                        availableMonths = availableMonths,
+                        selectedMonthKey = selectedHistoryMonthKey,
+                        onSelectMonthKey = { selectedHistoryMonthKey = it }
                     )
                 }
 
@@ -700,7 +843,7 @@ fun AdvancedKhataScreen(
                     item {
                         KhataEmptyStateCard(
                             title = "No Khata History Records",
-                            subtitle = "All original udhaar entries, partial payments, full settlements, and edits will appear here chronologically.",
+                            subtitle = "All original udhaar entries, partial payments, full settlements, and edits across your entire account lifetime will appear here chronologically.",
                             onAddLenaHai = {
                                 prefilledContactNameForAdd = ""
                                 prefilledContactPhoneForAdd = ""
@@ -830,8 +973,8 @@ fun AdvancedKhataScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(22.dp))
-                    .background(MaiCardSurface)
-                    .border(1.2.dp, MaiExpenseRose, RoundedCornerShape(22.dp))
+                    .background(KhataCardSurface)
+                    .border(1.2.dp, KhataDenaPay, RoundedCornerShape(22.dp))
                     .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -840,12 +983,12 @@ fun AdvancedKhataScreen(
                     fontFamily = headingFont,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 18.sp,
-                    color = Color.White
+                    color = KhataPrimaryText
                 )
                 Text(
                     text = "Are you sure you want to delete this ₹${formatIndianAmount(currentDeleting.amount)} entry (${currentDeleting.description}) for ${currentDeleting.contactName}? Balances will be recalculated and an audit record will be kept.",
                     fontSize = 13.sp,
-                    color = MaiLavenderSubtext,
+                    color = KhataSecondaryText,
                     lineHeight = 19.sp
                 )
                 Row(
@@ -854,10 +997,10 @@ fun AdvancedKhataScreen(
                 ) {
                     OutlinedButton(
                         onClick = { deletingEntry = null },
-                        border = BorderStroke(1.dp, MaiCardBorder),
+                        border = BorderStroke(1.dp, KhataBurgundyBorder),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Cancel", color = MaiLavenderSubtext)
+                        Text("Cancel", color = KhataSecondaryText)
                     }
                     Button(
                         onClick = {
@@ -872,12 +1015,12 @@ fun AdvancedKhataScreen(
                                 onShowToast("🗑️ Entry deleted & Khata balance updated")
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaiExpenseRose),
+                        colors = ButtonDefaults.buttonColors(containerColor = KhataBurgundySurface),
                         modifier = Modifier
                             .weight(1f)
                             .testTag("confirm_delete_khata_entry_button")
                     ) {
-                        Text("Delete Entry", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text("Delete Entry", color = KhataPrimaryText, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -979,6 +1122,31 @@ fun AdvancedKhataScreen(
             }
         )
     }
+
+    // --- MODAL 8: PROOF VAULT ATTACHMENT DIALOG ---
+    val currentProofEntry = attachingProofEntry
+    if (currentProofEntry != null) {
+        AttachKhataProofDialog(
+            entry = currentProofEntry,
+            onDismiss = { attachingProofEntry = null },
+            onSaveProof = { uri, label ->
+                val res = AdvancedKhataStore.attachProofToEntry(
+                    context = context,
+                    userId = userId,
+                    entryId = currentProofEntry.id,
+                    proofUri = uri,
+                    proofLabel = label
+                )
+                if (res.isSuccess) {
+                    localRefreshTick++
+                    attachingProofEntry = null
+                    onShowToast("📎 Proof attached to ${currentProofEntry.contactName}'s entry")
+                } else {
+                    onShowToast("Could not attach proof")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -997,36 +1165,36 @@ private fun KhataSummaryHeroSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(20.dp, RoundedCornerShape(24.dp), spotColor = Color(0xFF00E676).copy(alpha = 0.25f))
+            .shadow(20.dp, RoundedCornerShape(24.dp), spotColor = KhataDeepBurgundy.copy(alpha = 0.5f))
             .clip(RoundedCornerShape(24.dp))
             .background(
                 Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFF0A0F18),
-                        Color(0xFF100B20),
-                        Color(0xFF070910)
+                        KhataSecondaryBackground,
+                        KhataCardSurface,
+                        KhataPrimaryBackground
                     )
                 )
             )
-            .border(1.2.dp, Color(0xFF334155), RoundedCornerShape(24.dp))
+            .border(1.2.dp, KhataBurgundyBorder.copy(alpha = 0.72f), RoundedCornerShape(24.dp))
             .padding(18.dp)
             .testTag("khata_summary_hero_card"),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Two High-Contrast Summary Split Cards: Left ("LENA HAI / YOU GET") & Right ("DENA HAI / YOU OWE")
+        // Two Summary Split Cards: Left ("LENA HAI / YOU GET") & Right ("DENA HAI / YOU OWE")
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Left Card: LENA HAI / YOU GET — Deep Emerald Glass (#0D00E676), glowing Neon Green border (#00E676), ↙ YOU GET badge
+            // Left Card: LENA HAI / YOU GET — Deep Emerald-Obsidian Glass (#0C1A15 + #1455D6A5), refined Emerald border (#55D6A5)
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .shadow(12.dp, RoundedCornerShape(18.dp), spotColor = KhataNeonEmerald)
+                    .shadow(10.dp, RoundedCornerShape(18.dp), spotColor = KhataLenaReceive.copy(alpha = 0.25f))
                     .clip(RoundedCornerShape(18.dp))
-                    .background(Color(0xFF06150E))
+                    .background(KhataLenaDarkGlassSurface)
                     .background(KhataEmeraldGlassBg)
-                    .border(1.5.dp, KhataNeonEmerald, RoundedCornerShape(18.dp))
+                    .border(1.2.dp, KhataLenaReceive.copy(alpha = 0.78f), RoundedCornerShape(18.dp))
                     .padding(14.dp)
                     .testTag("khata_summary_lena_hai_card"),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -1042,19 +1210,19 @@ private fun KhataSummaryHeroSection(
                         fontSize = 10.sp,
                         fontWeight = FontWeight.ExtraBold,
                         letterSpacing = 0.8.sp,
-                        color = KhataNeonEmerald
+                        color = KhataLenaReceive
                     )
                     Surface(
-                        color = KhataNeonEmerald.copy(alpha = 0.18f),
+                        color = KhataLenaReceive.copy(alpha = 0.14f),
                         shape = RoundedCornerShape(50),
-                        border = BorderStroke(0.8.dp, KhataNeonEmerald)
+                        border = BorderStroke(0.8.dp, KhataLenaReceive.copy(alpha = 0.65f))
                     ) {
                         Text(
                             text = "↙ YOU GET",
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 8.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = KhataNeonEmerald,
+                            color = KhataLenaReceive,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
@@ -1064,7 +1232,7 @@ private fun KhataSummaryHeroSection(
                     fontFamily = headingFont,
                     fontSize = 22.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = KhataNeonEmerald,
+                    color = KhataLenaReceive,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -1072,19 +1240,19 @@ private fun KhataSummaryHeroSection(
                     text = "${metrics.lenaHaiPeopleCount} ${if (metrics.lenaHaiPeopleCount == 1) "person owes" else "people owe"} you",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFFA7F3D0)
+                    color = KhataSecondaryText
                 )
             }
 
-            // Right Card: DENA HAI / YOU OWE — Deep Crimson Glass (#0DFF3366), glowing Coral Red border (#FF3366), ↗ YOU GIVE badge
+            // Right Card: DENA HAI / YOU OWE — Deep Burgundy Glass (#221019 + #14E78AA5), Muted Rose border (#E78AA5 / #78334F)
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .shadow(12.dp, RoundedCornerShape(18.dp), spotColor = KhataCoralCrimson)
+                    .shadow(10.dp, RoundedCornerShape(18.dp), spotColor = KhataDenaPay.copy(alpha = 0.25f))
                     .clip(RoundedCornerShape(18.dp))
-                    .background(Color(0xFF1A070D))
+                    .background(KhataDenaDarkGlassSurface)
                     .background(KhataCrimsonGlassBg)
-                    .border(1.5.dp, KhataCoralCrimson, RoundedCornerShape(18.dp))
+                    .border(1.2.dp, KhataDenaPay.copy(alpha = 0.78f), RoundedCornerShape(18.dp))
                     .padding(14.dp)
                     .testTag("khata_summary_dena_hai_card"),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -1100,19 +1268,19 @@ private fun KhataSummaryHeroSection(
                         fontSize = 10.sp,
                         fontWeight = FontWeight.ExtraBold,
                         letterSpacing = 0.8.sp,
-                        color = KhataCoralCrimson
+                        color = KhataDenaPay
                     )
                     Surface(
-                        color = KhataCoralCrimson.copy(alpha = 0.18f),
+                        color = KhataDenaPay.copy(alpha = 0.14f),
                         shape = RoundedCornerShape(50),
-                        border = BorderStroke(0.8.dp, KhataCoralCrimson)
+                        border = BorderStroke(0.8.dp, KhataDenaPay.copy(alpha = 0.65f))
                     ) {
                         Text(
                             text = "↗ YOU GIVE",
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 8.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = KhataCoralCrimson,
+                            color = KhataDenaPay,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
@@ -1122,7 +1290,7 @@ private fun KhataSummaryHeroSection(
                     fontFamily = headingFont,
                     fontSize = 22.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = KhataCoralCrimson,
+                    color = KhataDenaPay,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -1130,20 +1298,28 @@ private fun KhataSummaryHeroSection(
                     text = "You owe ${metrics.denaHaiPeopleCount} ${if (metrics.denaHaiPeopleCount == 1) "person" else "people"}",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFFFECDD3)
+                    color = KhataSecondaryText
                 )
             }
         }
 
-        // Net Position Bar underneath showing exact net balance with a dynamic green-to-red tug-of-war progress bar
+        // Net Khata Position Card: Sophisticated Deep Burgundy + Platinum Highlight + Muted Rose / Emerald Progress Bar
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF0B0E17))
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            KhataDeepBurgundy,
+                            KhataCardSurface,
+                            KhataElevatedCardSurface
+                        )
+                    )
+                )
                 .border(
-                    1.dp,
-                    if (isNetReceivable) KhataNeonEmerald.copy(alpha = 0.45f) else KhataCoralCrimson.copy(alpha = 0.45f),
+                    1.1.dp,
+                    KhataBurgundyBorder,
                     RoundedCornerShape(16.dp)
                 )
                 .padding(horizontal = 14.dp, vertical = 12.dp)
@@ -1161,7 +1337,7 @@ private fun KhataSummaryHeroSection(
                         fontFamily = JetBrainsMonoFontFamily,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = MaiLavenderSubtext
+                        color = KhataPlatinumHighlight
                     )
                     Text(
                         text = if (stealthMode) {
@@ -1172,7 +1348,7 @@ private fun KhataSummaryHeroSection(
                         fontFamily = headingFont,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 15.sp,
-                        color = if (isNetReceivable) KhataNeonEmerald else KhataCoralCrimson
+                        color = if (isNetReceivable) KhataNetPositionHighlight else KhataDenaPay
                     )
                 }
 
@@ -1182,7 +1358,7 @@ private fun KhataSummaryHeroSection(
                         fontFamily = JetBrainsMonoFontFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = 10.sp,
-                        color = Color(0xFFE2E8F0)
+                        color = KhataSecondaryText
                     )
                     if (metrics.overdueAmount > 0L) {
                         Text(
@@ -1190,31 +1366,31 @@ private fun KhataSummaryHeroSection(
                             fontFamily = JetBrainsMonoFontFamily,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 10.sp,
-                            color = MaiWarningAmber
+                            color = KhataDenaPay
                         )
                     }
                 }
             }
 
-            // Dynamic Green-to-Red Tug-of-War Progress Bar
+            // Dynamic Emerald (#55D6A5) vs Muted Rose (#E78AA5) Tug-of-War Progress Bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(8.dp)
                     .clip(RoundedCornerShape(50))
-                    .background(Color(0xFF1E293B))
+                    .background(KhataSecondaryBackground)
             ) {
                 Box(
                     modifier = Modifier
                         .weight(greenRatio)
                         .fillMaxHeight()
-                        .background(KhataNeonEmerald)
+                        .background(KhataLenaReceive)
                 )
                 Box(
                     modifier = Modifier
                         .weight((1f - greenRatio).coerceAtLeast(0.08f))
                         .fillMaxHeight()
-                        .background(KhataCoralCrimson)
+                        .background(KhataDenaPay)
                 )
             }
         }
@@ -1235,27 +1411,27 @@ private fun KhataContactsSearchFilterAndSortBar(
             value = searchQuery,
             onValueChange = onSearchQueryChange,
             placeholder = {
-                Text("Search person by name or phone...", color = MaiLavenderSubtext, fontSize = 13.sp)
+                Text("Search person by name or phone...", color = KhataMutedText, fontSize = 13.sp)
             },
             leadingIcon = {
-                Icon(Icons.Default.Search, contentDescription = "Search", tint = Color(0xFFD8B4FE))
+                Icon(Icons.Default.Search, contentDescription = "Search", tint = KhataPlatinumHighlight)
             },
             trailingIcon = {
                 if (searchQuery.isNotEmpty()) {
                     IconButton(onClick = { onSearchQueryChange("") }) {
-                        Icon(Icons.Default.Clear, contentDescription = "Clear", tint = MaiLavenderSubtext)
+                        Icon(Icons.Default.Clear, contentDescription = "Clear", tint = KhataSecondaryText)
                     }
                 }
             },
             singleLine = true,
             shape = RoundedCornerShape(16.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaiCardBorderBright,
-                unfocusedBorderColor = MaiCardBorder,
-                focusedContainerColor = MaiCardSurface,
-                unfocusedContainerColor = MaiCardSurface,
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White
+                focusedBorderColor = KhataBurgundyBorder,
+                unfocusedBorderColor = KhataBurgundyBorder.copy(alpha = 0.5f),
+                focusedContainerColor = KhataCardSurface,
+                unfocusedContainerColor = KhataCardSurface,
+                focusedTextColor = KhataPrimaryText,
+                unfocusedTextColor = KhataPrimaryText
             ),
             modifier = Modifier
                 .fillMaxWidth()
@@ -1273,11 +1449,11 @@ private fun KhataContactsSearchFilterAndSortBar(
             KhataContactFilter.entries.forEach { filter ->
                 val selected = selectedFilter == filter
                 Surface(
-                    color = if (selected) MaiPrimaryPurpleEnd else MaiCardSurface,
+                    color = if (selected) KhataBurgundySurface else KhataCardSurface,
                     shape = RoundedCornerShape(50),
                     border = BorderStroke(
                         0.9.dp,
-                        if (selected) Color(0xFFD8B4FE) else MaiCardBorder
+                        if (selected) KhataBrandPurple else KhataBurgundyBorder.copy(alpha = 0.55f)
                     ),
                     modifier = Modifier
                         .clickable { onSelectFilter(filter) }
@@ -1287,7 +1463,7 @@ private fun KhataContactsSearchFilterAndSortBar(
                         text = filter.label,
                         fontSize = 11.sp,
                         fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                        color = if (selected) Color.White else MaiLavenderSubtext,
+                        color = if (selected) KhataPrimaryText else KhataSecondaryText,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                     )
                 }
@@ -1307,13 +1483,13 @@ private fun KhataContactsSearchFilterAndSortBar(
                 Icon(
                     imageVector = Icons.Default.Sort,
                     contentDescription = "Sort",
-                    tint = MaiLavenderSubtext,
+                    tint = KhataMutedText,
                     modifier = Modifier.size(15.dp)
                 )
                 Text(
                     text = "Sort by:",
                     fontSize = 11.sp,
-                    color = MaiLavenderSubtext
+                    color = KhataMutedText
                 )
             }
 
@@ -1321,11 +1497,11 @@ private fun KhataContactsSearchFilterAndSortBar(
                 KhataContactSort.entries.forEach { sortMode ->
                     val selected = selectedSort == sortMode
                     Surface(
-                        color = if (selected) Color(0xFF28194D) else Color.Transparent,
+                        color = if (selected) KhataDeepBurgundy else KhataCardSurface,
                         shape = RoundedCornerShape(50),
                         border = BorderStroke(
                             0.8.dp,
-                            if (selected) Color(0xFFA855F7) else MaiCardBorder
+                            if (selected) KhataBurgundyBorder else KhataBurgundyBorder.copy(alpha = 0.4f)
                         ),
                         modifier = Modifier.clickable { onSelectSort(sortMode) }
                     ) {
@@ -1333,7 +1509,7 @@ private fun KhataContactsSearchFilterAndSortBar(
                             text = sortMode.label,
                             fontSize = 10.sp,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (selected) Color(0xFFD8B4FE) else MaiLavenderSubtext,
+                            color = if (selected) KhataPlatinumHighlight else KhataSecondaryText,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
@@ -1398,24 +1574,24 @@ private fun KhataContactCardItem(
             .clip(RoundedCornerShape(20.dp))
             .background(
                 when {
-                    state.isSettled -> Color(0xFF0E131F)
-                    state.netDirection == KhataDirection.LENA_HAI -> Color(0xFF081410)
-                    else -> Color(0xFF160910)
+                    state.isSettled -> KhataSecondaryBackground
+                    state.netDirection == KhataDirection.LENA_HAI -> KhataCardSurface
+                    else -> KhataElevatedCardSurface
                 }
             )
             .border(
                 1.dp,
                 when {
                     state.isSettled -> KhataSettledSlate.copy(alpha = 0.55f)
-                    state.isOverdue -> MaiWarningAmber.copy(alpha = 0.85f)
-                    else -> accentColor.copy(alpha = 0.55f)
+                    state.isOverdue -> KhataDenaPay.copy(alpha = 0.85f)
+                    else -> KhataBurgundyBorder.copy(alpha = 0.65f)
                 },
                 RoundedCornerShape(20.dp)
             )
             .clickable { onClick() }
             .testTag("khata_contact_card_${state.contact.name}")
     ) {
-        // Strict 4dp vertical accent bar on the left (#00E676 for Lena Hai, #FF3366 for Dena Hai, #475569 for Settled)
+        // 4dp vertical accent bar on the left (#55D6A5 for Lena Hai, #E78AA5 for Dena Hai, #6B5B66 for Settled)
         Box(
             modifier = Modifier
                 .width(4.dp)
@@ -1449,9 +1625,9 @@ private fun KhataContactCardItem(
                             .background(
                                 Brush.linearGradient(
                                     colors = when {
-                                        state.isSettled -> listOf(Color(0xFF1E293B), Color(0xFF0F172A))
-                                        state.netDirection == KhataDirection.LENA_HAI -> listOf(Color(0xFF063722), Color(0xFF041A10))
-                                        else -> listOf(Color(0xFF3F0D1D), Color(0xFF1D060E))
+                                        state.isSettled -> listOf(KhataElevatedCardSurface, KhataSecondaryBackground)
+                                        state.netDirection == KhataDirection.LENA_HAI -> listOf(Color(0xFF123327), KhataLenaDarkGlassSurface)
+                                        else -> listOf(KhataBurgundySurface, KhataDeepBurgundy)
                                     }
                                 )
                             )
@@ -1463,7 +1639,7 @@ private fun KhataContactCardItem(
                             fontFamily = headingFont,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 15.sp,
-                            color = if (state.isSettled) Color(0xFFCBD5E1) else Color.White
+                            color = if (state.isSettled) KhataSecondaryText else KhataPrimaryText
                         )
                     }
 
@@ -1476,16 +1652,16 @@ private fun KhataContactCardItem(
                                 text = state.contact.name,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = if (state.isSettled) Color(0xFFCBD5E1) else Color.White,
+                                color = if (state.isSettled) KhataSecondaryText else KhataPrimaryText,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
 
                             // Dosti Credit Score & Payback Reliability Pill
                             Surface(
-                                color = dostiBadgeColor.copy(alpha = 0.15f),
+                                color = dostiBadgeColor.copy(alpha = 0.14f),
                                 shape = RoundedCornerShape(50),
-                                border = BorderStroke(0.8.dp, dostiBadgeColor.copy(alpha = 0.7f)),
+                                border = BorderStroke(0.8.dp, dostiBadgeColor.copy(alpha = 0.65f)),
                                 modifier = Modifier.testTag("khata_dosti_badge_${state.contact.name}")
                             ) {
                                 Text(
@@ -1508,10 +1684,10 @@ private fun KhataContactCardItem(
                             Text(
                                 text = "Last activity: $lastDateStr",
                                 fontSize = 11.sp,
-                                color = MaiLavenderSubtext
+                                color = KhataSecondaryText
                             )
                             if (promiseCountdown != null) {
-                                val cdColor = if (promiseCountdown.isOverdue) KhataCoralCrimson else Color(0xFF38BDF8)
+                                val cdColor = if (promiseCountdown.isOverdue) KhataDenaPay else KhataPlatinumHighlight
                                 Surface(
                                     color = cdColor.copy(alpha = 0.16f),
                                     shape = RoundedCornerShape(50)
@@ -1533,24 +1709,24 @@ private fun KhataContactCardItem(
                 // Right Column: Direction / Settled Badge + Color-Coded Amount Pill
                 Column(horizontalAlignment = Alignment.End) {
                     Surface(
-                        color = accentColor.copy(alpha = 0.18f),
+                        color = accentColor.copy(alpha = 0.15f),
                         shape = RoundedCornerShape(50),
-                        border = BorderStroke(0.8.dp, accentColor.copy(alpha = 0.8f))
+                        border = BorderStroke(0.8.dp, accentColor.copy(alpha = 0.72f))
                     ) {
                         Text(
                             text = directionPillText,
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 9.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = if (state.isSettled) Color(0xFF94A3B8) else accentColor,
+                            color = if (state.isSettled) KhataMutedText else accentColor,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }
                     Spacer(modifier = Modifier.height(5.dp))
                     Surface(
-                        color = accentColor.copy(alpha = if (state.isSettled) 0.15f else 0.16f),
+                        color = accentColor.copy(alpha = if (state.isSettled) 0.14f else 0.16f),
                         shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.7f))
+                        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.68f))
                     ) {
                         Text(
                             text = if (stealthMode) {
@@ -1563,7 +1739,7 @@ private fun KhataContactCardItem(
                             fontFamily = headingFont,
                             fontSize = 17.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = if (state.isSettled) Color(0xFF94A3B8) else accentColor,
+                            color = if (state.isSettled) KhataMutedText else accentColor,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
                         )
                     }
@@ -1579,7 +1755,7 @@ private fun KhataContactCardItem(
                     Text(
                         text = "Recorded: ₹${formatIndianAmount(state.totalOriginalRecordedForActiveDirection)} · Paid: ₹${formatIndianAmount(state.totalPaidOrReceivedForActiveDirection)}",
                         fontSize = 11.sp,
-                        color = MaiLavenderSubtext,
+                        color = KhataMutedText,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier
@@ -1593,9 +1769,9 @@ private fun KhataContactCardItem(
                         // Every "Lena Hai" contact card MUST have [📲 Vasooli / Split Card] button
                         if (state.netDirection == KhataDirection.LENA_HAI && state.outstandingAmount > 0L) {
                             Surface(
-                                color = Color(0xFF062818),
+                                color = KhataLenaDarkGlassSurface,
                                 shape = RoundedCornerShape(50),
-                                border = BorderStroke(1.2.dp, KhataNeonEmerald),
+                                border = BorderStroke(1.1.dp, KhataLenaReceive),
                                 modifier = Modifier
                                     .clickable { onShareWhatsAppSplitCard() }
                                     .testTag("khata_share_split_whatsapp_${state.contact.name}")
@@ -1609,7 +1785,7 @@ private fun KhataContactCardItem(
                                         fontFamily = JetBrainsMonoFontFamily,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.ExtraBold,
-                                        color = KhataNeonEmerald,
+                                        color = KhataLenaReceive,
                                         maxLines = 1,
                                         softWrap = false
                                     )
@@ -1620,11 +1796,11 @@ private fun KhataContactCardItem(
                         // Every "Dena Hai" contact card MUST have high-contrast [⚡ Pay ₹Amount] UPI button
                         if (state.netDirection == KhataDirection.DENA_HAI && state.outstandingAmount > 0L) {
                             Surface(
-                                color = KhataCoralCrimson,
+                                color = KhataBurgundySurface,
                                 shape = RoundedCornerShape(50),
-                                border = BorderStroke(1.dp, Color(0xFFFF80A0)),
+                                border = BorderStroke(1.dp, KhataDenaPay),
                                 modifier = Modifier
-                                    .shadow(8.dp, RoundedCornerShape(50), spotColor = KhataCoralCrimson)
+                                    .shadow(8.dp, RoundedCornerShape(50), spotColor = KhataDenaPay.copy(alpha = 0.35f))
                                     .clickable { onInstantUpiPay() }
                                     .testTag("khata_instant_upi_pay_${state.contact.name}")
                             ) {
@@ -1633,7 +1809,7 @@ private fun KhataContactCardItem(
                                     fontFamily = JetBrainsMonoFontFamily,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.ExtraBold,
-                                    color = Color.White,
+                                    color = KhataPrimaryText,
                                     maxLines = 1,
                                     softWrap = false,
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
@@ -1642,9 +1818,9 @@ private fun KhataContactCardItem(
                         }
 
                         Surface(
-                            color = MaiCardSurfaceElevated,
+                            color = KhataElevatedCardSurface,
                             shape = RoundedCornerShape(50),
-                            border = BorderStroke(0.8.dp, MaiCardBorderBright),
+                            border = BorderStroke(0.8.dp, KhataBurgundyBorder),
                             modifier = Modifier
                                 .clickable { onQuickPayment() }
                                 .testTag("khata_quick_payment_${state.contact.name}")
@@ -1656,7 +1832,7 @@ private fun KhataContactCardItem(
                                 Icon(
                                     imageVector = Icons.Default.Payments,
                                     contentDescription = "Record Payment",
-                                    tint = Color(0xFFD8B4FE),
+                                    tint = KhataPlatinumHighlight,
                                     modifier = Modifier.size(13.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
@@ -1664,7 +1840,7 @@ private fun KhataContactCardItem(
                                     text = "Record",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFD8B4FE),
+                                    color = KhataPlatinumHighlight,
                                     maxLines = 1,
                                     softWrap = false
                                 )

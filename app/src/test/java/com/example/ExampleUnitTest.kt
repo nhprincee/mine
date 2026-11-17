@@ -2210,10 +2210,144 @@ class ExampleUnitTest {
         assertNotNull(matchedFoodCoupon)
         assertEquals("ZOMATO50", matchedFoodCoupon?.code)
     }
+
+    @Test
+    fun `ultimateFinancialCockpit_interactiveDonutOxygenTankHallOfShameAndMidnightShield_workProperly`() {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        val nowMillis = 1_731_664_800_000L // Mid-November timestamp
+        val dayMs = 86_400_000L
+
+        // 1. INTERACTIVE DONUT CHART SLICES & POLAR HIT-TESTING
+        val sampleExpenses = listOf(
+            ExpenseRecord(id = "d1", title = "Swiggy Dinner", category = "Food", amount = 2_000L, txEpochMillis = nowMillis - 10_000L),
+            ExpenseRecord(id = "d2", title = "Amazon Headphones", category = "Shopping", amount = 3_000L, txEpochMillis = nowMillis - 20_000L),
+            ExpenseRecord(id = "d3", title = "Metro Recharge", category = "Travel", amount = 1_000L, txEpochMillis = nowMillis - 30_000L),
+            ExpenseRecord(id = "d4", title = "WiFi Bill", category = "Bills", amount = 1_500L, txEpochMillis = nowMillis - 40_000L),
+            ExpenseRecord(id = "d5", title = "Movie Night", category = "Entertainment", amount = 500L, txEpochMillis = nowMillis - 50_000L)
+        )
+        val slices = com.example.ui.screens.HomeDailyCockpitEngine.computeHomeDonutSlices(sampleExpenses, nowMillis)
+        assertEquals(5, slices.size)
+        val foodSlice = slices.first { it.categoryKey == "Food" }
+        val shoppingSlice = slices.first { it.categoryKey == "Shopping" }
+        assertEquals(0xFF00E676L, foodSlice.colorHex)
+        assertEquals(0xFFFF3366L, shoppingSlice.colorHex)
+        assertEquals(2_000L, foodSlice.amountInr)
+        assertEquals(25.0f, foodSlice.percentage, 0.2f)
+
+        // Hit-test top-right quadrant (angle ~ -45 deg, which falls inside the first slice [-90, 0])
+        val hitFood = com.example.ui.screens.HomeDailyCockpitEngine.hitTestDonutSlice(
+            slices = slices,
+            tapX = 150f,
+            tapY = 50f,
+            centerX = 100f,
+            centerY = 100f,
+            innerRadiusPx = 40f,
+            outerRadiusPx = 100f
+        )
+        assertNotNull(hitFood)
+        assertEquals("Food", hitFood?.categoryKey)
+
+        // Tap inside center hole (dist < innerRadiusPx) returns null so privacy toggle handles it
+        val hitCenterHole = com.example.ui.screens.HomeDailyCockpitEngine.hitTestDonutSlice(
+            slices = slices,
+            tapX = 105f,
+            tapY = 105f,
+            centerX = 100f,
+            centerY = 100f,
+            innerRadiusPx = 40f,
+            outerRadiusPx = 100f
+        )
+        assertNull(hitCenterHole)
+
+        // 2. OXYGEN BURN TANK (RUNWAY PROGRESS BAR)
+        val emeraldTank = com.example.ui.screens.HomeDailyCockpitEngine.computeOxygenBurnTankTelemetry(
+            monthlyBudgetTarget = 20_000L,
+            monthSpent = 5_000L,
+            nowMillis = nowMillis
+        )
+        assertEquals(75, emeraldTank.oxygenPercentLeft)
+        assertEquals(com.example.ui.screens.SafeBurnStatusTier.EMERALD_SAFE, emeraldTank.statusTier)
+        assertTrue(emeraldTank.titleText.startsWith("🫁 Monthly Oxygen Tank: 75% Left (Expires in "))
+
+        val crimsonTank = com.example.ui.screens.HomeDailyCockpitEngine.computeOxygenBurnTankTelemetry(
+            monthlyBudgetTarget = 20_000L,
+            monthSpent = 18_000L,
+            nowMillis = nowMillis
+        )
+        assertEquals(10, crimsonTank.oxygenPercentLeft)
+        assertEquals(com.example.ui.screens.SafeBurnStatusTier.CRIMSON_EXCEEDED, crimsonTank.statusTier)
+
+        // 3. HALL OF SHAME OVERDUE CAROUSEL (>₹500 and >7 days late)
+        val testUser = "cockpit_shame_user"
+        com.example.data.model.AdvancedKhataStore.clearAllForUser(context, testUser)
+        com.example.data.model.AdvancedKhataStore.addUdhaarEntry(
+            context = context,
+            userId = testUser,
+            personName = "Rohan Defaulter",
+            phone = "9876500011",
+            direction = com.example.data.model.KhataDirection.LENA_HAI,
+            amount = 1_250L,
+            txDateMillis = nowMillis - (12 * dayMs),
+            dueDateMillis = nowMillis - (10 * dayMs),
+            description = "Goa Club Split",
+            bypassDedupWindow = true
+        )
+        com.example.data.model.AdvancedKhataStore.addUdhaarEntry(
+            context = context,
+            userId = testUser,
+            personName = "Small Due Friend",
+            phone = "9876500022",
+            direction = com.example.data.model.KhataDirection.LENA_HAI,
+            amount = 300L, // <= ₹500 so excluded from Hall of Shame
+            txDateMillis = nowMillis - (15 * dayMs),
+            dueDateMillis = nowMillis - (10 * dayMs),
+            description = "Chai Split",
+            bypassDedupWindow = true
+        )
+        val contactStates = com.example.data.model.AdvancedKhataStore.getAllContactStates(context, testUser, nowMillis)
+        val shameList = com.example.ui.screens.HomeDailyCockpitEngine.computeHallOfShameDefaulters(contactStates, nowMillis)
+        assertEquals(1, shameList.size)
+        assertEquals("Rohan Defaulter", shameList[0].friendName)
+        assertEquals(1_250L, shameList[0].overdueAmountInr)
+        assertTrue(shameList[0].daysLate > 7)
+
+        // 4. MIDNIGHT MUNCHIES & IMPULSE SHIELD (11 PM - 5 AM)
+        val shieldUser = "midnight_shield_user"
+        com.example.ui.screens.HomeDailyCockpitEngine.setMidnightMunchiesShieldEnabled(context, shieldUser, true)
+        assertTrue(com.example.ui.screens.HomeDailyCockpitEngine.isMidnightMunchiesShieldEnabled(context, shieldUser))
+
+        val cal1Am = java.util.Calendar.getInstance().apply {
+            timeInMillis = nowMillis
+            set(java.util.Calendar.HOUR_OF_DAY, 1)
+            set(java.util.Calendar.MINUTE, 30)
+        }
+        assertTrue(
+            com.example.ui.screens.HomeDailyCockpitEngine.shouldQuarantineMidnightExpense(
+                context = context,
+                userId = shieldUser,
+                category = "Food",
+                nowMillis = cal1Am.timeInMillis
+            )
+        )
+
+        val afterQuarantine = com.example.ui.screens.HomeDailyCockpitEngine.quarantineMidnightExpense(
+            context = context,
+            userId = shieldUser,
+            title = "Late Night Burger",
+            category = "Food",
+            amountInr = 420L,
+            nowMillis = cal1Am.timeInMillis
+        )
+        assertEquals(1, afterQuarantine.size)
+        assertEquals("Late Night Burger", afterQuarantine[0].title)
+        assertEquals(420L, afterQuarantine[0].amountInr)
+
+        val afterDismiss = com.example.ui.screens.HomeDailyCockpitEngine.dismissQuarantinedEntry(
+            context = context,
+            userId = shieldUser,
+            entryId = afterQuarantine[0].id
+        )
+        assertTrue(afterDismiss.isEmpty())
+    }
 }
-
-
-
-
-
 
