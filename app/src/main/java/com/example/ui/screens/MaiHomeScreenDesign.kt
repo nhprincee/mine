@@ -133,20 +133,20 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 // ============================================================================
-// KHARCHEE DARK NAVY + PURPLE/VIOLET DASHBOARD PALETTE
+// KHARCHEE OFFICIAL DESIGN SYSTEM — MIDNIGHT BLACK × PURE WHITE × LIME GREEN
 // ============================================================================
-val MaiDeepCanvas = Color(0xFF05050A)
-val MaiCardSurface = Color(0xFF0D0E17)
-val MaiCardSurfaceElevated = Color(0xFF151329)
-val MaiCardBorder = Color(0xFF2B224C)
-val MaiCardBorderBright = Color(0xFFA855F7)
-val MaiPrimaryPurpleStart = Color(0xFFA855F7)
-val MaiPrimaryPurpleEnd = Color(0xFF7C3AED)
-val MaiLavenderSubtext = Color(0xFFB8B0D4)
-val MaiMutedViolet = Color(0xFF8E84AD)
-val MaiPositiveEmerald = Color(0xFF2EE59D)
-val MaiExpenseRose = Color(0xFFFF4D8D)
-val MaiNotificationRed = Color(0xFFFF4769)
+val MaiDeepCanvas = Color(0xFF080B08)
+val MaiCardSurface = Color(0xFF101510)
+val MaiCardSurfaceElevated = Color(0xFF161D16)
+val MaiCardBorder = Color(0xFF232E23)
+val MaiCardBorderBright = Color(0xFFB7F000)
+val MaiPrimaryPurpleStart = Color(0xFFB7F000)
+val MaiPrimaryPurpleEnd = Color(0xFFB7F000)
+val MaiLavenderSubtext = Color(0xFFC8D2C8)
+val MaiMutedViolet = Color(0xFF8B988B)
+val MaiPositiveEmerald = Color(0xFFB7F000)
+val MaiExpenseRose = Color(0xFFF87171)
+val MaiNotificationRed = Color(0xFFEF4444)
 val MaiWarningAmber = Color(0xFFFBBF24)
 
 fun formatIndianAmount(amount: Long): String {
@@ -1386,8 +1386,8 @@ fun MaiScreenBudgetOverviewCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
-            .background(MaiCardSurface)
-            .border(1.dp, MaiCardBorder, RoundedCornerShape(22.dp))
+            .background(Color(0xFFFFFFFF))
+            .border(1.dp, Color(0xFFE0E6DD), RoundedCornerShape(22.dp))
             .padding(16.dp)
             .testTag("budget_overview_card"),
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -1405,17 +1405,14 @@ fun MaiScreenBudgetOverviewCard(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(Color(0xFFA855F7), Color(0xFF6D28D9))
-                            )
-                        ),
+                        .background(Color(0xFF080B08))
+                        .border(1.dp, Color(0xFFB7F000), RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.AccountBalanceWallet,
                         contentDescription = "Budget Overview",
-                        tint = Color.White,
+                        tint = Color(0xFFB7F000),
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -1423,21 +1420,21 @@ fun MaiScreenBudgetOverviewCard(
                     Text(
                         text = "Budget Overview",
                         fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color(0xFF080B08)
                     )
                     Text(
                         text = "$budgetPct% of monthly budget used",
                         fontSize = 11.sp,
-                        color = MaiLavenderSubtext
+                        color = Color(0xFF475247)
                     )
                 }
             }
 
             Surface(
-                color = MaiCardSurfaceElevated,
+                color = Color(0xFF080B08),
                 shape = RoundedCornerShape(50),
-                border = BorderStroke(0.8.dp, MaiCardBorderBright.copy(alpha = 0.6f)),
+                border = BorderStroke(1.dp, Color(0xFFB7F000)),
                 modifier = Modifier
                     .clickable { onEditBudgetClick() }
                     .testTag("mai_edit_budget_chip")
@@ -1449,15 +1446,15 @@ fun MaiScreenBudgetOverviewCard(
                     Icon(
                         imageVector = Icons.Default.Edit,
                         contentDescription = "Edit Budget",
-                        tint = Color(0xFFD8B4FE),
+                        tint = Color(0xFFB7F000),
                         modifier = Modifier.size(12.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = "Adjust Limit",
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFFD8B4FE)
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFFFFFFF)
                     )
                 }
             }
@@ -1472,21 +1469,22 @@ fun MaiScreenBudgetOverviewCard(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(MaiCardSurfaceElevated)
+                    .background(Color(0xFFF3F6F1))
+                    .border(0.8.dp, Color(0xFFE0E6DD), RoundedCornerShape(14.dp))
                     .padding(10.dp)
             ) {
                 Text(
                     text = "MONTHLY BUDGET",
                     fontFamily = JetBrainsMonoFontFamily,
                     fontSize = 8.sp,
-                    color = MaiLavenderSubtext
+                    color = Color(0xFF475247)
                 )
                 Text(
                     text = if (stealthMode) "₹••••" else "₹${formatIndianAmount(monthlyBudgetTarget)}",
                     fontFamily = headingFont,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 14.sp,
-                    color = Color.White
+                    color = Color(0xFF080B08)
                 )
             }
 
@@ -1494,21 +1492,22 @@ fun MaiScreenBudgetOverviewCard(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(MaiCardSurfaceElevated)
+                    .background(Color(0xFFF3F6F1))
+                    .border(0.8.dp, Color(0xFFE0E6DD), RoundedCornerShape(14.dp))
                     .padding(10.dp)
             ) {
                 Text(
                     text = "AMOUNT SPENT",
                     fontFamily = JetBrainsMonoFontFamily,
                     fontSize = 8.sp,
-                    color = MaiLavenderSubtext
+                    color = Color(0xFF475247)
                 )
                 Text(
                     text = if (stealthMode) "₹••••" else "₹${formatIndianAmount(monthSpent)}",
                     fontFamily = headingFont,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 14.sp,
-                    color = if (monthSpent > monthlyBudgetTarget) MaiExpenseRose else Color(0xFFD8B4FE)
+                    color = if (monthSpent > monthlyBudgetTarget) Color(0xFFB91C1C) else Color(0xFF080B08)
                 )
             }
 
@@ -1516,21 +1515,22 @@ fun MaiScreenBudgetOverviewCard(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(MaiCardSurfaceElevated)
+                    .background(Color(0xFF080B08))
+                    .border(1.dp, Color(0xFFB7F000).copy(alpha = 0.7f), RoundedCornerShape(14.dp))
                     .padding(10.dp)
             ) {
                 Text(
                     text = "REMAINING",
                     fontFamily = JetBrainsMonoFontFamily,
                     fontSize = 8.sp,
-                    color = MaiLavenderSubtext
+                    color = Color(0xFFC8D2C8)
                 )
                 Text(
                     text = if (stealthMode) "₹••••" else "₹${formatIndianAmount(remainingBudget)}",
                     fontFamily = headingFont,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 14.sp,
-                    color = MaiPositiveEmerald
+                    color = Color(0xFFB7F000)
                 )
             }
         }
@@ -1541,7 +1541,7 @@ fun MaiScreenBudgetOverviewCard(
                 .fillMaxWidth()
                 .height(9.dp)
                 .clip(RoundedCornerShape(50))
-                .background(Color(0xFF231842))
+                .background(Color(0xFFE0E6DD))
         ) {
             Box(
                 modifier = Modifier
@@ -1549,27 +1549,25 @@ fun MaiScreenBudgetOverviewCard(
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(50))
                     .background(
-                        Brush.horizontalGradient(
-                            colors = if (monthSpent > monthlyBudgetTarget) {
-                                listOf(MaiWarningAmber, MaiExpenseRose)
-                            } else {
-                                listOf(Color(0xFF7C3AED), Color(0xFFC084FC))
-                            }
-                        )
+                        if (monthSpent > monthlyBudgetTarget) {
+                            Color(0xFFEF4444)
+                        } else {
+                            Color(0xFF080B08)
+                        }
                     )
             )
         }
 
         // Category-wise Budget Summary
         if (categoryBreakdown.isNotEmpty()) {
-            HorizontalDivider(color = MaiCardBorder, thickness = 0.8.dp)
+            HorizontalDivider(color = Color(0xFFE0E6DD), thickness = 0.8.dp)
             Text(
                 text = "CATEGORY-WISE SPENDING BREAKDOWN",
                 fontFamily = JetBrainsMonoFontFamily,
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 0.8.sp,
-                color = MaiLavenderSubtext
+                color = Color(0xFF475247)
             )
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 categoryBreakdown.forEach { (categoryName, catAmount) ->
@@ -1590,14 +1588,14 @@ fun MaiScreenBudgetOverviewCard(
                                 Icon(
                                     imageVector = getCategoryIcon(categoryName),
                                     contentDescription = categoryName,
-                                    tint = catColor,
+                                    tint = Color(0xFF080B08),
                                     modifier = Modifier.size(15.dp)
                                 )
                                 Text(
                                     text = categoryName,
                                     fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color.White
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF080B08)
                                 )
                             }
                             Text(
@@ -1605,13 +1603,13 @@ fun MaiScreenBudgetOverviewCard(
                                 fontFamily = JetBrainsMonoFontFamily,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFFD8B4FE)
+                                color = Color(0xFF080B08)
                             )
                         }
                         LinearProgressIndicator(
                             progress = { catRatio },
-                            color = catColor,
-                            trackColor = Color(0xFF1E1438),
+                            color = Color(0xFF080B08),
+                            trackColor = Color(0xFFE0E6DD),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(5.dp)
@@ -2593,7 +2591,7 @@ fun MaiScreenBottomNavigationBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF090614))
+            .background(Color(0xFF080B08))
             .windowInsetsPadding(WindowInsets.navigationBars)
     ) {
         Box(
@@ -2602,16 +2600,16 @@ fun MaiScreenBottomNavigationBar(
                 .height(72.dp)
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(Color(0xFF150E2B), Color(0xFF090614))
+                        colors = listOf(Color(0xFF101510), Color(0xFF080B08))
                     )
                 )
                 .border(
                     width = 1.dp,
                     brush = Brush.horizontalGradient(
                         colors = listOf(
-                            Color(0xFF34235E),
-                            Color(0xFF8B5CF6),
-                            Color(0xFF34235E)
+                            Color(0xFF232E23),
+                            Color(0xFFB7F000).copy(alpha = 0.6f),
+                            Color(0xFF232E23)
                         )
                     ),
                     shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
@@ -2685,14 +2683,14 @@ private fun MaiBottomNavSlot(
         Icon(
             imageVector = icon,
             contentDescription = label,
-            tint = if (selected) Color(0xFFD8B4FE) else Color(0xFF8378A6),
+            tint = if (selected) Color(0xFFB7F000) else Color(0xFF8B988B),
             modifier = Modifier.size(22.dp)
         )
         Text(
             text = label,
             fontSize = 11.sp,
             fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Medium,
-            color = if (selected) Color.White else Color(0xFF8378A6)
+            color = if (selected) Color(0xFFFFFFFF) else Color(0xFF8B988B)
         )
         if (selected) {
             Box(
@@ -2700,7 +2698,7 @@ private fun MaiBottomNavSlot(
                     .width(26.dp)
                     .height(3.dp)
                     .clip(RoundedCornerShape(50))
-                    .background(Color(0xFFA855F7))
+                    .background(Color(0xFFB7F000))
             )
         } else {
             Spacer(modifier = Modifier.height(3.dp))

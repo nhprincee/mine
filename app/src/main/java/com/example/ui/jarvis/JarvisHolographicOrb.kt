@@ -372,9 +372,9 @@ fun FloatingJarvisArcReactorTrigger(
 ) {
     Box(
         modifier = modifier
-            .size(62.dp)
+            .size(54.dp)
             .shadow(
-                elevation = 16.dp,
+                elevation = 14.dp,
                 shape = CircleShape,
                 ambientColor = JarvisCyanPrimary,
                 spotColor = JarvisCyanAccent
@@ -389,7 +389,7 @@ fun FloatingJarvisArcReactorTrigger(
                 )
             )
             .border(
-                width = 1.8.dp,
+                width = 1.5.dp,
                 brush = Brush.linearGradient(
                     colors = listOf(
                         JarvisCyanBright,
@@ -408,26 +408,26 @@ fun FloatingJarvisArcReactorTrigger(
             contentDescription = "Open J.A.R.V.I.S. AI Assistant",
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .size(46.dp)
+                .size(40.dp)
                 .clip(CircleShape)
         )
 
         Surface(
-            color = JarvisReactorBlack.copy(alpha = 0.90f),
+            color = JarvisReactorBlack.copy(alpha = 0.92f),
             shape = RoundedCornerShape(50),
-            border = BorderStroke(0.8.dp, if (isGenerating) JarvisEmeraldAccent else JarvisCyanBright),
+            border = BorderStroke(0.7.dp, if (isGenerating) JarvisEmeraldAccent else JarvisCyanBright),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 2.dp)
+                .padding(bottom = 1.dp)
         ) {
             Text(
                 text = if (isGenerating) "SYNC" else "JARVIS",
                 fontFamily = JetBrainsMonoFontFamily,
-                fontSize = 7.sp,
+                fontSize = 6.5.sp,
                 fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 0.6.sp,
+                letterSpacing = 0.5.sp,
                 color = if (isGenerating) JarvisEmeraldAccent else JarvisCyanBright,
-                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
             )
         }
     }

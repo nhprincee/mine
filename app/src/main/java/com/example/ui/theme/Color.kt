@@ -381,38 +381,70 @@ fun getHudThemeById(id: String): HudThemePalette {
 }
 
 // ============================================================================
-// KHATA DEEP BURGUNDY × OBSIDIAN × PLATINUM × MUTED ROSE PALETTE (PHASE 1)
+// OFFICIAL KHARCHEE NORMAL APP DESIGN SYSTEM:
+// MIDNIGHT BLACK (#080B08) × PURE WHITE (#FFFFFF) × LIME GREEN (#B7F000)
+// 60% Midnight Black · 30% Pure White · 10% Lime Green
+// ============================================================================
+val KharcheeMidnightBlack = Color(0xFF080B08)
+val KharcheePureWhite = Color(0xFFFFFFFF)
+val KharcheeLimeGreen = Color(0xFFB7F000)
+
+// Dark Surfaces (60% Midnight Black hierarchy)
+val KharcheeDarkSurface = Color(0xFF101510)
+val KharcheeDarkElevated = Color(0xFF161D16)
+val KharcheeDarkBorder = Color(0xFF232E23)
+val KharcheeSubtextOnDark = Color(0xFFC8D2C8)
+val KharcheeMutedOnDark = Color(0xFF8B988B)
+
+// White Surfaces (30% Pure White hierarchy for key financial summaries & insights)
+val KharcheeWhiteSurface = Color(0xFFFFFFFF)
+val KharcheeWhiteSubtle = Color(0xFFF3F6F1)
+val KharcheeWhiteBorder = Color(0xFFE0E6DD)
+val KharcheeInkOnWhite = Color(0xFF080B08)
+val KharcheeSubtextOnWhite = Color(0xFF475247)
+val KharcheeMutedOnWhite = Color(0xFF6B776B)
+
+// Controlled Lime & Semantic Accents (10% Lime Green hierarchy)
+val KharcheeLimeInk = Color(0xFF080B08)
+val KharcheeLimeDeepTint = Color(0xFF172206)
+val KharcheePositiveOnWhite = Color(0xFF285900)
+val KharcheeOutflowCoral = Color(0xFFF87171)
+val KharcheeOutflowOnWhite = Color(0xFFB91C1C)
+
+// ============================================================================
+// KHATA DESIGN SYSTEM (MIDNIGHT BLACK × PURE WHITE × LIME GREEN)
 // ============================================================================
 
-// Background
-val KhataPrimaryBackground = Color(0xFF090609)
-val KhataSecondaryBackground = Color(0xFF10090E)
-val KhataCardSurface = Color(0xFF190E17)
-val KhataElevatedCardSurface = Color(0xFF21121D)
+// Background & Dark Surfaces
+val KhataPrimaryBackground = KharcheeMidnightBlack
+val KhataSecondaryBackground = KharcheeDarkSurface
+val KhataCardSurface = KharcheeDarkSurface
+val KhataElevatedCardSurface = KharcheeDarkElevated
 
-// Burgundy
-val KhataDeepBurgundy = Color(0xFF351322)
-val KhataBurgundySurface = Color(0xFF48182B)
-val KhataBurgundyBorder = Color(0xFF78334F)
+// Surface & Border Tokens
+val KhataDeepBurgundy = Color(0xFF131B10)
+val KhataBurgundySurface = Color(0xFF192412)
+val KhataBurgundyBorder = Color(0xFF2A3826)
 
-// Platinum
-val KhataPrimaryText = Color(0xFFF4EDF1)
-val KhataSecondaryText = Color(0xFFBBAAB4)
-val KhataMutedText = Color(0xFF897985)
-val KhataPlatinumHighlight = Color(0xFFD5C3CE)
+// Typography Tokens
+val KhataPrimaryText = KharcheePureWhite
+val KhataSecondaryText = KharcheeSubtextOnDark
+val KhataMutedText = KharcheeMutedOnDark
+val KhataPlatinumHighlight = KharcheePureWhite
 
-// Financial Colours
-val KhataLenaReceive = Color(0xFF55D6A5)
-val KhataDenaPay = Color(0xFFE78AA5)
-val KhataNetPositionHighlight = Color(0xFFD78BAE)
+// Financial Colours (Lena = Lime Green, Dena = Crisp White / Neutral Outflow)
+val KhataLenaReceive = KharcheeLimeGreen
+val KhataDenaPay = Color(0xFFF87171)
+val KhataNetPositionHighlight = KharcheeLimeGreen
 
 // Brand Accent
-val KhataBrandPurple = Color(0xFFB66BEA)
+val KhataBrandPurple = KharcheeLimeGreen
 
 // Supporting Khata Surface & Glass Tokens
-val KhataLenaDarkGlassSurface = Color(0xFF0C1A15)
-val KhataLenaGlassOverlay = Color(0x1455D6A5)
-val KhataDenaDarkGlassSurface = Color(0xFF221019)
-val KhataDenaGlassOverlay = Color(0x14E78AA5)
-val KhataSettledRoseSlate = Color(0xFF6B5B66)
+val KhataLenaDarkGlassSurface = Color(0xFF121C09)
+val KhataLenaGlassOverlay = Color(0x1AB7F000)
+val KhataDenaDarkGlassSurface = Color(0xFF1C1212)
+val KhataDenaGlassOverlay = Color(0x14F87171)
+val KhataSettledRoseSlate = Color(0xFF647064)
+
 

@@ -1255,12 +1255,12 @@ fun HomeInteractiveDonutChartHero(
     }
 
     val safePillColor = when (resolvedTelemetry.statusTier) {
-        SafeBurnStatusTier.EMERALD_SAFE -> Color(0xFF00E676)
+        SafeBurnStatusTier.EMERALD_SAFE -> Color(0xFFB7F000)
         SafeBurnStatusTier.AMBER_WARNING -> Color(0xFFFFD600)
         SafeBurnStatusTier.CRIMSON_EXCEEDED -> Color(0xFFFF3366)
     }
     val safePillBg = when (resolvedTelemetry.statusTier) {
-        SafeBurnStatusTier.EMERALD_SAFE -> Color(0xFF052417)
+        SafeBurnStatusTier.EMERALD_SAFE -> Color(0xFF172206)
         SafeBurnStatusTier.AMBER_WARNING -> Color(0xFF261E04)
         SafeBurnStatusTier.CRIMSON_EXCEEDED -> Color(0xFF280814)
     }
@@ -1295,27 +1295,27 @@ fun HomeInteractiveDonutChartHero(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(20.dp, RoundedCornerShape(26.dp), spotColor = Color(0xFF7C3AED).copy(alpha = 0.45f))
+            .shadow(16.dp, RoundedCornerShape(26.dp), spotColor = Color(0xFFB7F000).copy(alpha = 0.22f))
             .clip(RoundedCornerShape(26.dp))
             .background(
                 Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFF090A14),
-                        Color(0xFF120E24),
-                        Color(0xFF070810)
+                        Color(0xFF080B08),
+                        Color(0xFF101510),
+                        Color(0xFF080B08)
                     ),
                     start = Offset(0f, 0f),
                     end = Offset(950f, 750f)
                 )
             )
             .border(
-                width = 1.2.dp,
+                width = 1.1.dp,
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFFA855F7).copy(alpha = 0.85f),
-                        Color(0xFF00E5FF).copy(alpha = 0.50f),
-                        Color(0xFF00E676).copy(alpha = 0.55f),
-                        Color(0xFFA855F7).copy(alpha = 0.80f)
+                        Color(0xFFB7F000).copy(alpha = 0.80f),
+                        Color(0xFF232E23),
+                        Color(0xFF232E23),
+                        Color(0xFFB7F000).copy(alpha = 0.65f)
                     )
                 ),
                 shape = RoundedCornerShape(26.dp)
@@ -1340,13 +1340,13 @@ fun HomeInteractiveDonutChartHero(
                     fontSize = 10.sp,
                     fontWeight = FontWeight.ExtraBold,
                     letterSpacing = 1.2.sp,
-                    color = Color(0xFFD8B4FE),
+                    color = Color(0xFFB7F000),
                     maxLines = 1
                 )
                 Text(
-                    text = "Tap any neon arc to inspect category burn",
+                    text = "Tap any category arc to inspect spend",
                     fontSize = 11.sp,
-                    color = Color(0xFF9E94C4),
+                    color = Color(0xFFC8D2C8),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -1357,9 +1357,9 @@ fun HomeInteractiveDonutChartHero(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Surface(
-                    color = Color(0xFF231307),
+                    color = Color(0xFF161D16),
                     shape = RoundedCornerShape(50),
-                    border = BorderStroke(0.8.dp, Color(0xFFFF9100).copy(alpha = 0.8f)),
+                    border = BorderStroke(0.8.dp, Color(0xFFB7F000).copy(alpha = 0.7f)),
                     modifier = Modifier.testTag("hero_card_discipline_streak_badge")
                 ) {
                     Text(
@@ -1367,18 +1367,18 @@ fun HomeInteractiveDonutChartHero(
                         fontFamily = JetBrainsMonoFontFamily,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = Color(0xFFFFB74D),
+                        color = Color(0xFFB7F000),
                         maxLines = 1,
                         modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
                     )
                 }
 
                 Surface(
-                    color = Color(0xFF191330),
+                    color = Color(0xFF161D16),
                     shape = RoundedCornerShape(50),
                     border = BorderStroke(
                         width = 0.8.dp,
-                        color = if (stealthMode) Color(0xFFA855F7) else Color(0xFF3E2D6E)
+                        color = if (stealthMode) Color(0xFFB7F000) else Color(0xFF232E23)
                     ),
                     modifier = Modifier
                         .clickable(enabled = onToggleStealth != null) { onToggleStealth?.invoke() }
@@ -1392,7 +1392,7 @@ fun HomeInteractiveDonutChartHero(
                         Icon(
                             imageVector = if (stealthMode) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                             contentDescription = if (stealthMode) "Reveal Balance" else "Hide Balance on Dashboard",
-                            tint = if (stealthMode) Color(0xFFD8B4FE) else Color(0xFF8E84AD),
+                            tint = if (stealthMode) Color(0xFFB7F000) else Color(0xFFC8D2C8),
                             modifier = Modifier.size(13.dp)
                         )
                         Text(
@@ -1400,7 +1400,7 @@ fun HomeInteractiveDonutChartHero(
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (stealthMode) Color(0xFFD8B4FE) else Color(0xFF8E84AD)
+                            color = if (stealthMode) Color(0xFFB7F000) else Color(0xFFC8D2C8)
                         )
                     }
                 }
@@ -1537,7 +1537,7 @@ fun HomeInteractiveDonutChartHero(
                     fontSize = 8.sp,
                     fontWeight = FontWeight.ExtraBold,
                     letterSpacing = 0.8.sp,
-                    color = Color(0xFFB8B0D4),
+                    color = Color(0xFFC8D2C8),
                     textAlign = TextAlign.Center,
                     maxLines = 1
                 )
@@ -1547,7 +1547,7 @@ fun HomeInteractiveDonutChartHero(
                     fontFamily = headingFont,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 21.sp,
-                    color = Color.White,
+                    color = Color(0xFFFFFFFF),
                     textAlign = TextAlign.Center,
                     maxLines = 1,
                     softWrap = false,
@@ -1556,16 +1556,16 @@ fun HomeInteractiveDonutChartHero(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Surface(
-                    color = Color(0xFF17122B),
+                    color = Color(0xFF161D16),
                     shape = RoundedCornerShape(50),
-                    border = BorderStroke(0.7.dp, Color(0xFF7C3AED).copy(alpha = 0.6f))
+                    border = BorderStroke(0.8.dp, Color(0xFFB7F000).copy(alpha = 0.7f))
                 ) {
                     Text(
                         text = if (stealthMode) "👁️ •••••• (Tap)" else "👁️ Tap to Mask",
                         fontFamily = JetBrainsMonoFontFamily,
                         fontSize = 8.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFFD8B4FE),
+                        color = Color(0xFFB7F000),
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                     )
                 }
@@ -1773,14 +1773,9 @@ fun MonthlyOxygenTankProgressBar(
     }
 
     val tankColor = when (telemetry.statusTier) {
-        SafeBurnStatusTier.EMERALD_SAFE -> Color(0xFF00E676)
-        SafeBurnStatusTier.AMBER_WARNING -> Color(0xFFFFD600)
-        SafeBurnStatusTier.CRIMSON_EXCEEDED -> Color(0xFFFF3366)
-    }
-    val tankGlowBg = when (telemetry.statusTier) {
-        SafeBurnStatusTier.EMERALD_SAFE -> Color(0xFF062017)
-        SafeBurnStatusTier.AMBER_WARNING -> Color(0xFF231C06)
-        SafeBurnStatusTier.CRIMSON_EXCEEDED -> Color(0xFF260914)
+        SafeBurnStatusTier.EMERALD_SAFE -> Color(0xFFB7F000)
+        SafeBurnStatusTier.AMBER_WARNING -> Color(0xFFD97706)
+        SafeBurnStatusTier.CRIMSON_EXCEEDED -> Color(0xFFDC2626)
     }
 
     val animatedFraction by animateFloatAsState(
@@ -1792,18 +1787,9 @@ fun MonthlyOxygenTankProgressBar(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(14.dp, RoundedCornerShape(20.dp), spotColor = tankColor.copy(alpha = 0.35f))
             .clip(RoundedCornerShape(20.dp))
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFF0B0C16),
-                        tankGlowBg,
-                        Color(0xFF090A12)
-                    )
-                )
-            )
-            .border(1.1.dp, tankColor.copy(alpha = 0.65f), RoundedCornerShape(20.dp))
+            .background(Color(0xFFFFFFFF))
+            .border(1.dp, Color(0xFFE0E6DD), RoundedCornerShape(20.dp))
             .padding(horizontal = 16.dp, vertical = 14.dp)
             .testTag("home_monthly_oxygen_tank_card"),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -1818,7 +1804,7 @@ fun MonthlyOxygenTankProgressBar(
                 fontFamily = headingFont,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = Color.White,
+                color = Color(0xFF080B08),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
@@ -1827,9 +1813,9 @@ fun MonthlyOxygenTankProgressBar(
             )
 
             Surface(
-                color = tankColor.copy(alpha = 0.16f),
+                color = if (telemetry.statusTier == SafeBurnStatusTier.EMERALD_SAFE) Color(0xFFB7F000) else tankColor.copy(alpha = 0.14f),
                 shape = RoundedCornerShape(50),
-                border = BorderStroke(0.8.dp, tankColor.copy(alpha = 0.8f))
+                border = BorderStroke(0.9.dp, Color(0xFF080B08).copy(alpha = 0.16f))
             ) {
                 Text(
                     text = when (telemetry.statusTier) {
@@ -1840,34 +1826,27 @@ fun MonthlyOxygenTankProgressBar(
                     fontFamily = JetBrainsMonoFontFamily,
                     fontSize = 9.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = tankColor,
+                    color = if (telemetry.statusTier == SafeBurnStatusTier.EMERALD_SAFE) Color(0xFF080B08) else tankColor,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                 )
             }
         }
 
-        // Glowing Oxygen Bar Track
+        // High-Contrast Oxygen Bar Track on Pure White Surface
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(12.dp)
+                .height(11.dp)
                 .clip(RoundedCornerShape(50))
-                .background(Color(0xFF171528))
-                .border(0.6.dp, Color(0xFF2B2446), RoundedCornerShape(50))
+                .background(Color(0xFF080B08))
+                .padding(1.5.dp)
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth(animatedFraction)
-                    .height(12.dp)
+                    .fillMaxHeight()
                     .clip(RoundedCornerShape(50))
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                tankColor.copy(alpha = 0.75f),
-                                tankColor
-                            )
-                        )
-                    )
+                    .background(tankColor)
             )
         }
 
@@ -1880,14 +1859,14 @@ fun MonthlyOxygenTankProgressBar(
                 text = if (stealthMode) "Remaining O₂: ₹••••" else "Remaining O₂: ${PerformancePreferences.preFormatInr(telemetry.remainingMonthlyBudget)}",
                 fontFamily = JetBrainsMonoFontFamily,
                 fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = tankColor
+                fontWeight = FontWeight.ExtraBold,
+                color = Color(0xFF080B08)
             )
             Text(
                 text = if (stealthMode) "Burned: ₹••••" else "Burned: ${PerformancePreferences.preFormatInr(telemetry.monthSpent)} / ${PerformancePreferences.preFormatInr(telemetry.monthlyBudgetTarget)}",
                 fontFamily = JetBrainsMonoFontFamily,
                 fontSize = 10.sp,
-                color = Color(0xFFB8B0D4)
+                color = Color(0xFF475247)
             )
         }
     }

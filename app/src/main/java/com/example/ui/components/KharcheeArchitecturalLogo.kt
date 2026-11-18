@@ -139,29 +139,15 @@ fun KharcheeArchitecturalLogo(
         horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 12.dp),
         modifier = modifier.testTag("kharchee_architectural_logo")
     ) {
-        // Obsidian Squircle Emblem housing the pure white / brushed titanium "A" monolith
+        // Midnight Black Squircle Emblem housing the Pure White "A" monolith with subtle Lime Green accent
         Box(
             modifier = Modifier
                 .size(effectiveSymbolBox)
                 .clip(RoundedCornerShape(effectiveSymbolBox * 0.28f))
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            Color(0xFF141126),
-                            Color(0xFF0A0914),
-                            Color(0xFF05050A)
-                        )
-                    )
-                )
+                .background(Color(0xFF101510))
                 .border(
                     width = 1.dp,
-                    brush = Brush.linearGradient(
-                        colors = listOf(
-                            Color(0xFFFFFFFF).copy(alpha = 0.45f),
-                            Color(0xFFA855F7).copy(alpha = 0.55f),
-                            Color(0xFF94A3B8).copy(alpha = 0.35f)
-                        )
-                    ),
+                    color = Color(0xFFB7F000).copy(alpha = 0.65f),
                     shape = RoundedCornerShape(effectiveSymbolBox * 0.28f)
                 )
                 .padding(4.dp),
@@ -171,26 +157,33 @@ fun KharcheeArchitecturalLogo(
         }
 
         Column(
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+            verticalArrangement = Arrangement.spacedBy(1.dp)
         ) {
             Text(
                 text = "KHARCHEE",
                 fontFamily = headingFont,
                 fontSize = wordmarkFontSizeSp.sp,
                 fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 3.2.sp,
-                color = Color.White
+                letterSpacing = if (compact) 2.2.sp else 3.0.sp,
+                color = Color(0xFFFFFFFF),
+                maxLines = 1,
+                softWrap = false,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
             )
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     text = subtitle,
                     fontFamily = JetBrainsMonoFontFamily,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Medium,
-                    letterSpacing = 1.0.sp,
-                    color = Color(0xFFB8B0D4)
+                    fontSize = 8.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.8.sp,
+                    color = Color(0xFFB7F000),
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
             }
         }
     }
 }
+

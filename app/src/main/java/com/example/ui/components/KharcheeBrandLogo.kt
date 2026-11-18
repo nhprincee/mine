@@ -98,9 +98,12 @@ fun KharcheeCompactHeaderBranding(
     testTag: String = "kharchee_compact_header_branding"
 ) {
     Surface(
-        color = Color(0xFF151329),
+        color = if (isPro) Color(0xFF151329) else Color(0xFF101510),
         shape = RoundedCornerShape(50),
-        border = BorderStroke(0.8.dp, Color(0xFFA855F7).copy(alpha = 0.65f)),
+        border = BorderStroke(
+            0.8.dp,
+            if (isPro) Color(0xFFA855F7).copy(alpha = 0.65f) else Color(0xFFB7F000).copy(alpha = 0.70f)
+        ),
         modifier = modifier.testTag(testTag)
     ) {
         Row(
@@ -119,7 +122,7 @@ fun KharcheeCompactHeaderBranding(
                 fontSize = 9.sp,
                 fontWeight = FontWeight.ExtraBold,
                 letterSpacing = 1.4.sp,
-                color = Color.White
+                color = Color(0xFFFFFFFF)
             )
         }
     }
@@ -167,7 +170,7 @@ fun KharcheeLogoLoadingIndicator(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF05050A))
+            .background(Color(0xFF080B08))
             .testTag("kharchee_logo_loading_indicator"),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -176,19 +179,11 @@ fun KharcheeLogoLoadingIndicator(
             modifier = Modifier
                 .size(96.dp)
                 .clip(RoundedCornerShape(28.dp))
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            Color(0xFF141126),
-                            Color(0xFF0D0E17),
-                            Color(0xFF05050A)
-                        )
-                    )
-                ),
+                .background(Color(0xFF101510)),
             contentAlignment = Alignment.Center
         ) {
             CircularProgressIndicator(
-                color = Color(0xFFA855F7),
+                color = Color(0xFFB7F000),
                 strokeWidth = 2.dp,
                 modifier = Modifier.size(82.dp)
             )
@@ -209,7 +204,8 @@ fun KharcheeLogoLoadingIndicator(
             text = message,
             fontFamily = JetBrainsMonoFontFamily,
             fontSize = 11.sp,
-            color = Color(0xFFB8B0D4)
+            color = Color(0xFFC8D2C8)
         )
     }
 }
+

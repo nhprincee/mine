@@ -675,7 +675,7 @@ fun HomeTab(
                         onViewAllTools = onOpenFinanceTools
                     )
 
-                    // Primary 3-Button Action Bar (preserves existing test tags & rapid access)
+                    // Primary 3-Button Action Bar (Midnight Black × Pure White × Lime Green)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -688,10 +688,10 @@ fun HomeTab(
                             enabled = !settings.lockdownActive,
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF7C3AED),
-                                contentColor = Color.White,
-                                disabledContainerColor = ElevatedGraphite,
-                                disabledContentColor = MutedIvory
+                                containerColor = Color(0xFFB7F000),
+                                contentColor = Color(0xFF080B08),
+                                disabledContainerColor = Color(0xFF161D16),
+                                disabledContentColor = Color(0xFF8B988B)
                             ),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                             modifier = Modifier
@@ -702,7 +702,7 @@ fun HomeTab(
                             Text(
                                 text = "+ Add Spend",
                                 fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.ExtraBold,
                                 maxLines = 1,
                                 softWrap = false
                             )
@@ -711,10 +711,10 @@ fun HomeTab(
                         OutlinedButton(
                             onClick = onOpenAddIncome,
                             shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.dp, Color(0xFF2EE59D).copy(alpha = 0.55f)),
+                            border = BorderStroke(1.dp, Color(0xFFE0E6DD)),
                             colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = Color(0xFF0D1F1B),
-                                contentColor = Color(0xFF2EE59D)
+                                containerColor = Color(0xFFFFFFFF),
+                                contentColor = Color(0xFF080B08)
                             ),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                             modifier = Modifier
@@ -725,7 +725,7 @@ fun HomeTab(
                             Text(
                                 text = "+ Add Income",
                                 fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.ExtraBold,
                                 maxLines = 1,
                                 softWrap = false
                             )
@@ -734,10 +734,10 @@ fun HomeTab(
                         OutlinedButton(
                             onClick = onNavigateToVault,
                             shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.dp, Color(0xFFA855F7).copy(alpha = 0.55f)),
+                            border = BorderStroke(1.dp, Color(0xFFB7F000).copy(alpha = 0.7f)),
                             colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = Color(0xFF151128),
-                                contentColor = Color(0xFFD8B4FE)
+                                containerColor = Color(0xFF101510),
+                                contentColor = Color(0xFFFFFFFF)
                             ),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                             modifier = Modifier
@@ -794,26 +794,6 @@ fun HomeTab(
                             testTag = "quick_chip_sms_parser"
                         )
                     }
-
-                    // 1-Tap Quick Repeating Spend Strip
-                    OneTapQuickRepeatingSpendStrip(
-                        customChips = customQuickChips,
-                        onInstantLogSpend = { emoji, title, category, amount ->
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onQuickAdd(title, category, amount)
-                            activeQuickSpendUndoEvent = QuickSpendUndoEvent(
-                                timestampMillis = System.currentTimeMillis(),
-                                emoji = emoji,
-                                label = title,
-                                category = category,
-                                amount = amount
-                            )
-                        },
-                        onOpenAddCustomChip = { showCreateCustomChipDialog = true },
-                        onDeleteCustomChip = { chipId ->
-                            customQuickChips = HomeDailyCockpitEngine.deleteCustomQuickChip(context, userId, chipId)
-                        }
-                    )
                 }
             }
 
@@ -827,13 +807,13 @@ fun HomeTab(
                         .testTag("home_section_spending_overview"),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // Today vs This Month Live Telemetry Strip
+                    // Today vs This Month Live Telemetry Strip (Pure White High-Readability Card)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(18.dp))
-                            .background(Color(0xFF0D0E17))
-                            .border(1.dp, Color(0xFF2B224C), RoundedCornerShape(18.dp))
+                            .background(Color(0xFFFFFFFF))
+                            .border(1.dp, Color(0xFFE0E6DD), RoundedCornerShape(18.dp))
                             .padding(horizontal = 16.dp, vertical = 14.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
@@ -844,7 +824,7 @@ fun HomeTab(
                                 fontFamily = JetBrainsMonoFontFamily,
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFFB8B0D4),
+                                color = Color(0xFF475247),
                                 letterSpacing = 0.8.sp
                             )
                             Spacer(modifier = Modifier.height(3.dp))
@@ -853,13 +833,14 @@ fun HomeTab(
                                 fontFamily = headingFont,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = if (isOverLimit) Color(0xFFFF4D8D) else Color.White
+                                color = if (isOverLimit) Color(0xFFB91C1C) else Color(0xFF080B08)
                             )
                             Text(
                                 text = if (settings.stealthMode) "Daily limit masked" else "Daily cap: ₹${formatIndianAmount(dailyLimit)}",
                                 fontFamily = JetBrainsMonoFontFamily,
                                 fontSize = 10.sp,
-                                color = Color(0xFF2EE59D)
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF285900)
                             )
                         }
 
@@ -867,7 +848,7 @@ fun HomeTab(
                             modifier = Modifier
                                 .width(1.dp)
                                 .height(38.dp)
-                                .background(Color(0xFF2B224C))
+                                .background(Color(0xFFE0E6DD))
                         )
 
                         Column(
@@ -881,7 +862,7 @@ fun HomeTab(
                                 fontFamily = JetBrainsMonoFontFamily,
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFFB8B0D4),
+                                color = Color(0xFF475247),
                                 letterSpacing = 0.8.sp
                             )
                             Spacer(modifier = Modifier.height(3.dp))
@@ -890,13 +871,14 @@ fun HomeTab(
                                 fontFamily = headingFont,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = Color(0xFFD8B4FE)
+                                color = Color(0xFF080B08)
                             )
                             Text(
                                 text = if (settings.stealthMode) "Budget left: ₹••••" else "Left: ₹${formatIndianAmount(dailySafeBurnTelemetry.remainingMonthlyBudget)}",
                                 fontFamily = JetBrainsMonoFontFamily,
                                 fontSize = 10.sp,
-                                color = Color(0xFFB8B0D4)
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF475247)
                             )
                         }
                     }
@@ -1500,11 +1482,11 @@ private fun OneTapQuickRepeatingSpendStrip(
         ) { pill ->
             val isCustom = pill.id.startsWith("custom_")
             Surface(
-                color = Color(0xFF130E24),
+                color = Color(0xFF101510),
                 shape = RoundedCornerShape(50),
                 border = BorderStroke(
                     width = 1.dp,
-                    color = if (isCustom) Color(0xFF00E676).copy(alpha = 0.70f) else Color(0xFF7C3AED).copy(alpha = 0.65f)
+                    color = if (isCustom) Color(0xFFB7F000) else Color(0xFF232E23)
                 ),
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
@@ -1527,7 +1509,7 @@ private fun OneTapQuickRepeatingSpendStrip(
                         fontFamily = headingFont,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
+                        color = Color(0xFFFFFFFF),
                         maxLines = 1,
                         softWrap = false
                     )
@@ -1535,7 +1517,7 @@ private fun OneTapQuickRepeatingSpendStrip(
                         text = pill.label,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (isCustom) Color(0xFF00E676) else Color(0xFFD8B4FE),
+                        color = if (isCustom) Color(0xFFB7F000) else Color(0xFFC8D2C8),
                         maxLines = 1,
                         softWrap = false
                     )
@@ -1544,7 +1526,7 @@ private fun OneTapQuickRepeatingSpendStrip(
                             text = "✕",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF8E84AD),
+                            color = Color(0xFF8B988B),
                             modifier = Modifier
                                 .padding(start = 2.dp)
                                 .clickable { onDeleteCustomChip(pill.id) }
@@ -1558,9 +1540,9 @@ private fun OneTapQuickRepeatingSpendStrip(
         // [+ Custom Chip] button at the end of the row
         item(key = "add_custom_quick_chip_item", contentType = "add_custom_chip_button") {
             Surface(
-                color = Color(0xFF0D1E19),
+                color = Color(0xFFB7F000),
                 shape = RoundedCornerShape(50),
-                border = BorderStroke(1.dp, Color(0xFF00E676).copy(alpha = 0.75f)),
+                border = BorderStroke(1.dp, Color(0xFF080B08).copy(alpha = 0.2f)),
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
                     .clickable { onOpenAddCustomChip() }
@@ -1574,14 +1556,14 @@ private fun OneTapQuickRepeatingSpendStrip(
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = "Add Custom Quick Spend Chip",
-                        tint = Color(0xFF00E676),
+                        tint = Color(0xFF080B08),
                         modifier = Modifier.size(14.dp)
                     )
                     Text(
                         text = "+ Custom Chip",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = Color(0xFF00E676),
+                        color = Color(0xFF080B08),
                         maxLines = 1,
                         softWrap = false
                     )

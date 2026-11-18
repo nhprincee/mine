@@ -1541,52 +1541,53 @@ private fun KharcheeTopHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(ObsidianBlack)
+            .background(Color(0xFF080B08))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = 14.dp, vertical = 7.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left: Official 40dp Architectural "A" Logo + Full KHARCHEE Wordmark
+            // Left: Compact Official Architectural "A" Logo + Full KHARCHEE Wordmark
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .padding(end = 8.dp)
             ) {
                 KharcheeArchitecturalLogo(
-                    symbolSize = 40.dp,
-                    wordmarkFontSizeSp = 15,
-                    subtitle = "${activeTab.label.uppercase()} · OBSIDIAN VAULT"
+                    symbolSize = 32.dp,
+                    wordmarkFontSizeSp = 14,
+                    compact = true,
+                    subtitle = "${activeTab.label.uppercase()} · MIDNIGHT EDITION"
                 )
             }
 
-            // Right: Clean My Profile Pill + Stealth / Sign-out Actions (No intrusive Pro badges)
+            // Right: Clean My Profile Pill + Stealth / Sign-out Actions
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Surface(
-                    color = RichGraphite,
+                    color = Color(0xFF101510),
                     shape = RoundedCornerShape(50),
                     modifier = Modifier
-                        .border(0.8.dp, SophisticatedEmerald.copy(alpha = 0.65f), RoundedCornerShape(50))
+                        .border(0.9.dp, Color(0xFFB7F000).copy(alpha = 0.75f), RoundedCornerShape(50))
                         .clickable { onOpenMyProfile() }
                         .testTag("open_my_profile_button")
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(24.dp)
+                                .size(22.dp)
                                 .clip(CircleShape)
-                                .background(ObsidianDarkBackground)
-                                .border(0.8.dp, ChampagneGold, CircleShape),
+                                .background(Color(0xFF080B08))
+                                .border(0.8.dp, Color(0xFFB7F000), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             val context = LocalContext.current
@@ -1611,19 +1612,19 @@ private fun KharcheeTopHeader(
                                 Text(
                                     text = initials,
                                     fontFamily = headingFont,
-                                    color = ChampagneGold,
-                                    fontSize = 10.sp,
+                                    color = Color(0xFFB7F000),
+                                    fontSize = 9.sp,
                                     fontWeight = FontWeight.ExtraBold
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
                         Text(
                             text = "Profile",
                             fontFamily = JetBrainsMonoFontFamily,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 10.sp,
-                            color = WarmIvory,
+                            color = Color(0xFFFFFFFF),
                             maxLines = 1,
                             softWrap = false
                         )
@@ -1633,32 +1634,32 @@ private fun KharcheeTopHeader(
                 IconButton(
                     onClick = onToggleStealth,
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(32.dp)
                         .testTag("toggle_stealth_mode_button")
                 ) {
                     Icon(
                         imageVector = if (stealthMode) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                         contentDescription = "Toggle Stealth Mode",
-                        tint = if (stealthMode) ChampagneGold else MutedPlatinum,
-                        modifier = Modifier.size(18.dp)
+                        tint = if (stealthMode) Color(0xFFB7F000) else Color(0xFFC8D2C8),
+                        modifier = Modifier.size(17.dp)
                     )
                 }
 
                 IconButton(
                     onClick = onSignOut,
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(32.dp)
                         .testTag("sign_out_button")
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Logout,
                         contentDescription = "Sign Out",
-                        tint = MutedPlatinum,
-                        modifier = Modifier.size(18.dp)
+                        tint = Color(0xFFC8D2C8),
+                        modifier = Modifier.size(17.dp)
                     )
                 }
             }
         }
-        HorizontalDivider(color = HairlinePlatinum, thickness = 0.8.dp)
+        HorizontalDivider(color = Color(0xFF232E23), thickness = 0.7.dp)
     }
 }
