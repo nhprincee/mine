@@ -467,6 +467,16 @@ fun HomeTab(
                 )
             }
 
+            // KHARCHEE MISSIONS — optional progress layer; does not alter transaction flows.
+            item {
+                KharcheeMissionsSection(
+                    userId = userId,
+                    expenses = expenses,
+                    savingsGoals = savingsGoals,
+                    onOpenJarvis = { prompt -> onOpenJarvisWithPrompt?.invoke(prompt) }
+                )
+            }
+
             // 3. SLEEK 1-TAP QUICK SPEND CHIPS ROW IMMEDIATELY BELOW OXYGEN TANK
             item {
                 OneTapQuickRepeatingSpendStrip(
