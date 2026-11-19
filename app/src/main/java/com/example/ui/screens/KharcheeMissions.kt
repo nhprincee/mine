@@ -147,9 +147,11 @@ fun KharcheeMissionsSection(
     }
 
     LaunchedEffect(userId, todayExpenseCount, weekExpenseCount) {
+        // Only award automatic XP for an objectively verifiable action.
+        // Weekly review missions remain user-confirmed instead of assuming that
+        // logging five transactions means the user reviewed their spending.
         val autoMissions = listOf(
-            Triple("first_move", todayExpenseCount > 0, "DAILY"),
-            Triple("zero_leak", weekExpenseCount >= 5, "WEEKLY")
+            Triple("first_move", todayExpenseCount > 0, "DAILY")
         )
         autoMissions.forEach { (id, eligible, frequency) ->
             if (eligible) {
