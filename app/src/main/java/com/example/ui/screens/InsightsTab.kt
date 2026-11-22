@@ -97,6 +97,7 @@ import com.example.data.model.BudgetStatusLevel
 import com.example.data.model.CompleteInsightAnalyticsBundle
 import com.example.data.model.EXPENSE_CATEGORIES
 import com.example.data.model.ExpenseRecord
+import com.example.data.model.FirestorePremiumEntitlementState
 import com.example.data.model.InsightCategoryDetail
 import com.example.data.model.InsightIntelligenceEngine
 import com.example.data.model.InsightPeriodFilter
@@ -106,12 +107,18 @@ import com.example.data.model.NightGuardEventRecord
 import com.example.data.model.NightGuardSchedule
 import com.example.data.model.NightSpendingAnalytics
 import com.example.data.model.PaymentReminderRecord
+import com.example.data.model.PremiumEntitlementEvaluator
+import com.example.data.model.PremiumFeature
 import com.example.data.model.SavingsGoalRecord
 import com.example.data.model.TrendBarPoint
 import com.example.data.model.UserSettings
 import com.example.data.model.isIncomeTransaction
 import com.example.ui.components.KharcheeCompactHeaderBranding
 import com.example.ui.components.KharcheeSymbolLogo
+import com.example.ui.components.PremiumFeatureGate
+import com.example.ui.components.UpgradeToProCompactBanner
+import com.example.ui.components.UpgradeToProPromptDialog
+import androidx.compose.material.icons.filled.Lock
 import com.example.ui.theme.ChampagneGold
 import com.example.ui.theme.CrimsonRuby
 import com.example.ui.theme.ElevatedGraphite
@@ -191,6 +198,11 @@ fun InsightsTab(
     savingsGoals: List<SavingsGoalRecord> = emptyList(),
     paymentReminders: List<PaymentReminderRecord> = emptyList(),
     userDisplayName: String = "Kharchee",
+    premiumEntitlement: FirestorePremiumEntitlementState = PremiumEntitlementEvaluator.evaluate(
+        remoteSettings = settings,
+        isSyncedFromFirestore = true
+    ),
+    onNavigateToProUpgrade: () -> Unit = {},
     onOpenJarvisWithPrompt: ((String) -> Unit)? = null,
     onOpenProfile: (() -> Unit)? = null,
     onOpenNotifications: (() -> Unit)? = null,
@@ -204,6 +216,7 @@ fun InsightsTab(
     var selectedPeriodFilter by remember { mutableStateOf(InsightPeriodFilter.THIS_MONTH) }
     var activeSection by remember { mutableStateOf(InsightSectionView.OVERVIEW) }
     var showFilterBar by remember { mutableStateOf(true) }
+    var pendingUpgradePromptFeature by remember { mutableStateOf<PremiumFeature?>(null) }
 
     val now = System.currentTimeMillis()
     var customStartMillis by remember { mutableLongStateOf(now - 29L * 86_400_000L) }
@@ -470,29 +483,37 @@ fun InsightsTab(
                             }
                         }
 
-                        // Export / View Report Button (preserves existing testTag)
+                        // Export / View Report Button (gated by Firestore Pro entitlement)
+                        val isExportUnlocked = premiumEntitlement.isFeatureUnlocked(PremiumFeature.REPORT_EXPORTS)
                         Surface(
                             color = Color(0xFF231645),
                             shape = RoundedCornerShape(50),
-                            border = BorderStroke(0.8.dp, MaiPositiveEmerald.copy(alpha = 0.65f)),
+                            border = BorderStroke(
+                                0.8.dp,
+                                if (isExportUnlocked) MaiPositiveEmerald.copy(alpha = 0.65f) else ChampagneGold.copy(alpha = 0.65f)
+                            ),
                             modifier = Modifier
                                 .clickable {
-                                    val reportText = InsightIntelligenceEngine.generateStructuredReportText(bundle)
-                                    try {
-                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                            type = "text/plain"
-                                            putExtra(
-                                                Intent.EXTRA_SUBJECT,
-                                                "KHARCHEE Financial Intelligence Report (${bundle.timeWindow.displayRangeLabel})"
+                                    if (!isExportUnlocked) {
+                                        pendingUpgradePromptFeature = PremiumFeature.REPORT_EXPORTS
+                                    } else {
+                                        val reportText = InsightIntelligenceEngine.generateStructuredReportText(bundle)
+                                        try {
+                                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/plain"
+                                                putExtra(
+                                                    Intent.EXTRA_SUBJECT,
+                                                    "KHARCHEE Financial Intelligence Report (${bundle.timeWindow.displayRangeLabel})"
+                                                )
+                                                putExtra(Intent.EXTRA_TEXT, reportText)
+                                            }
+                                            context.startActivity(
+                                                Intent.createChooser(shareIntent, "Export / Share Financial Report")
                                             )
-                                            putExtra(Intent.EXTRA_TEXT, reportText)
+                                        } catch (_: Exception) {
                                         }
-                                        context.startActivity(
-                                            Intent.createChooser(shareIntent, "Export / Share Financial Report")
-                                        )
-                                    } catch (_: Exception) {
+                                        showReportPreviewDialog = true
                                     }
-                                    showReportPreviewDialog = true
                                 }
                                 .testTag("export_analytics_report_button")
                         ) {
@@ -502,25 +523,26 @@ fun InsightsTab(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.FileDownload,
-                                    contentDescription = "Export Analytics Report",
-                                    tint = MaiPositiveEmerald,
+                                    imageVector = if (isExportUnlocked) Icons.Default.FileDownload else Icons.Default.Lock,
+                                    contentDescription = if (isExportUnlocked) "Export Analytics Report" else "Upgrade to Pro to export reports",
+                                    tint = if (isExportUnlocked) MaiPositiveEmerald else ChampagneGold,
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Text(
-                                    text = "Report",
+                                    text = if (isExportUnlocked) "Report" else "Pro Report",
                                     fontFamily = JetBrainsMonoFontFamily,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaiPositiveEmerald
+                                    color = if (isExportUnlocked) MaiPositiveEmerald else ChampagneGold
                                 )
                             }
                         }
                     }
                 }
 
-                // Global Date Period Filter Strip (This Week, This Month, Last Month, Last 3 Months, This Year, Custom)
+                // Global Date Period Filter Strip (Extended/Custom ranges gated by Firestore Pro entitlement)
                 if (showFilterBar) {
+                    val isCustomRangeUnlocked = premiumEntitlement.isFeatureUnlocked(PremiumFeature.CUSTOM_DATE_FILTERS)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -531,6 +553,10 @@ fun InsightsTab(
                     ) {
                         InsightPeriodFilter.entries.forEach { period ->
                             val isSelected = selectedPeriodFilter == period
+                            val requiresPro = period == InsightPeriodFilter.LAST_3_MONTHS ||
+                                period == InsightPeriodFilter.THIS_YEAR ||
+                                period == InsightPeriodFilter.CUSTOM
+                            val isLockedPeriod = requiresPro && !isCustomRangeUnlocked
                             // Preserve legacy testTags insights_range_7d and insights_range_30d for compatibility
                             val tag = when (period) {
                                 InsightPeriodFilter.THIS_WEEK -> "insights_range_7d"
@@ -542,25 +568,50 @@ fun InsightsTab(
                                 shape = RoundedCornerShape(50),
                                 border = BorderStroke(
                                     1.dp,
-                                    if (isSelected) Color(0xFFC084FC) else MaiCardBorder
+                                    when {
+                                        isSelected -> Color(0xFFC084FC)
+                                        isLockedPeriod -> ChampagneGold.copy(alpha = 0.5f)
+                                        else -> MaiCardBorder
+                                    }
                                 ),
                                 modifier = Modifier
                                     .clickable {
-                                        selectedPeriodFilter = period
-                                        if (period == InsightPeriodFilter.CUSTOM) {
-                                            showCustomDateDialog = true
+                                        if (isLockedPeriod) {
+                                            pendingUpgradePromptFeature = PremiumFeature.CUSTOM_DATE_FILTERS
+                                        } else {
+                                            selectedPeriodFilter = period
+                                            if (period == InsightPeriodFilter.CUSTOM) {
+                                                showCustomDateDialog = true
+                                            }
                                         }
                                     }
                                     .testTag(tag)
                             ) {
-                                Text(
-                                    text = period.label,
-                                    fontFamily = JetBrainsMonoFontFamily,
-                                    fontSize = 10.sp,
-                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
-                                    color = if (isSelected) Color.White else MaiLavenderSubtext,
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                )
+                                ) {
+                                    if (isLockedPeriod) {
+                                        Icon(
+                                            imageVector = Icons.Default.Lock,
+                                            contentDescription = "Pro Period Filter",
+                                            tint = ChampagneGold,
+                                            modifier = Modifier.size(11.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = period.label,
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontSize = 10.sp,
+                                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                                        color = when {
+                                            isSelected -> Color.White
+                                            isLockedPeriod -> ChampagneGold
+                                            else -> MaiLavenderSubtext
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -597,6 +648,16 @@ fun InsightsTab(
                         }
                     }
                 }
+            }
+        }
+
+        // Firestore-backed Upgrade to Pro Banner for non-premium users
+        if (!premiumEntitlement.isProActive) {
+            item {
+                UpgradeToProCompactBanner(
+                    entitlementState = premiumEntitlement,
+                    onUpgradeToPro = onNavigateToProUpgrade
+                )
             }
         }
 
@@ -701,42 +762,36 @@ fun InsightsTab(
         }
 
         // ====================================================================
-        // 2. TRADINGVIEW-STYLE SMOOTH BEZIER CASHFLOW SPLINE GRAPH
-        //    Cubic Bezier cumulative curve, #6600E5FF vertical gradient fill,
-        //    dashed last-month ghost curve & horizontal touch-scrubbing crosshair
+        // 2-4. ADVANCED ANALYTICS SUITE (CONDITIONALLY GATED BY FIRESTORE PRO ENTITLEMENT)
+        //      - TradingView-Style Bezier Cashflow Spline
+        //      - 30-Day Spending Intensity Heatmap Matrix
+        //      - Dual Radial Speedometer Gauges & Top 5 Money Drainers Leaderboard
         // ====================================================================
         item {
-            TradingViewBezierCashflowSplineCard(
-                expenses = expenses,
-                bundle = bundle,
-                stealthMode = stealthMode
-            )
-        }
-
-        // ====================================================================
-        // 3. 30-DAY SPENDING INTENSITY HEATMAP MATRIX (CRED / GITHUB STYLE)
-        //    7-column monthly grid: ₹0 Emerald (#00E676) + No-Spend Streak badge,
-        //    Low (#004D40), Medium (#5E35B1), High (#FF1744) + drill-down card
-        // ====================================================================
-        item {
-            ThirtyDaySpendingIntensityHeatmapCard(
-                expenses = expenses,
-                dailyLimit = dailyLimit,
-                stealthMode = stealthMode
-            )
-        }
-
-        // ====================================================================
-        // 4. DUAL RADIAL SPEEDOMETER GAUGES & TOP 5 MONEY DRAINERS LEADERBOARD
-        //    240° Budget Burn Speedometer + Savings Efficiency Score (0-100)
-        //    + Top 5 Money Drainers racing horizontal neon bars
-        // ====================================================================
-        item {
-            DualRadialSpeedometersAndTopMerchantsSection(
-                expenses = expenses,
-                dailyLimit = dailyLimit,
-                stealthMode = stealthMode
-            )
+            PremiumFeatureGate(
+                feature = PremiumFeature.ADVANCED_ANALYTICS,
+                entitlementState = premiumEntitlement,
+                onUpgradeToPro = onNavigateToProUpgrade,
+                previewSummary = "Period analyzed: ${bundle.timeWindow.displayRangeLabel} · ${bundle.overview.transactionCount} txns ready for deep telemetry"
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    TradingViewBezierCashflowSplineCard(
+                        expenses = expenses,
+                        bundle = bundle,
+                        stealthMode = stealthMode
+                    )
+                    ThirtyDaySpendingIntensityHeatmapCard(
+                        expenses = expenses,
+                        dailyLimit = dailyLimit,
+                        stealthMode = stealthMode
+                    )
+                    DualRadialSpeedometersAndTopMerchantsSection(
+                        expenses = expenses,
+                        dailyLimit = dailyLimit,
+                        stealthMode = stealthMode
+                    )
+                }
+            }
         }
 
         // ====================================================================
@@ -759,37 +814,19 @@ fun InsightsTab(
         }
 
         // ====================================================================
-        // 5. ONE-TAP EXPORT STATEMENT ("Download Monthly Summary (PDF / CSV)")
+        // 5. ONE-TAP EXPORT STATEMENT (GATED BY FIRESTORE PRO ENTITLEMENT)
         // ====================================================================
         item {
-            OneTapMonthlyStatementExportCard(
-                periodLabel = pdfTargetBundle.timeWindow.displayRangeLabel,
-                lastExportedPdf = lastExportedPdfResult,
-                onDownloadAndSharePdf = {
-                    val res = MonthlyFinancialPdfExporter.downloadPdfToDevice(
-                        context = context,
-                        bundle = pdfTargetBundle,
-                        expenses = expenses,
-                        userDisplayName = userDisplayName
-                    )
-                    res.onSuccess { exported ->
-                        lastExportedPdfResult = exported
-                        onShowToast("📄 Downloaded ${exported.fileName} (${exported.pageCount} page(s))")
-                        MonthlyFinancialPdfExporter.shareOrOpenPdf(
-                            context = context,
-                            result = exported,
-                            periodLabel = pdfTargetBundle.timeWindow.displayRangeLabel,
-                            openDirectly = false
-                        )
-                    }.onFailure { err ->
-                        onShowToast("Could not generate PDF: ${err.localizedMessage ?: "Error"}")
-                    }
-                },
-                onSavePdfAs = {
-                    val suggestedName = MonthlyFinancialPdfExporter.buildSuggestedFileName(pdfTargetBundle)
-                    runCatching {
-                        savePdfDocumentLauncher.launch(suggestedName)
-                    }.onFailure {
+            PremiumFeatureGate(
+                feature = PremiumFeature.REPORT_EXPORTS,
+                entitlementState = premiumEntitlement,
+                onUpgradeToPro = onNavigateToProUpgrade,
+                previewSummary = "Ready to export: ${pdfTargetBundle.timeWindow.displayRangeLabel} (PDF & CSV)"
+            ) {
+                OneTapMonthlyStatementExportCard(
+                    periodLabel = pdfTargetBundle.timeWindow.displayRangeLabel,
+                    lastExportedPdf = lastExportedPdfResult,
+                    onDownloadAndSharePdf = {
                         val res = MonthlyFinancialPdfExporter.downloadPdfToDevice(
                             context = context,
                             bundle = pdfTargetBundle,
@@ -798,27 +835,52 @@ fun InsightsTab(
                         )
                         res.onSuccess { exported ->
                             lastExportedPdfResult = exported
-                            onShowToast("Downloaded ${exported.fileName} to ${exported.savedLocationLabel}")
-                        }
-                    }
-                },
-                onExportCsv = {
-                    val csv = InsightIntelligenceEngine.generateStructuredReportCsv(pdfTargetBundle)
-                    try {
-                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/csv"
-                            putExtra(
-                                Intent.EXTRA_SUBJECT,
-                                "KHARCHEE_Monthly_Statement_${pdfTargetBundle.timeWindow.filter.id}.csv"
+                            onShowToast("📄 Downloaded ${exported.fileName} (${exported.pageCount} page(s))")
+                            MonthlyFinancialPdfExporter.shareOrOpenPdf(
+                                context = context,
+                                result = exported,
+                                periodLabel = pdfTargetBundle.timeWindow.displayRangeLabel,
+                                openDirectly = false
                             )
-                            putExtra(Intent.EXTRA_TEXT, csv)
+                        }.onFailure { err ->
+                            onShowToast("Could not generate PDF: ${err.localizedMessage ?: "Error"}")
                         }
-                        context.startActivity(Intent.createChooser(shareIntent, "Export Monthly CSV Statement"))
-                    } catch (_: Exception) {
+                    },
+                    onSavePdfAs = {
+                        val suggestedName = MonthlyFinancialPdfExporter.buildSuggestedFileName(pdfTargetBundle)
+                        runCatching {
+                            savePdfDocumentLauncher.launch(suggestedName)
+                        }.onFailure {
+                            val res = MonthlyFinancialPdfExporter.downloadPdfToDevice(
+                                context = context,
+                                bundle = pdfTargetBundle,
+                                expenses = expenses,
+                                userDisplayName = userDisplayName
+                            )
+                            res.onSuccess { exported ->
+                                lastExportedPdfResult = exported
+                                onShowToast("Downloaded ${exported.fileName} to ${exported.savedLocationLabel}")
+                            }
+                        }
+                    },
+                    onExportCsv = {
+                        val csv = InsightIntelligenceEngine.generateStructuredReportCsv(pdfTargetBundle)
+                        try {
+                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/csv"
+                                putExtra(
+                                    Intent.EXTRA_SUBJECT,
+                                    "KHARCHEE_Monthly_Statement_${pdfTargetBundle.timeWindow.filter.id}.csv"
+                                )
+                                putExtra(Intent.EXTRA_TEXT, csv)
+                            }
+                            context.startActivity(Intent.createChooser(shareIntent, "Export Monthly CSV Statement"))
+                        } catch (_: Exception) {
+                        }
+                        onShowToast("📊 Exported CSV statement for ${pdfTargetBundle.timeWindow.displayRangeLabel}")
                     }
-                    onShowToast("📊 Exported CSV statement for ${pdfTargetBundle.timeWindow.displayRangeLabel}")
-                }
-            )
+                )
+            }
         }
 
         // ====================================================================
@@ -886,40 +948,27 @@ fun InsightsTab(
             }
         } else if (activeSection == InsightSectionView.REPORTS) {
             item {
-                FinancialReportsActionCard(
-                    bundle = pdfTargetBundle,
-                    monthlyOptions = monthlyPdfOptions,
-                    selectedMonthlyOption = selectedMonthlyOption,
-                    useActiveFilter = useCustomFilterForPdf,
-                    activeFilterLabel = "${bundle.timeWindow.filter.label} (${bundle.timeWindow.displayRangeLabel})",
-                    lastExportedPdf = lastExportedPdfResult,
-                    stealthMode = stealthMode,
-                    onSelectMonthlyOption = { option ->
-                        selectedMonthlyOption = option
-                        useCustomFilterForPdf = false
-                    },
-                    onSelectActiveFilter = {
-                        useCustomFilterForPdf = true
-                    },
-                    onDownloadPdf = {
-                        val res = MonthlyFinancialPdfExporter.downloadPdfToDevice(
-                            context = context,
-                            bundle = pdfTargetBundle,
-                            expenses = expenses,
-                            userDisplayName = userDisplayName
-                        )
-                        res.onSuccess { exported ->
-                            lastExportedPdfResult = exported
-                            onShowToast("Downloaded ${exported.fileName} to ${exported.savedLocationLabel}")
-                        }.onFailure { err ->
-                            onShowToast("Could not generate PDF: ${err.localizedMessage ?: "Error"}")
-                        }
-                    },
-                    onSavePdfAs = {
-                        val suggestedName = MonthlyFinancialPdfExporter.buildSuggestedFileName(pdfTargetBundle)
-                        runCatching {
-                            savePdfDocumentLauncher.launch(suggestedName)
-                        }.onFailure {
+                PremiumFeatureGate(
+                    feature = PremiumFeature.REPORT_EXPORTS,
+                    entitlementState = premiumEntitlement,
+                    onUpgradeToPro = onNavigateToProUpgrade
+                ) {
+                    FinancialReportsActionCard(
+                        bundle = pdfTargetBundle,
+                        monthlyOptions = monthlyPdfOptions,
+                        selectedMonthlyOption = selectedMonthlyOption,
+                        useActiveFilter = useCustomFilterForPdf,
+                        activeFilterLabel = "${bundle.timeWindow.filter.label} (${bundle.timeWindow.displayRangeLabel})",
+                        lastExportedPdf = lastExportedPdfResult,
+                        stealthMode = stealthMode,
+                        onSelectMonthlyOption = { option ->
+                            selectedMonthlyOption = option
+                            useCustomFilterForPdf = false
+                        },
+                        onSelectActiveFilter = {
+                            useCustomFilterForPdf = true
+                        },
+                        onDownloadPdf = {
                             val res = MonthlyFinancialPdfExporter.downloadPdfToDevice(
                                 context = context,
                                 bundle = pdfTargetBundle,
@@ -929,58 +978,77 @@ fun InsightsTab(
                             res.onSuccess { exported ->
                                 lastExportedPdfResult = exported
                                 onShowToast("Downloaded ${exported.fileName} to ${exported.savedLocationLabel}")
+                            }.onFailure { err ->
+                                onShowToast("Could not generate PDF: ${err.localizedMessage ?: "Error"}")
                             }
-                        }
-                    },
-                    onOpenExportedPdf = { exported ->
-                        MonthlyFinancialPdfExporter.shareOrOpenPdf(
-                            context = context,
-                            result = exported,
-                            periodLabel = pdfTargetBundle.timeWindow.displayRangeLabel,
-                            openDirectly = true
-                        )
-                    },
-                    onShareExportedPdf = { exported ->
-                        MonthlyFinancialPdfExporter.shareOrOpenPdf(
-                            context = context,
-                            result = exported,
-                            periodLabel = pdfTargetBundle.timeWindow.displayRangeLabel,
-                            openDirectly = false
-                        )
-                    },
-                    onOpenReportPreview = { showReportPreviewDialog = true },
-                    onExportCsv = {
-                        val csv = InsightIntelligenceEngine.generateStructuredReportCsv(pdfTargetBundle)
-                        try {
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/csv"
-                                putExtra(
-                                    Intent.EXTRA_SUBJECT,
-                                    "KHARCHEE_Insight_Report_${pdfTargetBundle.timeWindow.filter.id}.csv"
+                        },
+                        onSavePdfAs = {
+                            val suggestedName = MonthlyFinancialPdfExporter.buildSuggestedFileName(pdfTargetBundle)
+                            runCatching {
+                                savePdfDocumentLauncher.launch(suggestedName)
+                            }.onFailure {
+                                val res = MonthlyFinancialPdfExporter.downloadPdfToDevice(
+                                    context = context,
+                                    bundle = pdfTargetBundle,
+                                    expenses = expenses,
+                                    userDisplayName = userDisplayName
                                 )
-                                putExtra(Intent.EXTRA_TEXT, csv)
+                                res.onSuccess { exported ->
+                                    lastExportedPdfResult = exported
+                                    onShowToast("Downloaded ${exported.fileName} to ${exported.savedLocationLabel}")
+                                }
                             }
-                            context.startActivity(Intent.createChooser(shareIntent, "Export Insight CSV"))
-                        } catch (_: Exception) {
-                        }
-                        onShowToast("Prepared CSV report for ${pdfTargetBundle.timeWindow.displayRangeLabel}")
-                    },
-                    onShareSummary = {
-                        val text = InsightIntelligenceEngine.generateStructuredReportText(pdfTargetBundle)
-                        try {
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(
-                                    Intent.EXTRA_SUBJECT,
-                                    "KHARCHEE Financial Report (${pdfTargetBundle.timeWindow.displayRangeLabel})"
-                                )
-                                putExtra(Intent.EXTRA_TEXT, text)
+                        },
+                        onOpenExportedPdf = { exported ->
+                            MonthlyFinancialPdfExporter.shareOrOpenPdf(
+                                context = context,
+                                result = exported,
+                                periodLabel = pdfTargetBundle.timeWindow.displayRangeLabel,
+                                openDirectly = true
+                            )
+                        },
+                        onShareExportedPdf = { exported ->
+                            MonthlyFinancialPdfExporter.shareOrOpenPdf(
+                                context = context,
+                                result = exported,
+                                periodLabel = pdfTargetBundle.timeWindow.displayRangeLabel,
+                                openDirectly = false
+                            )
+                        },
+                        onOpenReportPreview = { showReportPreviewDialog = true },
+                        onExportCsv = {
+                            val csv = InsightIntelligenceEngine.generateStructuredReportCsv(pdfTargetBundle)
+                            try {
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/csv"
+                                    putExtra(
+                                        Intent.EXTRA_SUBJECT,
+                                        "KHARCHEE_Insight_Report_${pdfTargetBundle.timeWindow.filter.id}.csv"
+                                    )
+                                    putExtra(Intent.EXTRA_TEXT, csv)
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Export Insight CSV"))
+                            } catch (_: Exception) {
                             }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share Financial Report"))
-                        } catch (_: Exception) {
+                            onShowToast("Prepared CSV report for ${pdfTargetBundle.timeWindow.displayRangeLabel}")
+                        },
+                        onShareSummary = {
+                            val text = InsightIntelligenceEngine.generateStructuredReportText(pdfTargetBundle)
+                            try {
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(
+                                        Intent.EXTRA_SUBJECT,
+                                        "KHARCHEE Financial Report (${pdfTargetBundle.timeWindow.displayRangeLabel})"
+                                    )
+                                    putExtra(Intent.EXTRA_TEXT, text)
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Share Financial Report"))
+                            } catch (_: Exception) {
+                            }
                         }
-                    }
-                )
+                    )
+                }
             }
         }
     }
@@ -1029,6 +1097,15 @@ fun InsightsTab(
                 }
             },
             onDismiss = { showReportPreviewDialog = false }
+        )
+    }
+
+    pendingUpgradePromptFeature?.let { gatedFeature ->
+        UpgradeToProPromptDialog(
+            feature = gatedFeature,
+            entitlementState = premiumEntitlement,
+            onUpgradeToPro = onNavigateToProUpgrade,
+            onDismiss = { pendingUpgradePromptFeature = null }
         )
     }
 }

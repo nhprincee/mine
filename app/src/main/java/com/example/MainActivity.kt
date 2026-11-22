@@ -418,6 +418,7 @@ fun KharcheeMainShell(
     val effectiveDisplayName = userProfileData.customDisplayName.ifBlank { userDisplayName }
 
     val snackbarHostState = remember { SnackbarHostState() }
+    val premiumEntitlement by viewModel.premiumEntitlementState.collectAsStateWithLifecycle()
     val undoSmsToast by AutoExpenseDetectionStore.undoToastEventFlow.collectAsStateWithLifecycle()
     val pendingEditExpenseId by AutoExpenseDetectionStore.pendingEditExpenseIdFlow.collectAsStateWithLifecycle()
 
@@ -499,12 +500,16 @@ fun KharcheeMainShell(
 
     val now = System.currentTimeMillis()
     val todaySpent = remember(expenses) {
-        expenses.filter { !isIncomeTransaction(it) && isSameDay(it.txEpochMillis, now) }
-            .sumOf { it.amount }
+        expenses.filter {
+            com.example.data.local.LifetimeFinancialMemorySystem.isPersonalSpending(it) &&
+                isSameDay(it.txEpochMillis, now)
+        }.sumOf { it.amount }
     }
     val monthSpent = remember(expenses) {
-        expenses.filter { !isIncomeTransaction(it) && isSameMonth(it.txEpochMillis, now) }
-            .sumOf { it.amount }
+        expenses.filter {
+            com.example.data.local.LifetimeFinancialMemorySystem.isPersonalSpending(it) &&
+                isSameMonth(it.txEpochMillis, now)
+        }.sumOf { it.amount }
     }
     val monthlyInflow = remember(expenses) {
         expenses.filter { isIncomeTransaction(it) && isSameMonth(it.txEpochMillis, now) }
@@ -514,7 +519,9 @@ fun KharcheeMainShell(
         expenses.filter { isIncomeTransaction(it) }.sumOf { it.amount }
     }
     val totalExpenseAll = remember(expenses) {
-        expenses.filter { !isIncomeTransaction(it) }.sumOf { it.amount }
+        expenses.filter {
+            com.example.data.local.LifetimeFinancialMemorySystem.isPersonalSpending(it)
+        }.sumOf { it.amount }
     }
     val monthlyBudgetTarget = remember(settings.dailyLimit) {
         (settings.dailyLimit * 30L).coerceAtLeast(1500L)
@@ -537,7 +544,10 @@ fun KharcheeMainShell(
     }
     val topSpendingCategory = remember(expenses) {
         expenses
-            .filter { !isIncomeTransaction(it) && isSameMonth(it.txEpochMillis, now) }
+            .filter {
+                com.example.data.local.LifetimeFinancialMemorySystem.isPersonalSpending(it) &&
+                    isSameMonth(it.txEpochMillis, now)
+            }
             .groupBy { it.category.ifBlank { "General" } }
             .mapValues { (_, list) -> list.sumOf { it.amount } }
             .entries
@@ -551,7 +561,10 @@ fun KharcheeMainShell(
         for (i in 0 until 30) {
             val dayTarget = now - i * 86_400_000L
             val daySum = expenses
-                .filter { !isIncomeTransaction(it) && isSameDay(it.txEpochMillis, dayTarget) }
+                .filter {
+                    com.example.data.local.LifetimeFinancialMemorySystem.isPersonalSpending(it) &&
+                        isSameDay(it.txEpochMillis, dayTarget)
+                }
                 .sumOf { it.amount }
             if (daySum <= settings.dailyLimit) {
                 streak += 1
@@ -573,6 +586,16 @@ fun KharcheeMainShell(
             }
         }
         score.coerceIn(300, 900)
+    }
+
+    LaunchedEffect(todaySpent, settings.dailyLimit, expenses.size) {
+        if (todaySpent > 0L && settings.dailyLimit > 0L) {
+            com.example.util.KharcheeNotificationManager.checkAndNotifyDailySpendingLimit(
+                context = context,
+                expenses = expenses,
+                dailyLimit = settings.dailyLimit
+            )
+        }
     }
 
     KharcheeTheme(themeId = settings.themeId) {
@@ -755,7 +778,7 @@ fun KharcheeMainShell(
                                                 paymentMode = "UPI",
                                                 note = "1-Tap Instant Log"
                                             )
-                                            if (settings.isPro && com.example.util.SavingsGoalsManager.isSpareChangeAutoSweepEnabled(context, currentUserId)) {
+                                            if (premiumEntitlement.isProActive && com.example.util.SavingsGoalsManager.isSpareChangeAutoSweepEnabled(context, currentUserId)) {
                                                 val increment = com.example.util.SavingsGoalsManager.getRoundUpIncrement(context, currentUserId)
                                                 val swept = com.example.util.SavingsGoalsManager.computeSpareChangeRoundUp(amt, increment)
                                                 val targetGoal = com.example.util.SavingsGoalsManager.resolveTargetSweepGoal(context, currentUserId, savingsGoals)
@@ -857,6 +880,8 @@ fun KharcheeMainShell(
                                         savingsGoals = savingsGoals,
                                         paymentReminders = paymentReminders,
                                         userDisplayName = effectiveDisplayName,
+                                        premiumEntitlement = premiumEntitlement,
+                                        onNavigateToProUpgrade = { activeTab = KharcheeTab.PRO },
                                         onOpenJarvisWithPrompt = { prompt ->
                                             jarvisInitialPrompt = prompt
                                             isJarvisOpen = true
@@ -959,7 +984,8 @@ fun KharcheeMainShell(
                                             viewModel.showToast("👑 Activated $planSummary!")
                                         },
                                         onCreateGoal = viewModel::createSavingsGoal,
-                                        onAddGoalProgress = viewModel::addSavingsProgress
+                                        onAddGoalProgress = viewModel::addSavingsProgress,
+                                        premiumEntitlement = premiumEntitlement
                                     )
                                 }
                             }
@@ -976,7 +1002,7 @@ fun KharcheeMainShell(
                     onDismiss = { addModalType = null },
                     onSubmit = { title, cat, amt, mode, type, note ->
                         viewModel.requestAddTransaction(title, cat, amt, mode, type, note)
-                        if (type == "expense" && settings.isPro && com.example.util.SavingsGoalsManager.isSpareChangeAutoSweepEnabled(context, currentUserId)) {
+                        if (type == "expense" && premiumEntitlement.isProActive && com.example.util.SavingsGoalsManager.isSpareChangeAutoSweepEnabled(context, currentUserId)) {
                             val increment = com.example.util.SavingsGoalsManager.getRoundUpIncrement(context, currentUserId)
                             val swept = com.example.util.SavingsGoalsManager.computeSpareChangeRoundUp(amt, increment)
                             val targetGoal = com.example.util.SavingsGoalsManager.resolveTargetSweepGoal(context, currentUserId, savingsGoals)
@@ -1321,6 +1347,13 @@ fun KharcheeMainShell(
                     },
                     onClearHistory = viewModel::clearJarvisConversation,
                     onDismissError = viewModel::dismissJarvisError,
+                    onStopGenerating = viewModel::stopJarvisGeneration,
+                    onRetryLastMessage = {
+                        viewModel.retryLastFailedJarvisMessage(
+                            userDisplayName = effectiveDisplayName,
+                            extraKhataRecords = mergedKhataEntities
+                        )
+                    },
                     onClose = {
                         isJarvisOpen = false
                         jarvisInitialPrompt = null

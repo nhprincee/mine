@@ -74,6 +74,33 @@ class KharcheeRepository(private val db: FirebaseFirestore) {
     }.flowOn(Dispatchers.IO)
 
     /**
+     * Observes `/users/{uid}/payment_verifications` in real time to detect whether a server-side
+     * Pro payment verification request is currently awaiting approval.
+     */
+    fun observeHasPendingPaymentVerification(userId: String = requireUserId()): Flow<Boolean> = flow {
+        val colRef = db.collection("users").document(userId).collection("payment_verifications")
+        emitAll(
+            colRef.snapshots()
+                .map { querySnapshot ->
+                    querySnapshot.documents.any { doc ->
+                        doc.getString("status").equals("PENDING_SERVER_VERIFICATION", ignoreCase = true)
+                    }
+                }
+                .catch { error ->
+                    val firestoreError = generateSequence(error) { it.cause }
+                        .filterIsInstance<FirebaseFirestoreException>()
+                        .firstOrNull()
+                    if (firestoreError == null && error is CancellationException) throw error
+                    val exceptionToLog = firestoreError ?: (error as? Exception)
+                    if (exceptionToLog != null && auth.currentUser?.uid == userId) {
+                        handleFirestoreError(exceptionToLog, OperationType.LIST, colRef.path)
+                    }
+                    throw error
+                }
+        )
+    }.flowOn(Dispatchers.IO)
+
+    /**
      * Creates or updates user profile settings WITHOUT touching privileged Pro membership fields
      * (`isPro`, `proTier`, `proExpiryMillis`, `proExpiresAtMillis`).
      * Existing legitimate Pro membership data on `/users/{uid}` is preserved across profile updates.

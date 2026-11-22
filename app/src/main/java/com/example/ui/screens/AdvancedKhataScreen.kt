@@ -2653,7 +2653,7 @@ private fun KhataIndividualPersonLedgerView(
         // Lifetime Financial Relationship Profile Card
         item {
             val contactProfileMetrics = remember(state) {
-                AdvancedKhataStore.computeLifetimeContactProfileMetrics(state)
+                AdvancedKhataStore.computeLifetimeContactProfile(state)
             }
             LifetimeContactProfileCard(
                 state = state,

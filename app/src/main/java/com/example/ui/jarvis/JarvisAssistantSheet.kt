@@ -5,11 +5,20 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,14 +38,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -46,6 +57,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -55,12 +67,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -160,6 +174,8 @@ fun JarvisAssistantSheet(
     onSendMessage: (String) -> Unit,
     onClearHistory: () -> Unit,
     onDismissError: () -> Unit,
+    onStopGenerating: (() -> Unit)? = null,
+    onRetryLastMessage: (() -> Unit)? = null,
     onClose: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -203,6 +219,8 @@ fun JarvisAssistantSheet(
             onSendMessage = onSendMessage,
             onClearHistory = onClearHistory,
             onDismissError = onDismissError,
+            onStopGenerating = onStopGenerating,
+            onRetryLastMessage = onRetryLastMessage,
             onClose = onClose
         )
     }
@@ -241,6 +259,8 @@ fun JarvisAssistantOverlay(
     onSendMessage: (String) -> Unit,
     onClearHistory: () -> Unit,
     onDismissError: () -> Unit,
+    onStopGenerating: (() -> Unit)? = null,
+    onRetryLastMessage: (() -> Unit)? = null,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -265,59 +285,49 @@ fun JarvisAssistantOverlay(
         }
     }
 
-    // Build an automatic deterministic welcome status message when chat history is empty, synced to live database state
+    // Build a sharp, concise live-telemetry opener when chat history is empty.
     val displayMessages = remember(
         messages,
         userDisplayName,
-        netBalance,
-        monthlyInflow,
-        monthlyOutflow,
-        topSpendingCategory,
         remainingBudget,
         todaySpent,
         dailyLimit,
-        disciplineScore,
-        allTransactions.size,
-        khataEntities
+        khataEntities,
+        activeMode,
+        activeLanguage
     ) {
         if (messages.isNotEmpty()) {
             messages
         } else {
-            val cal = Calendar.getInstance()
-            val daysLeftInMonth = (cal.getActualMaximum(Calendar.DAY_OF_MONTH) - cal.get(Calendar.DAY_OF_MONTH) + 1).coerceAtLeast(1)
-            val dailySafeLimit = (remainingBudget / daysLeftInMonth).coerceAtLeast(0L)
-            val totalLeneHai = khataEntities.filter { it.balance > 0 }.sumOf { it.balance }
-            val totalDeneHai = khataEntities.filter { it.balance < 0 }.sumOf { -it.balance }
-            val khataLine = if (totalLeneHai > 0L || totalDeneHai > 0L) {
-                "Market me ₹$totalLeneHai lene bache hain aur ₹$totalDeneHai chukane hain."
+            val dailyLeft = (dailyLimit - todaySpent).coerceAtLeast(0L)
+            val dailyOver = (todaySpent - dailyLimit).coerceAtLeast(0L)
+            val totalLeneHai = khataEntities.filter { it.balance > 0L }.sumOf { it.balance }
+            val totalDeneHai = khataEntities.filter { it.balance < 0L }.sumOf { -it.balance }
+            val spendHeadline = if (dailyOver > 0L) {
+                "Today: ${formatInr(todaySpent)} spent (${formatInr(dailyOver)} over your ${formatInr(dailyLimit)} daily cap)."
             } else {
-                "Khata clean hai Sir, kisi ka udhar baki nahi hai."
+                "Today: ${formatInr(todaySpent)} / ${formatInr(dailyLimit)} daily cap (${formatInr(dailyLeft)} left)."
             }
-            val monthlyTarget = (dailyLimit * 30L).coerceAtLeast(1500L)
-            val isOverspending = monthlyOutflow > (monthlyTarget * 70L) / 100L
-            val roastStatusLine = if (isOverspending) {
-                "Aapka budget critical stage par hai! Swiggy aur luxury offline sprees band kijiye, varna month-end par water-only diet pe jaana padega. 💀"
-            } else {
-                "Discipline bohot badhiya hai, Chief. You are in the green zone. Backed by solid budgeting!"
+            val khataNote = when {
+                totalLeneHai > 0L && totalDeneHai > 0L -> "Khata: ${formatInr(totalLeneHai)} lena · ${formatInr(totalDeneHai)} dena."
+                totalLeneHai > 0L -> "Khata: ${formatInr(totalLeneHai)} to receive."
+                totalDeneHai > 0L -> "Khata: ${formatInr(totalDeneHai)} to pay."
+                else -> null
             }
-            val initialRoast = buildString {
-                appendLine("Aaj aapne total ₹$todaySpent kharch kiye hain, Chief. $topSpendingCategory par sabse zyada spent hua hai.")
-                appendLine("Balance ${formatInr(netBalance)} bacha hai. Month-end tak smooth chalne ke liye, aapka daily spending limit ₹$dailySafeLimit se upar nahi jana chahiye.")
+            val conciseIntro = buildString {
+                appendLine(spendHeadline)
+                append("Monthly budget left: ${formatInr(remainingBudget)}.")
+                if (khataNote != null) {
+                    append(" $khataNote")
+                }
                 appendLine()
-                appendLine("🧠 AI CFO Audit: $roastStatusLine")
-                appendLine()
-                appendLine("⚡ Live Database Telemetry ($userDisplayName · ${allTransactions.size} txns):")
-                appendLine("• Net Balance: ${formatInr(netBalance)} | Health Score: $disciplineScore/900")
-                appendLine("• Monthly Inflow: +${formatInr(monthlyInflow)} | Outflow: -${formatInr(monthlyOutflow)}")
-                appendLine("• Top Category: $topSpendingCategory | Remaining Budget: ${formatInr(remainingBudget)}")
-                appendLine("• Khata Status: $khataLine")
-                append("💡 1-Tap Command: Type 'Add 150 Chai' to log an expense instantly!")
+                append("Ask anything or type 'Add 150 Chai' to log instantly.")
             }
             listOf(
                 JarvisChatMessage(
                     id = "jarvis_welcome_roast",
                     role = "jarvis",
-                    text = initialRoast,
+                    text = conciseIntro,
                     mode = activeMode,
                     language = activeLanguage
                 )
@@ -325,10 +335,22 @@ fun JarvisAssistantOverlay(
         }
     }
 
-    LaunchedEffect(displayMessages.size) {
-        if (displayMessages.isNotEmpty()) {
+    val totalListItems = displayMessages.size +
+        (if (isGenerating) 1 else 0) +
+        (if (pendingProposedAction != null) 1 else 0)
+
+    LaunchedEffect(totalListItems) {
+        if (totalListItems > 0) {
             runCatching {
-                listState.scrollToItem((displayMessages.size - 1).coerceAtLeast(0))
+                listState.animateScrollToItem((totalListItems - 1).coerceAtLeast(0))
+            }
+        }
+    }
+
+    LaunchedEffect(isGenerating, streamingReply.length / 28) {
+        if (isGenerating && totalListItems > 0) {
+            runCatching {
+                listState.scrollToItem((totalListItems - 1).coerceAtLeast(0))
             }
         }
     }
@@ -399,11 +421,15 @@ fun JarvisAssistantOverlay(
                         )
                     }
                     Text(
-                        text = "LIVE TELEMETRY · HINGLISH ROAST ENGINE",
+                        text = if (isGenerating) {
+                            "GEMINI AI · STREAMING LIVE"
+                        } else {
+                            "GEMINI AI · ${if (activeMode == "coach" || activeMode == "advice") "COACH" else "ROAST"} MODE"
+                        },
                         fontFamily = JetBrainsMonoFontFamily,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Medium,
-                        color = Color(0xFFD8B4FE)
+                        color = if (isGenerating) Color(0xFFB7F000) else Color(0xFFD8B4FE)
                     )
                 }
             }
@@ -417,7 +443,8 @@ fun JarvisAssistantOverlay(
                     IconButton(
                         onClick = onClearHistory,
                         modifier = Modifier
-                            .size(36.dp)
+                            .minimumInteractiveComponentSize()
+                            .size(40.dp)
                             .clip(CircleShape)
                             .background(Color(0xFF151329))
                             .border(0.8.dp, Color(0xFF2B224C), CircleShape)
@@ -436,7 +463,8 @@ fun JarvisAssistantOverlay(
                 IconButton(
                     onClick = onClose,
                     modifier = Modifier
-                        .size(36.dp)
+                        .minimumInteractiveComponentSize()
+                        .size(40.dp)
                         .clip(CircleShape)
                         .background(Color(0xFF1E1638))
                         .border(1.dp, Color(0xFFA855F7), CircleShape)
@@ -502,7 +530,7 @@ fun JarvisAssistantOverlay(
                 )
                 ModePillButton(
                     label = "🧠 Coach",
-                    selected = activeMode == "coach",
+                    selected = activeMode == "coach" || activeMode == "advice",
                     onClick = { onSelectMode("coach") }
                 )
             }
@@ -543,6 +571,22 @@ fun JarvisAssistantOverlay(
                 )
             }
 
+            if (isGenerating && streamingReply.isNotBlank()) {
+                item(
+                    key = "jarvis_streaming_reply_item",
+                    contentType = "jarvis_streaming"
+                ) {
+                    JarvisStreamingReplyBubble(streamingText = streamingReply)
+                }
+            } else if (isGenerating) {
+                item(
+                    key = "jarvis_typing_indicator_item",
+                    contentType = "jarvis_typing"
+                ) {
+                    JarvisTypingIndicatorBubble()
+                }
+            }
+
             if (pendingProposedAction != null && onConfirmProposedAction != null && onDismissProposedAction != null) {
                 item(
                     key = "proposed_action_${pendingProposedAction.id}",
@@ -552,6 +596,129 @@ fun JarvisAssistantOverlay(
                         proposedAction = pendingProposedAction,
                         onConfirm = onConfirmProposedAction,
                         onCancel = onDismissProposedAction
+                    )
+                }
+            }
+        }
+
+        // 4B. REAL ERROR BANNER WITH RETRY & DISMISS (NEVER PRETENDS ERROR CAME FROM GEMINI)
+        AnimatedVisibility(
+            visible = errorState != null,
+            enter = fadeIn(tween(180)) + expandVertically(tween(200)),
+            exit = fadeOut(tween(150)) + shrinkVertically(tween(180))
+        ) {
+            errorState?.let { activeError ->
+                val errorTitle = when {
+                    activeError.isOffline -> "⚠️ NO INTERNET CONNECTION"
+                    activeError.isRateLimit -> "⚠️ GEMINI RATE LIMIT"
+                    activeError.isTimeout -> "⚠️ GEMINI REQUEST TIMED OUT"
+                    else -> "⚠️ GEMINI AI CONNECTION ERROR"
+                }
+                Surface(
+                    color = Color(0xFF2A0D18),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(0.9.dp, Color(0xFFFF4D8D).copy(alpha = 0.75f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .testTag("jarvis_error_banner")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = errorTitle,
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFFFF4D8D)
+                        )
+                        Text(
+                            text = activeError.message,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            color = Color(0xFFFFE4EC)
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (activeError.lastFailedPrompt.isNotBlank() && onRetryLastMessage != null) {
+                                Surface(
+                                    color = if (isGenerating) Color(0xFF533378) else Color(0xFFA855F7),
+                                    shape = RoundedCornerShape(50),
+                                    modifier = Modifier
+                                        .minimumInteractiveComponentSize()
+                                        .clip(RoundedCornerShape(50))
+                                        .clickable(enabled = !isGenerating) { onRetryLastMessage() }
+                                        .testTag("jarvis_retry_button")
+                                ) {
+                                    Text(
+                                        text = "↻ Retry",
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                    )
+                                }
+                            }
+                            Surface(
+                                color = Color(0xFF1A1020),
+                                shape = RoundedCornerShape(50),
+                                border = BorderStroke(0.8.dp, Color(0xFFFF4D8D).copy(alpha = 0.5f)),
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .clip(RoundedCornerShape(50))
+                                    .clickable { onDismissError() }
+                                    .testTag("jarvis_dismiss_error_button")
+                            ) {
+                                Text(
+                                    text = "Dismiss",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFFFFB4CE),
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4C. STOP GENERATION BAR WHILE STREAMING
+        AnimatedVisibility(
+            visible = isGenerating && onStopGenerating != null,
+            enter = fadeIn(tween(150)) + expandVertically(tween(180)),
+            exit = fadeOut(tween(150)) + shrinkVertically(tween(160))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Surface(
+                    color = Color(0xFF211338),
+                    shape = RoundedCornerShape(50),
+                    border = BorderStroke(0.9.dp, Color(0xFFFF4D8D).copy(alpha = 0.8f)),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .clip(RoundedCornerShape(50))
+                        .clickable { onStopGenerating?.invoke() }
+                        .testTag("jarvis_stop_generation_button")
+                ) {
+                    Text(
+                        text = "■ Stop Generation",
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFFFB4CE),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     )
                 }
             }
@@ -572,10 +739,10 @@ fun JarvisAssistantOverlay(
                 Surface(
                     color = Color(0xFF151329),
                     shape = RoundedCornerShape(50),
-                    border = BorderStroke(0.8.dp, Color(0xFFA855F7).copy(alpha = 0.6f)),
+                    border = BorderStroke(0.8.dp, Color(0xFFA855F7).copy(alpha = if (isGenerating) 0.25f else 0.6f)),
                     modifier = Modifier
                         .clip(RoundedCornerShape(50))
-                        .clickable { onSendMessage(chip.prompt) }
+                        .clickable(enabled = !isGenerating) { onSendMessage(chip.prompt) }
                         .testTag("jarvis_chip_${chip.id}")
                 ) {
                     Text(
@@ -583,7 +750,7 @@ fun JarvisAssistantOverlay(
                         fontFamily = JetBrainsMonoFontFamily,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFFF3E8FF),
+                        color = if (isGenerating) Color(0xFF8E84AD) else Color(0xFFF3E8FF),
                         maxLines = 1,
                         softWrap = false,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
@@ -592,7 +759,15 @@ fun JarvisAssistantOverlay(
             }
         }
 
-        // 6. BOTTOM MESSAGE INPUT & SEND BAR
+        // 6. BOTTOM MESSAGE INPUT & SEND / STOP BAR
+        val submitCurrentInput = {
+            val trimmed = inputText.trim()
+            if (!isGenerating && trimmed.isNotEmpty()) {
+                inputText = ""
+                onSendMessage(trimmed)
+            }
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -605,7 +780,7 @@ fun JarvisAssistantOverlay(
                 onValueChange = { inputText = it },
                 placeholder = {
                     Text(
-                        text = "Try 'Add 150 chai', 'Aaj ka kharcha', 'Khata dues'...",
+                        text = if (isGenerating) "J.A.R.V.I.S. is replying..." else "Ask anything or type 'Add 150 chai'...",
                         fontSize = 13.sp,
                         color = Color(0xFF8E84AD),
                         maxLines = 1,
@@ -613,6 +788,8 @@ fun JarvisAssistantOverlay(
                     )
                 },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { submitCurrentInput() }),
                 shape = RoundedCornerShape(20.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = Color(0xFF0D0E17),
@@ -628,31 +805,188 @@ fun JarvisAssistantOverlay(
                     .testTag("jarvis_input_field")
             )
 
-            IconButton(
-                onClick = {
-                    val trimmed = inputText.trim()
-                    if (trimmed.isNotEmpty()) {
-                        inputText = ""
-                        onSendMessage(trimmed)
-                    }
-                },
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(Color(0xFFA855F7), Color(0xFF7C3AED))
+            if (isGenerating && onStopGenerating != null) {
+                IconButton(
+                    onClick = { onStopGenerating() },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(Color(0xFFFF4D6D), Color(0xFFB91C4A))
+                            )
                         )
+                        .testTag("jarvis_stop_inline_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Stop,
+                        contentDescription = "Stop generating response",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
                     )
-                    .testTag("jarvis_send_button")
+                }
+            } else {
+                IconButton(
+                    enabled = !isGenerating && inputText.trim().isNotEmpty(),
+                    onClick = submitCurrentInput,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.linearGradient(
+                                colors = if (isGenerating || inputText.trim().isEmpty()) {
+                                    listOf(Color(0xFF3E355C), Color(0xFF2B224C))
+                                } else {
+                                    listOf(Color(0xFFA855F7), Color(0xFF7C3AED))
+                                }
+                            )
+                        )
+                        .testTag("jarvis_send_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "Send to Jarvis",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun JarvisTypingIndicatorBubble() {
+    val infiniteTransition = rememberInfiniteTransition(label = "jarvis_typing_dots")
+    val dot1Alpha by infiniteTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(480), RepeatMode.Reverse),
+        label = "dot1"
+    )
+    val dot2Alpha by infiniteTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(480, delayMillis = 160), RepeatMode.Reverse),
+        label = "dot2"
+    )
+    val dot3Alpha by infiniteTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(480, delayMillis = 320), RepeatMode.Reverse),
+        label = "dot3"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("jarvis_typing_indicator"),
+        horizontalArrangement = Arrangement.Start
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.72f)
+                .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 18.dp))
+                .background(Color(0xFF141126))
+                .border(
+                    width = 0.8.dp,
+                    color = Color(0xFFA855F7).copy(alpha = 0.55f),
+                    shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 18.dp)
+                )
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            Text(
+                text = "J.A.R.V.I.S. · GEMINI AI",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.sp,
+                color = Color(0xFFA855F7)
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "Send to Jarvis",
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
+                listOf(dot1Alpha, dot2Alpha, dot3Alpha).forEach { alpha ->
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .alpha(alpha)
+                            .clip(CircleShape)
+                            .background(Color(0xFFB7F000))
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Thinking...",
+                    fontSize = 12.sp,
+                    color = Color(0xFFD8B4FE)
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun JarvisStreamingReplyBubble(streamingText: String) {
+    val cursorTransition = rememberInfiniteTransition(label = "jarvis_stream_cursor")
+    val cursorAlpha by cursorTransition.animateFloat(
+        initialValue = 0.2f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(420), RepeatMode.Reverse),
+        label = "cursorAlpha"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("jarvis_streaming_bubble"),
+        horizontalArrangement = Arrangement.Start
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.90f)
+                .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 18.dp))
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(Color(0xFF141126), Color(0xFF0D0E17))
+                    )
+                )
+                .border(
+                    width = 0.9.dp,
+                    color = Color(0xFFA855F7).copy(alpha = 0.7f),
+                    shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 18.dp)
+                )
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .alpha(cursorAlpha)
+                        .clip(CircleShape)
+                        .background(Color(0xFFB7F000))
+                )
+                Text(
+                    text = "J.A.R.V.I.S. · LIVE",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.sp,
+                    color = Color(0xFFA855F7)
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = if (cursorAlpha > 0.55f) "$streamingText▌" else "$streamingText ",
+                fontSize = 13.sp,
+                lineHeight = 19.sp,
+                color = Color(0xFFF7F4FF)
+            )
         }
     }
 }

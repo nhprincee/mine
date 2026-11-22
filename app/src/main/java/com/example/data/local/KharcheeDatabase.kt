@@ -28,7 +28,12 @@ data class ExpenseRoomEntity(
     val type: String,
     val note: String,
     val txEpochMillis: Long,
-    val exactAmount: Double = amount.toDouble()
+    val exactAmount: Double = amount.toDouble(),
+    val transactionScope: String = LifetimeFinancialMemorySystem.classifyTransactionScope(
+        category = category,
+        type = type,
+        note = note
+    )
 ) {
     fun toDomainModel(): ExpenseRecord = ExpenseRecord(
         id = id,
@@ -54,7 +59,12 @@ data class ExpenseRoomEntity(
             type = record.type,
             note = record.note,
             txEpochMillis = record.txEpochMillis,
-            exactAmount = record.resolvedExactAmount
+            exactAmount = record.resolvedExactAmount,
+            transactionScope = LifetimeFinancialMemorySystem.classifyTransactionScope(
+                category = record.category,
+                type = record.type,
+                note = record.note
+            )
         )
     }
 }
@@ -86,6 +96,28 @@ data class GoalRoomEntity(
     }
 }
 
+/**
+ * Permanent Lifetime Financial Memory entity for Khata transactions.
+ * INVARIANT: Historical records are NEVER hard-deleted; removals use soft-archive (`isArchived = 1`).
+ */
+@Entity(tableName = "khata_lifetime_ledger")
+data class KhataLifetimeRoomEntity(
+    @PrimaryKey val id: String,
+    val userId: String,
+    val contactId: String,
+    val contactName: String,
+    val direction: String, // "LENA_HAI" | "DENA_HAI"
+    val recordType: String, // "ORIGINAL_ENTRY" | "PARTIAL_PAYMENT" | "FULL_SETTLEMENT"
+    val amount: Long,
+    val description: String,
+    val txDateMillis: Long,
+    val createdAtMillis: Long,
+    val updatedAtMillis: Long,
+    val isArchived: Boolean = false,
+    val isDeleted: Boolean = false,
+    val transactionScope: String = LifetimeFinancialMemorySystem.SCOPE_MONEY_MOVEMENT
+)
+
 @Dao
 interface ExpenseDao {
     @Query("SELECT * FROM expenses WHERE userId = :userId ORDER BY txEpochMillis DESC")
@@ -93,6 +125,37 @@ interface ExpenseDao {
 
     @Query("SELECT * FROM expenses WHERE userId = :userId ORDER BY txEpochMillis DESC")
     suspend fun getExpensesForUser(userId: String): List<ExpenseRoomEntity>
+
+    /**
+     * Strictly personal spending expenses — excludes lending/borrowing/Khata money movements.
+     */
+    @Query(
+        "SELECT * FROM expenses WHERE userId = :userId AND type != 'income' AND transactionScope = 'personalspending' ORDER BY txEpochMillis DESC"
+    )
+    fun observePersonalSpendingForUser(userId: String): Flow<List<ExpenseRoomEntity>>
+
+    @Query(
+        "SELECT * FROM expenses WHERE userId = :userId AND type != 'income' AND transactionScope = 'personalspending' ORDER BY txEpochMillis DESC"
+    )
+    suspend fun getPersonalSpendingForUser(userId: String): List<ExpenseRoomEntity>
+
+    @Query(
+        "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE userId = :userId AND type != 'income' AND transactionScope = 'personalspending' AND txEpochMillis BETWEEN :startMillis AND :endMillis"
+    )
+    suspend fun getPersonalSpendingTotalInRange(userId: String, startMillis: Long, endMillis: Long): Long
+
+    /**
+     * Strictly lending/borrowing/Khata money movements — isolated from personal spending calculations.
+     */
+    @Query(
+        "SELECT * FROM expenses WHERE userId = :userId AND transactionScope = 'moneymovement' ORDER BY txEpochMillis DESC"
+    )
+    fun observeMoneyMovementsForUser(userId: String): Flow<List<ExpenseRoomEntity>>
+
+    @Query(
+        "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE userId = :userId AND transactionScope = 'moneymovement' AND txEpochMillis BETWEEN :startMillis AND :endMillis"
+    )
+    suspend fun getMoneyMovementTotalInRange(userId: String, startMillis: Long, endMillis: Long): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertExpense(expense: ExpenseRoomEntity)
@@ -134,14 +197,46 @@ interface GoalDao {
     suspend fun clearGoalsForUser(userId: String)
 }
 
+/**
+ * Append-and-archive-only DAO for Lifetime Khata Financial Memory.
+ * Intentionally exposes NO hard-delete SQL statement so historical Khata entries can never be wiped.
+ */
+@Dao
+interface KhataLifetimeDao {
+    @Query("SELECT * FROM khata_lifetime_ledger WHERE userId = :userId ORDER BY txDateMillis DESC")
+    fun observeAllLifetimeKhataEntries(userId: String): Flow<List<KhataLifetimeRoomEntity>>
+
+    @Query("SELECT * FROM khata_lifetime_ledger WHERE userId = :userId ORDER BY txDateMillis DESC")
+    suspend fun getAllLifetimeKhataEntries(userId: String): List<KhataLifetimeRoomEntity>
+
+    @Query("SELECT * FROM khata_lifetime_ledger WHERE userId = :userId AND isArchived = 0 AND isDeleted = 0 ORDER BY txDateMillis DESC")
+    suspend fun getActiveKhataEntries(userId: String): List<KhataLifetimeRoomEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertEntry(entry: KhataLifetimeRoomEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertEntries(entries: List<KhataLifetimeRoomEntity>)
+
+    @Query(
+        "UPDATE khata_lifetime_ledger SET isArchived = 1, updatedAtMillis = :updatedAtMillis WHERE id = :entryId AND userId = :userId"
+    )
+    suspend fun softArchiveEntry(entryId: String, userId: String, updatedAtMillis: Long)
+}
+
 @Database(
-    entities = [ExpenseRoomEntity::class, GoalRoomEntity::class],
-    version = 2,
+    entities = [
+        ExpenseRoomEntity::class,
+        GoalRoomEntity::class,
+        KhataLifetimeRoomEntity::class
+    ],
+    version = 3,
     exportSchema = false
 )
 abstract class KharcheeDatabase : RoomDatabase() {
     abstract fun expenseDao(): ExpenseDao
     abstract fun goalDao(): GoalDao
+    abstract fun khataLifetimeDao(): KhataLifetimeDao
 
     companion object {
         @Volatile
@@ -162,6 +257,47 @@ abstract class KharcheeDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Non-destructive incremental schema migration from v2 to v3:
+         * 1. Adds `transactionScope` ('personalspending' vs 'moneymovement') to `expenses` and backfills existing rows.
+         * 2. Creates permanent soft-archive table `khata_lifetime_ledger` preserving all historical Khata transactions.
+         */
+        val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE expenses ADD COLUMN transactionScope TEXT NOT NULL DEFAULT 'personalspending'"
+                )
+                db.execSQL(
+                    """
+                    UPDATE expenses
+                    SET transactionScope = 'moneymovement'
+                    WHERE LOWER(category) IN ('khata', 'lending', 'borrowing', 'loan', 'split', 'udhar', 'udhaar', 'settlement', 'lena hai', 'dena hai')
+                       OR LOWER(type) IN ('moneymovement', 'lending', 'borrowing', 'khata')
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS khata_lifetime_ledger (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        userId TEXT NOT NULL,
+                        contactId TEXT NOT NULL,
+                        contactName TEXT NOT NULL,
+                        direction TEXT NOT NULL,
+                        recordType TEXT NOT NULL,
+                        amount INTEGER NOT NULL,
+                        description TEXT NOT NULL,
+                        txDateMillis INTEGER NOT NULL,
+                        createdAtMillis INTEGER NOT NULL,
+                        updatedAtMillis INTEGER NOT NULL,
+                        isArchived INTEGER NOT NULL DEFAULT 0,
+                        isDeleted INTEGER NOT NULL DEFAULT 0,
+                        transactionScope TEXT NOT NULL DEFAULT 'moneymovement'
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): KharcheeDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -170,7 +306,7 @@ abstract class KharcheeDatabase : RoomDatabase() {
                     "kharchee_local_cache.db"
                 )
                     // Safe incremental Migration policy: NEVER drop user tables on app updates.
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { INSTANCE = it }
             }

@@ -15,17 +15,38 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.MainActivity
 import com.example.R
+import com.example.data.model.ExpenseRecord
 import com.example.data.model.NightGuardSchedule
 import com.example.data.model.PaymentReminderRecord
 import com.example.data.model.UserSettings
+import com.example.data.model.isIncomeTransaction
+import com.example.data.model.isSameDay
 import java.util.Calendar
 import kotlin.math.abs
+import kotlin.math.roundToInt
+
+enum class DailyLimitAlertTier {
+    SAFE,
+    APPROACHING_LIMIT,
+    EXCEEDED_LIMIT
+}
+
+data class DailyLimitTrackerStatus(
+    val todaySpent: Long,
+    val dailyLimit: Long,
+    val remainingBudget: Long,
+    val usagePercentage: Int,
+    val statusTier: DailyLimitAlertTier,
+    val alertTriggered: Boolean
+)
 
 object KharcheeNotificationManager {
 
     private const val CHANNEL_PAYMENT_REMINDERS = "kharchee_payment_reminders"
     private const val CHANNEL_NIGHT_GUARD = "kharchee_night_guard"
     private const val CHANNEL_MORNING_REVIEW = "kharchee_morning_review"
+    private const val CHANNEL_DAILY_LIMIT = "kharchee_daily_limit_alerts"
+    private const val TYPE_DAILY_LIMIT_ALERT = "daily_limit_alert"
     private const val PREFS_DEDUPE = "kharchee_notification_dedupe"
 
     fun ensureChannels(context: Context) {
@@ -55,9 +76,18 @@ object KharcheeNotificationManager {
                 description = "Daily morning review of postponed purchases and budget reserve"
             }
 
+            val dailyLimitChannel = NotificationChannel(
+                CHANNEL_DAILY_LIMIT,
+                "Daily Spending Limit Alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "High-priority alerts when approaching or exceeding your daily spending threshold"
+            }
+
             manager.createNotificationChannel(paymentChannel)
             manager.createNotificationChannel(nightGuardChannel)
             manager.createNotificationChannel(morningReviewChannel)
+            manager.createNotificationChannel(dailyLimitChannel)
         }
     }
 
@@ -93,6 +123,7 @@ object KharcheeNotificationManager {
         val channelId = when (type) {
             PaymentReminderReceiver.TYPE_NIGHT_GUARD_ALERT -> CHANNEL_NIGHT_GUARD
             PaymentReminderReceiver.TYPE_MORNING_REVIEW -> CHANNEL_MORNING_REVIEW
+            TYPE_DAILY_LIMIT_ALERT -> CHANNEL_DAILY_LIMIT
             else -> CHANNEL_PAYMENT_REMINDERS
         }
 
@@ -293,4 +324,86 @@ object KharcheeNotificationManager {
             alarmManager.cancel(pendingIntent)
         }
     }
+
+    /**
+     * Pure calculation of the current day's total personal expense against the defined daily threshold.
+     * Excludes income and Khata/lending/borrowing money movements so personal daily limits stay accurate.
+     */
+    fun evaluateDailySpendingLimit(
+        expenses: List<ExpenseRecord>,
+        dailyLimit: Long,
+        nowMillis: Long = System.currentTimeMillis()
+    ): DailyLimitTrackerStatus {
+        val safeLimit = dailyLimit.coerceAtLeast(1L)
+        val todaySpent = expenses
+            .filter {
+                com.example.data.local.LifetimeFinancialMemorySystem.isPersonalSpending(it) &&
+                    isSameDay(it.txEpochMillis, nowMillis)
+            }
+            .sumOf { it.amount }
+        val remaining = (safeLimit - todaySpent).coerceAtLeast(0L)
+        val usagePct = ((todaySpent.toDouble() / safeLimit.toDouble()) * 100.0).roundToInt().coerceAtLeast(0)
+        val tier = when {
+            todaySpent > safeLimit -> DailyLimitAlertTier.EXCEEDED_LIMIT
+            usagePct >= 80 -> DailyLimitAlertTier.APPROACHING_LIMIT
+            else -> DailyLimitAlertTier.SAFE
+        }
+        return DailyLimitTrackerStatus(
+            todaySpent = todaySpent,
+            dailyLimit = safeLimit,
+            remainingBudget = remaining,
+            usagePercentage = usagePct,
+            statusTier = tier,
+            alertTriggered = false
+        )
+    }
+
+    /**
+     * Calculates today's total spending and triggers a deduplicated high-priority alert notification
+     * whenever the user approaches (>=80%) or exceeds (>100%) their daily spending limit.
+     */
+    fun checkAndNotifyDailySpendingLimit(
+        context: Context,
+        expenses: List<ExpenseRecord>,
+        dailyLimit: Long,
+        nowMillis: Long = System.currentTimeMillis()
+    ): DailyLimitTrackerStatus {
+        val status = evaluateDailySpendingLimit(expenses, dailyLimit, nowMillis)
+        if (status.statusTier == DailyLimitAlertTier.SAFE) {
+            return status
+        }
+        val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
+        val dayKey = "${cal.get(Calendar.YEAR)}_${cal.get(Calendar.DAY_OF_YEAR)}"
+        val (title, body, dedupeKey, notifId) = when (status.statusTier) {
+            DailyLimitAlertTier.EXCEEDED_LIMIT -> {
+                val overBy = (status.todaySpent - status.dailyLimit).coerceAtLeast(0L)
+                Quadruple(
+                    "🚨 Daily Spending Limit Exceeded!",
+                    "You spent ₹${status.todaySpent} today (${status.usagePercentage}% of ₹${status.dailyLimit} limit — over by ₹$overBy). Pause discretionary spends.",
+                    "daily_limit_exceeded_${dayKey}_${status.dailyLimit}",
+                    41002
+                )
+            }
+            DailyLimitAlertTier.APPROACHING_LIMIT -> {
+                Quadruple(
+                    "⚠️ Approaching Daily Spending Limit (${status.usagePercentage}%)",
+                    "You spent ₹${status.todaySpent} of ₹${status.dailyLimit} today. Only ₹${status.remainingBudget} remaining before your daily threshold.",
+                    "daily_limit_approaching_${dayKey}_${status.dailyLimit}",
+                    41001
+                )
+            }
+            DailyLimitAlertTier.SAFE -> return status
+        }
+        val fired = showNotificationIfPermitted(
+            context = context,
+            type = TYPE_DAILY_LIMIT_ALERT,
+            notificationId = notifId,
+            title = title,
+            body = body,
+            dedupeKey = dedupeKey
+        )
+        return status.copy(alertTriggered = fired)
+    }
+
+    private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 }

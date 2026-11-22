@@ -46,10 +46,10 @@ object ImpulseCooldownManager {
     const val COOLDOWN_DURATION_MILLIS = 15 * 60 * 1000L // 15 Minutes
 
     /**
-     * Checks whether the category is a target impulse category (Shopping or Entertainment) and amount > ₹500.
+     * Checks whether the category is a target impulse category (Shopping or Entertainment) and amount >= ₹500.
      */
     fun isImpulseTargetCategoryAndAmount(amount: Long, category: String): Boolean {
-        if (amount <= 500L) return false
+        if (amount < 500L) return false
         return category.equals("Shopping", ignoreCase = true) ||
             category.equals("Entertainment", ignoreCase = true)
     }
@@ -59,6 +59,18 @@ object ImpulseCooldownManager {
      */
     fun isLateNightImpulseHour(hourOfDay24: Int = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)): Boolean {
         return hourOfDay24 >= 22 || hourOfDay24 < 5
+    }
+
+    /**
+     * Returns true when a ₹500+ Shopping/Entertainment expense is logged after 10 PM,
+     * triggering the mandatory 15-minute Impulse-Buy Cooldown Lock freeze.
+     */
+    fun shouldAutoTriggerCooldownLock(
+        amount: Long,
+        category: String,
+        hourOfDay24: Int = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    ): Boolean {
+        return isImpulseTargetCategoryAndAmount(amount, category) && isLateNightImpulseHour(hourOfDay24)
     }
 
     /**

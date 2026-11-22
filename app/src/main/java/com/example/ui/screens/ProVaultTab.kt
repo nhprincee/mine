@@ -212,6 +212,8 @@ fun ProVaultTab(
     onProActivated: ((String) -> Unit)? = null,
     onCreateGoal: ((title: String, targetAmount: Long, savedAmount: Long) -> Unit)? = null,
     onAddGoalProgress: ((SavingsGoalRecord, Long) -> Unit)? = null,
+    premiumEntitlement: com.example.data.model.FirestorePremiumEntitlementState =
+        com.example.data.model.PremiumEntitlementEvaluator.evaluate(settings, isSyncedFromFirestore = true),
     modifier: Modifier = Modifier
 ) {
     val hud = LocalHudTheme.current
@@ -219,7 +221,8 @@ fun ProVaultTab(
     val context = LocalContext.current
     val selectedFontId by FontPreferenceManager.selectedFontId.collectAsStateWithLifecycle()
 
-    val activeProTier = if (settings.isPro) settings.proTier else null
+    val isProVerifiedActive = premiumEntitlement.isProActive
+    val activeProTier = if (isProVerifiedActive) premiumEntitlement.proTier else null
     var selectedPlanId by remember(activeProTier) {
         mutableStateOf(
             if (activeProTier == "gold") "starter_monthly" else "sovereign_lifetime"
@@ -285,7 +288,7 @@ fun ProVaultTab(
             Interactive3dSovereignMetalCardSection(
                 userDisplayName = userDisplayName,
                 deviceHash = deviceHash,
-                isSovereignPro = settings.isPro,
+                isSovereignPro = isProVerifiedActive,
                 disciplineScore = disciplineScore,
                 streakDays = streakDays,
                 selectedFinish = selectedMetalFinish,
@@ -302,7 +305,7 @@ fun ProVaultTab(
             SovereignFourPowerFeaturesShowcaseSection(
                 userId = userId,
                 userDisplayName = userDisplayName,
-                isSovereignPro = settings.isPro,
+                isSovereignPro = isProVerifiedActive,
                 expenses = expenses,
                 disciplineScore = disciplineScore,
                 streakDays = streakDays,
@@ -318,7 +321,7 @@ fun ProVaultTab(
             SovereignEnterpriseFourStudiosSection(
                 userId = userId,
                 userDisplayName = userDisplayName,
-                isSovereignPro = settings.isPro,
+                isSovereignPro = isProVerifiedActive,
                 settings = settings,
                 expenses = expenses,
                 savingsGoals = savingsGoals,
@@ -336,7 +339,7 @@ fun ProVaultTab(
         // 2C. SECRET GHOST VAULT (DECOY HIDDEN LEDGER PROTECTED BY SEPARATE 4-DIGIT SHA-256 GHOST PIN)
         item {
             SecretGhostVaultStudioCard(
-                isSovereignPro = settings.isPro,
+                isSovereignPro = isProVerifiedActive,
                 onRequestUnlockPro = {
                     showCheckoutModal = true
                 },
@@ -515,8 +518,12 @@ fun ProVaultTab(
                         modifier = Modifier.border(0.8.dp, ObsidianDarkBorder, RoundedCornerShape(50))
                     ) {
                         Text(
-                            text = if (settings.isPro) {
-                                "ACTIVE: KHARCHEE SOVEREIGN LIFETIME · UNLOCKED FOREVER"
+                            text = if (isProVerifiedActive) {
+                                "ACTIVE: KHARCHEE SOVEREIGN · ${premiumEntitlement.statusBadgeLabel()}"
+                            } else if (premiumEntitlement.hasPendingVerification) {
+                                "FIRESTORE STATUS: PAYMENT VERIFICATION PENDING"
+                            } else if (premiumEntitlement.isExpired) {
+                                "KHARCHEE PRO EXPIRED · RENEW TO UNLOCK"
                             } else {
                                 "KHARCHEE SOVEREIGN · CORE FOREVER FREE"
                             },
@@ -611,14 +618,14 @@ fun ProVaultTab(
             KharcheePro30ModuleHubSection(
                 userId = userId,
                 userDisplayName = userDisplayName,
-                isProUnlocked = settings.isPro,
+                isProUnlocked = isProVerifiedActive,
                 disciplineScore = disciplineScore,
                 streakDays = streakDays,
                 dailyLimit = settings.dailyLimit,
                 expenses = expenses,
                 savingsGoals = savingsGoals,
                 paymentReminders = paymentReminders,
-                proExpiryMillis = settings.proExpiryMillis,
+                proExpiryMillis = premiumEntitlement.effectiveExpiryMillis,
                 onDeleteAccountRequested = onDeleteAccountRequested,
                 onShowToast = onShowToast
             )
@@ -636,9 +643,9 @@ fun ProVaultTab(
                         width = 1.dp,
                         brush = Brush.linearGradient(
                             colors = listOf(
-                                if (settings.isPro) ChampagneGold.copy(alpha = 0.8f) else HairlinePlatinum,
+                                if (isProVerifiedActive) ChampagneGold.copy(alpha = 0.8f) else HairlinePlatinum,
                                 MutedPlatinum.copy(alpha = 0.4f),
-                                if (settings.isPro) ChampagneGold.copy(alpha = 0.6f) else HairlinePlatinum
+                                if (isProVerifiedActive) ChampagneGold.copy(alpha = 0.6f) else HairlinePlatinum
                             )
                         ),
                         shape = RoundedCornerShape(24.dp)
@@ -865,7 +872,7 @@ fun ProVaultTab(
             ) {
                 SovereignValueComparisonAndConversionSection(
                     selectedPlanId = selectedPlanId,
-                    isProActive = settings.isPro,
+                    isProActive = isProVerifiedActive,
                     activeProTier = activeProTier,
                     onSelectPlan = { planId ->
                         selectedPlanId = planId
@@ -973,7 +980,7 @@ fun ProVaultTab(
                     deviceHash = deviceHash,
                     selectedPlanTitle = selectedPlan.title,
                     selectedPlanAmountInr = selectedPlan.amountInr,
-                    isProActive = settings.isPro,
+                    isProActive = isProVerifiedActive,
                     utrInputText = utrInputText,
                     activationCodeInput = activationCodeInput,
                     onActivationCodeChange = {

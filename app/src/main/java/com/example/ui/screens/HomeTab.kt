@@ -456,7 +456,22 @@ fun HomeTab(
                 )
             }
 
-            // 2. OXYGEN BURN TANK (RUNWAY PROGRESS BAR) IMMEDIATELY BELOW DONUT CHART
+            // 1B. DAILY SPENDING LIMIT TRACKER & LIVE PROGRESS INDICATOR
+            item {
+                val dailyLimitStatus = remember(expenses, dailyLimit) {
+                    com.example.util.KharcheeNotificationManager.evaluateDailySpendingLimit(
+                        expenses = expenses,
+                        dailyLimit = dailyLimit
+                    )
+                }
+                DailySpendingLimitTrackerCard(
+                    status = dailyLimitStatus,
+                    stealthMode = settings.stealthMode,
+                    onUpdateDailyLimit = onUpdateDailyLimit
+                )
+            }
+
+            // 2. OXYGEN BURN TANK (RUNWAY PROGRESS BAR) IMMEDIATELY BELOW DAILY TRACKER
             item {
                 MonthlyOxygenTankProgressBar(
                     monthlyBudgetTarget = monthlyBudgetTargetTop,

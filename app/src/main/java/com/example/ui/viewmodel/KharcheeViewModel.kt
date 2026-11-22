@@ -5,12 +5,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.AccountabilityEvaluation
 import com.example.data.model.ExpenseRecord
+import com.example.data.model.FirestorePremiumEntitlementState
 import com.example.data.model.JarvisChatMessage
 import com.example.data.model.KhataFriendRecord
 import com.example.data.model.NightGuardEventRecord
 import com.example.data.model.NightGuardSchedule
 import com.example.data.model.PaymentReminderRecord
 import com.example.data.model.PendingSpendRequest
+import com.example.data.model.PremiumAccessDecision
+import com.example.data.model.PremiumEntitlementEvaluator
+import com.example.data.model.PremiumFeature
 import com.example.data.model.ProactiveFinancialInsight
 import com.example.data.model.SavingsGoalRecord
 import com.example.data.model.UpiAccountabilityEngine
@@ -22,11 +26,18 @@ import com.example.data.repository.KharcheeRepository
 import com.example.receiver.AutoExpenseDetectionStore
 import com.example.ui.jarvis.JarvisProposedAction
 import com.example.ui.jarvis.parseNaturalLanguageActionProposal
+import com.example.data.local.LifetimeFinancialMemorySystem
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
+import com.google.firebase.ai.type.Content
 import com.google.firebase.ai.type.content
+import com.google.firebase.ai.type.generationConfig
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestoreException
+import java.io.IOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -37,6 +48,7 @@ import com.example.util.PerformancePreferences
 import com.example.util.PreFormattedTransactionUiModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +57,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -62,17 +75,98 @@ sealed interface UiState<out T> {
 data class JarvisErrorState(
     val message: String,
     val isRateLimit: Boolean = false,
-    val lastFailedPrompt: String = ""
+    val lastFailedPrompt: String = "",
+    val isOffline: Boolean = false,
+    val isTimeout: Boolean = false
 )
+
+data class JarvisConversationTurn(
+    val role: String, // "user" or "model"
+    val text: String
+)
+
+/**
+ * Abstraction over Gemini AI chat streaming so production uses Firebase AI Logic (`gemini-3.8-flash`)
+ * and unit tests can deterministically verify streaming, memory, errors, cancellation, and retries.
+ */
+interface JarvisGeminiGateway {
+    fun streamReply(
+        systemPrompt: String,
+        conversationHistory: List<JarvisConversationTurn>,
+        userPrompt: String
+    ): Flow<String>
+}
+
+class FirebaseAiJarvisGeminiGateway(
+    private val modelName: String = JARVIS_GEMINI_MODEL_ID
+) : JarvisGeminiGateway {
+
+    private val jarvisGenerationConfig by lazy {
+        generationConfig {
+            temperature = 0.5f
+            topP = 0.9f
+            maxOutputTokens = 480
+        }
+    }
+
+    override fun streamReply(
+        systemPrompt: String,
+        conversationHistory: List<JarvisConversationTurn>,
+        userPrompt: String
+    ): Flow<String> = flow {
+        val model = Firebase.ai.generativeModel(
+            modelName = modelName,
+            generationConfig = jarvisGenerationConfig,
+            systemInstruction = content { text(systemPrompt) }
+        )
+
+        val sdkHistory = mutableListOf<Content>()
+        conversationHistory.forEach { turn ->
+            val role = if (turn.role.equals("user", ignoreCase = true)) "user" else "model"
+            val trimmed = turn.text.trim()
+            if (trimmed.isNotEmpty()) {
+                // Keep turn roles cleanly alternating for Gemini multi-turn chat stability.
+                if (sdkHistory.isEmpty() && role == "model") {
+                    return@forEach
+                }
+                sdkHistory.add(content(role) { text(trimmed) })
+            }
+        }
+
+        val chat = model.startChat(history = sdkHistory)
+        var emittedAnyChunk = false
+        chat.sendMessageStream(userPrompt).collect { response ->
+            val chunk = response.text.orEmpty()
+            if (chunk.isNotEmpty()) {
+                emittedAnyChunk = true
+                emit(chunk)
+            }
+        }
+        if (!emittedAnyChunk) {
+            throw IllegalStateException("Gemini returned an empty response.")
+        }
+    }
+
+    companion object {
+        const val JARVIS_GEMINI_MODEL_ID = "gemini-3.8-flash"
+    }
+}
 
 class KharcheeViewModel(
     private val repository: KharcheeRepository,
-    private val currentUserId: String
+    private val currentUserId: String,
+    private val geminiGateway: JarvisGeminiGateway = FirebaseAiJarvisGeminiGateway(),
+    private val entitlementSettingsFlowOverride: Flow<UserSettings?>? = null,
+    private val pendingVerificationFlowOverride: Flow<Boolean>? = null
 ) : ViewModel() {
 
     private val generativeModel by lazy {
-        Firebase.ai.generativeModel("gemini-3.8-flash")
+        Firebase.ai.generativeModel(FirebaseAiJarvisGeminiGateway.JARVIS_GEMINI_MODEL_ID)
     }
+
+    private var activeJarvisGenerationJob: Job? = null
+    private var lastSubmittedPromptNormalized: String = ""
+    private var lastSubmittedAtMillis: Long = 0L
 
     private fun isFirebaseAuthenticated(): Boolean {
         return runCatching {
@@ -89,17 +183,82 @@ class KharcheeViewModel(
     private val _localPaymentReminders = MutableStateFlow<List<PaymentReminderRecord>>(emptyList())
     private val _localNightGuardEvents = MutableStateFlow<List<NightGuardEventRecord>>(emptyList())
 
-    private val remoteSettingsFlow: Flow<UserSettings?> = if (isFirebaseAuthenticated()) {
-        repository.observeUserSettings(currentUserId)
-            .onStart { emit(null) }
+    private data class RemoteEntitlementSnapshot(
+        val settings: UserSettings? = null,
+        val isSynced: Boolean = false,
+        val isLoading: Boolean = true,
+        val errorMessage: String? = null
+    )
+
+    private val remoteEntitlementSnapshotFlow: Flow<RemoteEntitlementSnapshot> = when {
+        entitlementSettingsFlowOverride != null -> entitlementSettingsFlowOverride
+            .map { RemoteEntitlementSnapshot(settings = it, isSynced = true, isLoading = false, errorMessage = null) }
+            .catch { error ->
+                if (error is CancellationException) throw error
+                emit(RemoteEntitlementSnapshot(settings = null, isSynced = false, isLoading = false, errorMessage = error.localizedMessage ?: "Entitlement sync failed"))
+            }
+        isFirebaseAuthenticated() -> repository.observeUserSettings(currentUserId)
+            .map { RemoteEntitlementSnapshot(settings = it, isSynced = true, isLoading = false, errorMessage = null) }
+            .onStart { emit(RemoteEntitlementSnapshot(settings = null, isSynced = false, isLoading = true, errorMessage = null)) }
             .catch { error ->
                 val firestoreError = error as? FirebaseFirestoreException ?: error.cause as? FirebaseFirestoreException
-                Log.w(TAG, "Error observing user settings: ${firestoreError?.code ?: error.message}")
-                emit(null)
+                if (firestoreError == null && error is CancellationException) throw error
+                val msg = firestoreError?.localizedMessage ?: error.localizedMessage ?: "Firestore error"
+                Log.w(TAG, "Error observing user settings: ${firestoreError?.code ?: msg}")
+                emit(RemoteEntitlementSnapshot(settings = null, isSynced = false, isLoading = false, errorMessage = msg))
             }
-    } else {
-        flowOf(null)
+        else -> flowOf(RemoteEntitlementSnapshot(settings = null, isSynced = true, isLoading = false, errorMessage = null))
     }
+
+    private val pendingVerificationStateFlow: Flow<Boolean> = when {
+        pendingVerificationFlowOverride != null -> pendingVerificationFlowOverride
+            .catch { error ->
+                if (error is CancellationException) throw error
+                emit(false)
+            }
+        isFirebaseAuthenticated() -> repository.observeHasPendingPaymentVerification(currentUserId)
+            .onStart { emit(false) }
+            .catch { error ->
+                val firestoreError = error as? FirebaseFirestoreException ?: error.cause as? FirebaseFirestoreException
+                if (firestoreError == null && error is CancellationException) throw error
+                Log.w(TAG, "Error observing payment verifications: ${firestoreError?.code ?: error.message}")
+                emit(false)
+            }
+        else -> flowOf(false)
+    }
+
+    /**
+     * Real-time Firestore-backed conditional entitlement layer gating premium features (Advanced Analytics,
+     * Custom Date Ranges, PDF/CSV Exports, Sovereign Pro Studios). Fails closed until Firestore confirms
+     * an active, non-expired server-verified Pro tier.
+     */
+    val premiumEntitlementState: StateFlow<FirestorePremiumEntitlementState> = combine(
+        remoteEntitlementSnapshotFlow,
+        pendingVerificationStateFlow
+    ) { snapshot, hasPendingVerification ->
+        PremiumEntitlementEvaluator.evaluate(
+            remoteSettings = snapshot.settings,
+            isSyncedFromFirestore = snapshot.isSynced,
+            isLoading = snapshot.isLoading,
+            hasPendingVerification = hasPendingVerification,
+            errorMessage = snapshot.errorMessage
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = FirestorePremiumEntitlementState(
+            isLoading = isFirebaseAuthenticated(),
+            isSyncedFromFirestore = !isFirebaseAuthenticated(),
+            isProActive = false
+        )
+    )
+
+    fun checkPremiumFeatureAccess(feature: PremiumFeature): PremiumAccessDecision {
+        return premiumEntitlementState.value.evaluateAccess(feature)
+    }
+
+    private val remoteSettingsFlow: Flow<UserSettings?> = remoteEntitlementSnapshotFlow
+        .map { it.settings }
 
     val settingsState: StateFlow<UiState<UserSettings?>> = combine(
         remoteSettingsFlow,
@@ -323,6 +482,29 @@ class KharcheeViewModel(
         initialValue = emptyList()
     )
 
+    val dailySpendingLimitState: StateFlow<com.example.util.DailyLimitTrackerStatus> = combine(
+        expensesState,
+        settingsState
+    ) { expState, setState ->
+        val expenses = (expState as? UiState.Success)?.data ?: emptyList()
+        val settings = (setState as? UiState.Success)?.data ?: UserSettings(userId = currentUserId)
+        com.example.util.KharcheeNotificationManager.evaluateDailySpendingLimit(
+            expenses = expenses,
+            dailyLimit = settings.dailyLimit
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = com.example.util.DailyLimitTrackerStatus(
+            todaySpent = 0L,
+            dailyLimit = 500L,
+            remainingBudget = 500L,
+            usagePercentage = 0,
+            statusTier = com.example.util.DailyLimitAlertTier.SAFE,
+            alertTriggered = false
+        )
+    )
+
     private val _pendingJarvisPrompt = MutableStateFlow<String?>(null)
     val pendingJarvisPrompt: StateFlow<String?> = _pendingJarvisPrompt.asStateFlow()
 
@@ -382,7 +564,11 @@ class KharcheeViewModel(
     }
 
     fun setJarvisMode(mode: String) {
-        _jarvisMode.value = if (mode == "advice") "advice" else "roast"
+        val normalized = mode.trim().lowercase()
+        _jarvisMode.value = when (normalized) {
+            "coach", "advice" -> "coach"
+            else -> "roast"
+        }
     }
 
     fun setJarvisLanguage(language: String) {
@@ -395,6 +581,45 @@ class KharcheeViewModel(
 
     fun dismissJarvisError() {
         _jarvisError.value = null
+    }
+
+    fun stopJarvisGeneration() {
+        val job = activeJarvisGenerationJob
+        activeJarvisGenerationJob = null
+        job?.cancel()
+        val partial = _jarvisStreamingReply.value.trim()
+        if (partial.isNotEmpty()) {
+            val now = System.currentTimeMillis()
+            val stoppedMsg = JarvisChatMessage(
+                id = "local_jarvis_stopped_$now",
+                userId = currentUserId,
+                role = "jarvis",
+                text = "$partial\n\n_(Generation stopped)_",
+                mode = _jarvisMode.value,
+                language = _jarvisLanguage.value,
+                txEpochMillis = now
+            )
+            _localJarvisMessages.value = _localJarvisMessages.value + stoppedMsg
+        }
+        _jarvisStreamingReply.value = ""
+        _jarvisIsGenerating.value = false
+    }
+
+    fun retryLastFailedJarvisMessage(
+        userDisplayName: String = "Commander",
+        extraKhataRecords: List<KhataFriendRecord> = emptyList()
+    ) {
+        val failedPrompt = _jarvisError.value?.lastFailedPrompt?.trim().orEmpty()
+        if (failedPrompt.isEmpty()) return
+        _jarvisError.value = null
+        lastSubmittedPromptNormalized = ""
+        lastSubmittedAtMillis = 0L
+        sendJarvisMessage(
+            rawPrompt = failedPrompt,
+            userDisplayName = userDisplayName,
+            extraKhataRecords = extraKhataRecords,
+            isRetry = true
+        )
     }
 
     fun consumeLatestSpokenJarvisText() {
@@ -489,23 +714,40 @@ class KharcheeViewModel(
     }
 
     private fun currentSettingsOrDefault(): UserSettings {
-        return (settingsState.value as? UiState.Success)?.data ?: UserSettings(userId = currentUserId)
+        val stateVal = (settingsState.value as? UiState.Success)?.data
+        return if (isFirebaseAuthenticated()) {
+            stateVal ?: _localSettings.value ?: UserSettings(userId = currentUserId)
+        } else {
+            _localSettings.value ?: stateVal ?: UserSettings(userId = currentUserId)
+        }
     }
 
     private fun currentExpensesOrEmpty(): List<ExpenseRecord> {
-        return (expensesState.value as? UiState.Success)?.data ?: emptyList()
+        val stateItems = (expensesState.value as? UiState.Success)?.data ?: emptyList()
+        val deletedIds = _localDeletedExpenseIds.value
+        return (_localExpenses.value + stateItems)
+            .filterNot { it.id in deletedIds }
+            .distinctBy { it.id.ifBlank { "${it.title}:${it.amount}:${it.txEpochMillis / 2000L}" } }
+            .sortedByDescending { it.txEpochMillis }
     }
 
     private fun currentKhataOrEmpty(): List<KhataFriendRecord> {
-        return (khataFriendsState.value as? UiState.Success)?.data ?: emptyList()
+        val stateItems = (khataFriendsState.value as? UiState.Success)?.data ?: emptyList()
+        return (_localKhataFriends.value + stateItems)
+            .distinctBy { it.id.ifBlank { it.name.trim().lowercase() } }
     }
 
     private fun currentSavingsGoalsOrEmpty(): List<SavingsGoalRecord> {
-        return (savingsGoalsState.value as? UiState.Success)?.data ?: emptyList()
+        val stateItems = (savingsGoalsState.value as? UiState.Success)?.data ?: emptyList()
+        return (_localSavingsGoals.value + stateItems)
+            .distinctBy { it.id.ifBlank { it.title.trim().lowercase() } }
     }
 
     private fun currentJarvisMessagesOrEmpty(): List<JarvisChatMessage> {
-        return (jarvisMessagesState.value as? UiState.Success)?.data ?: emptyList()
+        val stateItems = (jarvisMessagesState.value as? UiState.Success)?.data ?: emptyList()
+        return (stateItems + _localJarvisMessages.value)
+            .distinctBy { it.id.ifBlank { "${it.role}:${it.text}:${it.txEpochMillis / 2000L}" } }
+            .sortedBy { it.txEpochMillis }
     }
 
     private fun buildLiveFinancialContextSnapshot(userDisplayName: String): String {
@@ -525,10 +767,26 @@ class KharcheeViewModel(
     fun sendJarvisMessage(
         rawPrompt: String,
         userDisplayName: String = "Commander",
-        extraKhataRecords: List<KhataFriendRecord> = emptyList()
+        extraKhataRecords: List<KhataFriendRecord> = emptyList(),
+        isRetry: Boolean = false
     ) {
         val cleanPrompt = rawPrompt.trim()
         if (cleanPrompt.isEmpty()) return
+
+        // Prevent duplicate network calls while a response is already streaming or on rapid double-taps.
+        val now = System.currentTimeMillis()
+        val normalizedPrompt = cleanPrompt.lowercase()
+        if (_jarvisIsGenerating.value || activeJarvisGenerationJob?.isActive == true) {
+            return
+        }
+        if (!isRetry &&
+            normalizedPrompt == lastSubmittedPromptNormalized &&
+            (now - lastSubmittedAtMillis) < DUPLICATE_TAP_DEBOUNCE_MILLIS
+        ) {
+            return
+        }
+        lastSubmittedPromptNormalized = normalizedPrompt
+        lastSubmittedAtMillis = now
 
         val activeMode = _jarvisMode.value
         val activeLang = _jarvisLanguage.value
@@ -536,7 +794,6 @@ class KharcheeViewModel(
         _jarvisError.value = null
         _jarvisStreamingReply.value = ""
 
-        val now = System.currentTimeMillis()
         val userMsg = JarvisChatMessage(
             id = "local_user_$now",
             userId = currentUserId,
@@ -547,12 +804,11 @@ class KharcheeViewModel(
             txEpochMillis = now
         )
 
-        // 1. Check if user typed a natural quick-add command (e.g., "Add 150 Chai", "spent 200 uber", "milla 500 bonus", "debt 300 Rahul")
+        // 1. Preserve instant execution for explicit quick-add commands (e.g., "Add 150 Chai", "spent 200 uber", "milla 500 bonus", "debt 300 Rahul").
         val quickAddCmd = parseQuickAddExpenseCommand(cleanPrompt)
-        val deterministicReply: String
         if (quickAddCmd != null) {
             _pendingProposedAction.value = null
-            when (quickAddCmd.actionKind) {
+            val confirmationReply = when (quickAddCmd.actionKind) {
                 "income" -> {
                     addTransaction(
                         title = quickAddCmd.title,
@@ -563,7 +819,7 @@ class KharcheeViewModel(
                         note = "Logged via Jarvis CFO",
                         triggerUpiGuard = false
                     )
-                    deterministicReply = "Transaction logged instantly! ₹${quickAddCmd.amount} ${quickAddCmd.title} added to income."
+                    "Transaction logged instantly! ₹${quickAddCmd.amount} ${quickAddCmd.title} added to income."
                 }
                 "debt" -> {
                     addKhataFriend(
@@ -573,7 +829,7 @@ class KharcheeViewModel(
                         amount = quickAddCmd.amount,
                         description = "Logged via Jarvis CFO"
                     )
-                    deterministicReply = "Transaction logged instantly! ₹${quickAddCmd.amount} ${quickAddCmd.title} recorded in Khata ledger."
+                    "Transaction logged instantly! ₹${quickAddCmd.amount} ${quickAddCmd.title} recorded in Khata ledger."
                 }
                 else -> {
                     addTransaction(
@@ -584,63 +840,208 @@ class KharcheeViewModel(
                         type = "expense",
                         note = "Logged via Jarvis CFO"
                     )
-                    deterministicReply = "Transaction logged instantly! ₹${quickAddCmd.amount} ${quickAddCmd.title} added to spends."
+                    "Transaction logged instantly! ₹${quickAddCmd.amount} ${quickAddCmd.title} added to spends."
                 }
             }
-        } else {
-            // Check if the user prompt requests a navigation/settings confirmation-gated action
-            val detectedProposal = parseNaturalLanguageActionProposal(cleanPrompt)
-            if (detectedProposal != null && detectedProposal.actionType != "LOG_EXPENSE") {
-                _pendingProposedAction.value = detectedProposal
-            }
 
-            val mergedKhata = (currentKhataOrEmpty() + extraKhataRecords)
-                .distinctBy { it.name.trim().lowercase() }
-
-            deterministicReply = buildDeterministicJarvisFallbackReply(
-                prompt = cleanPrompt,
-                userDisplayName = userDisplayName,
+            val replyTimestamp = now + 1L
+            val jarvisMsg = JarvisChatMessage(
+                id = "local_jarvis_$replyTimestamp",
+                userId = currentUserId,
+                role = "jarvis",
+                text = confirmationReply,
                 mode = activeMode,
                 language = activeLang,
-                expenses = currentExpensesOrEmpty(),
-                settings = currentSettingsOrDefault(),
-                khata = mergedKhata,
-                goals = currentSavingsGoalsOrEmpty()
+                txEpochMillis = replyTimestamp
+            )
+            _localJarvisMessages.value = _localJarvisMessages.value + userMsg + jarvisMsg
+            _latestSpokenJarvisText.value = confirmationReply
+            _jarvisIsGenerating.value = false
+            persistJarvisMessagesAsync(
+                userText = cleanPrompt,
+                jarvisText = confirmationReply,
+                mode = activeMode,
+                language = activeLang,
+                userTimestamp = now,
+                replyTimestamp = replyTimestamp
+            )
+            return
+        }
+
+        // 2. Detect optional confirmation-gated app navigation / settings actions (never modifies data without explicit confirmation).
+        val detectedProposal = parseNaturalLanguageActionProposal(cleanPrompt)
+        if (detectedProposal != null && detectedProposal.actionType != "LOG_EXPENSE") {
+            _pendingProposedAction.value = detectedProposal
+        }
+
+        // 3. Snapshot prior conversation history BEFORE appending the new user message so multi-turn memory is accurate.
+        val existingMessages = currentJarvisMessagesOrEmpty()
+            .filterNot { it.id == "jarvis_welcome_roast" }
+        val lastMessageMatchesRetryPrompt = isRetry &&
+            existingMessages.lastOrNull()?.let {
+                it.role.equals("user", ignoreCase = true) && it.text.trim() == cleanPrompt
+            } == true
+        val priorMessagesForMemory = if (lastMessageMatchesRetryPrompt) {
+            existingMessages.dropLast(1)
+        } else {
+            existingMessages
+        }
+        val (olderSummary, recentHistoryTurns) = buildConversationMemoryWindow(
+            messages = priorMessagesForMemory,
+            maxRecentTurns = MAX_JARVIS_MEMORY_TURNS
+        )
+
+        // Append the user message immediately (avoid duplicating the same user message on Retry).
+        if (!lastMessageMatchesRetryPrompt) {
+            _localJarvisMessages.value = _localJarvisMessages.value + userMsg
+            persistSingleJarvisMessageAsync(
+                role = "user",
+                text = cleanPrompt,
+                mode = activeMode,
+                language = activeLang,
+                txEpochMillis = now
             )
         }
 
-        val replyTimestamp = now + 1L
-        val jarvisMsg = JarvisChatMessage(
-            id = "local_jarvis_$replyTimestamp",
-            userId = currentUserId,
-            role = "jarvis",
-            text = deterministicReply,
-            mode = activeMode,
-            language = activeLang,
-            txEpochMillis = replyTimestamp
+        val mergedKhata = (currentKhataOrEmpty() + extraKhataRecords)
+            .distinctBy { it.name.trim().lowercase() }
+
+        val liveTelemetrySnapshot = buildLiveFinancialContextSnapshotFromData(
+            userDisplayName = userDisplayName,
+            expenses = currentExpensesOrEmpty(),
+            settings = currentSettingsOrDefault(),
+            khata = mergedKhata,
+            goals = currentSavingsGoalsOrEmpty()
         )
 
-        // Immediately publish both messages to the UI with zero blocking wait
-        _localJarvisMessages.value = _localJarvisMessages.value + userMsg + jarvisMsg
-        _latestSpokenJarvisText.value = deterministicReply
-        _jarvisIsGenerating.value = false
+        val systemPrompt = buildJarvisSystemPrompt(
+            userDisplayName = userDisplayName,
+            mode = activeMode,
+            language = activeLang,
+            liveFinancialTelemetry = liveTelemetrySnapshot,
+            olderConversationSummary = olderSummary
+        )
 
-        // Non-blocking background sync to Firestore (safe against offline/timeout)
+        _jarvisIsGenerating.value = true
+        _jarvisStreamingReply.value = ""
+
+        activeJarvisGenerationJob = viewModelScope.launch {
+            val accumulated = StringBuilder()
+            try {
+                withTimeout(JARVIS_STREAM_TIMEOUT_MILLIS) {
+                    geminiGateway.streamReply(
+                        systemPrompt = systemPrompt,
+                        conversationHistory = recentHistoryTurns,
+                        userPrompt = cleanPrompt
+                    ).collect { chunk ->
+                        accumulated.append(chunk)
+                        _jarvisStreamingReply.value = accumulated.toString()
+                    }
+                }
+
+                val finalReply = accumulated.toString().trim()
+                if (finalReply.isEmpty()) {
+                    throw IllegalStateException("Gemini returned an empty response.")
+                }
+
+                val replyTimestamp = System.currentTimeMillis()
+                val jarvisMsg = JarvisChatMessage(
+                    id = "local_jarvis_$replyTimestamp",
+                    userId = currentUserId,
+                    role = "jarvis",
+                    text = finalReply,
+                    mode = activeMode,
+                    language = activeLang,
+                    txEpochMillis = replyTimestamp
+                )
+                _localJarvisMessages.value = _localJarvisMessages.value + jarvisMsg
+                _latestSpokenJarvisText.value = finalReply
+                _jarvisStreamingReply.value = ""
+                _jarvisIsGenerating.value = false
+                _jarvisError.value = null
+
+                persistSingleJarvisMessageAsync(
+                    role = "jarvis",
+                    text = finalReply,
+                    mode = activeMode,
+                    language = activeLang,
+                    txEpochMillis = replyTimestamp
+                )
+            } catch (e: TimeoutCancellationException) {
+                Log.e(TAG, "JARVIS Gemini request timed out after ${JARVIS_STREAM_TIMEOUT_MILLIS}ms", e)
+                _jarvisStreamingReply.value = ""
+                _jarvisIsGenerating.value = false
+                _jarvisError.value = JarvisErrorState(
+                    message = "Gemini AI timed out while generating a response. Check your connection and tap Retry.",
+                    isRateLimit = false,
+                    lastFailedPrompt = cleanPrompt,
+                    isOffline = false,
+                    isTimeout = true
+                )
+            } catch (e: CancellationException) {
+                // ALWAYS rethrow CancellationException to preserve cooperative coroutine cancellation (e.g. Stop Generation / lifecycle).
+                _jarvisIsGenerating.value = false
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "JARVIS Gemini generation failed", e)
+                _jarvisStreamingReply.value = ""
+                _jarvisIsGenerating.value = false
+                _jarvisError.value = mapJarvisExceptionToErrorState(e, cleanPrompt)
+            } finally {
+                if (activeJarvisGenerationJob?.isActive != true) {
+                    activeJarvisGenerationJob = null
+                }
+            }
+        }
+    }
+
+    private fun persistSingleJarvisMessageAsync(
+        role: String,
+        text: String,
+        mode: String,
+        language: String,
+        txEpochMillis: Long
+    ) {
+        if (!isFirebaseAuthenticated()) return
         viewModelScope.launch {
             runCatching {
-                withTimeout(2_500L) {
+                withTimeout(3_000L) {
+                    repository.saveJarvisMessage(
+                        role = role,
+                        text = text,
+                        mode = mode,
+                        language = language,
+                        txEpochMillis = txEpochMillis
+                    )
+                }
+            }
+        }
+    }
+
+    private fun persistJarvisMessagesAsync(
+        userText: String,
+        jarvisText: String,
+        mode: String,
+        language: String,
+        userTimestamp: Long,
+        replyTimestamp: Long
+    ) {
+        if (!isFirebaseAuthenticated()) return
+        viewModelScope.launch {
+            runCatching {
+                withTimeout(3_000L) {
                     repository.saveJarvisMessage(
                         role = "user",
-                        text = cleanPrompt,
-                        mode = activeMode,
-                        language = activeLang,
-                        txEpochMillis = now
+                        text = userText,
+                        mode = mode,
+                        language = language,
+                        txEpochMillis = userTimestamp
                     )
                     repository.saveJarvisMessage(
                         role = "jarvis",
-                        text = deterministicReply,
-                        mode = activeMode,
-                        language = activeLang,
+                        text = jarvisText,
+                        mode = mode,
+                        language = language,
                         txEpochMillis = replyTimestamp
                     )
                 }
@@ -649,9 +1050,14 @@ class KharcheeViewModel(
     }
 
     fun clearJarvisConversation() {
+        activeJarvisGenerationJob?.cancel()
+        activeJarvisGenerationJob = null
         _localJarvisMessages.value = emptyList()
         _jarvisError.value = null
         _jarvisStreamingReply.value = ""
+        _jarvisIsGenerating.value = false
+        lastSubmittedPromptNormalized = ""
+        lastSubmittedAtMillis = 0L
         _toastMessage.value = "🧹 Cleared J.A.R.V.I.S. conversation history"
         viewModelScope.launch {
             runCatching {
@@ -1344,20 +1750,23 @@ class KharcheeViewModel(
     companion object {
         const val TAG = "KharcheeVM"
         const val STOP_TIMEOUT_MILLIS = 5000L
+        const val MAX_JARVIS_MEMORY_TURNS = 8
+        const val DUPLICATE_TAP_DEBOUNCE_MILLIS = 1200L
+        const val JARVIS_STREAM_TIMEOUT_MILLIS = 45_000L
 
         /**
          * Summarizes earlier multi-turn conversation messages when history exceeds 8 turns so
          * J.A.R.V.I.S. retains long-context memory without exceeding prompt token budgets.
          */
         fun buildConversationContextSummary(messages: List<JarvisChatMessage>): String {
-            if (messages.size <= 8) return ""
-            val olderMessages = messages.dropLast(8)
+            if (messages.size <= MAX_JARVIS_MEMORY_TURNS) return ""
+            val olderMessages = messages.dropLast(MAX_JARVIS_MEMORY_TURNS)
             val userTopics = olderMessages
-                .filter { it.role == "user" }
+                .filter { it.role.equals("user", ignoreCase = true) }
                 .takeLast(6)
                 .mapIndexed { idx, msg -> "${idx + 1}. User asked: \"${msg.text.take(80)}\"" }
             val jarvisKeyPoints = olderMessages
-                .filter { it.role == "jarvis" }
+                .filter { !it.role.equals("user", ignoreCase = true) }
                 .takeLast(4)
                 .map { msg -> "- Jarvis advised: \"${msg.text.replace("\n", " ").take(100)}...\"" }
 
@@ -1372,6 +1781,118 @@ class KharcheeViewModel(
             }.trim()
         }
 
+        /**
+         * Splits conversation history into a compressed summary of older turns plus a bounded
+         * rolling window of the most recent turns for Gemini multi-turn chat memory.
+         */
+        fun buildConversationMemoryWindow(
+            messages: List<JarvisChatMessage>,
+            maxRecentTurns: Int = MAX_JARVIS_MEMORY_TURNS
+        ): Pair<String, List<JarvisConversationTurn>> {
+            val clean = messages.filter { it.text.isNotBlank() }
+            val olderSummary = buildConversationContextSummary(clean)
+            val recent = clean.takeLast(maxRecentTurns).map { msg ->
+                JarvisConversationTurn(
+                    role = if (msg.role.equals("user", ignoreCase = true)) "user" else "model",
+                    text = msg.text.trim()
+                )
+            }
+            return olderSummary to recent
+        }
+
+        /**
+         * Builds the live system prompt for Gemini (`gemini-3.8-flash`) containing J.A.R.V.I.S. persona,
+         * sharp concise response architecture, language matching (Hindi/Hinglish/English), mode (Roast vs Coach),
+         * and verified KHARCHEE financial telemetry without ever inventing figures or mixing Khata money movement
+         * into personal spending.
+         */
+        fun buildJarvisSystemPrompt(
+            userDisplayName: String,
+            mode: String,
+            language: String,
+            liveFinancialTelemetry: String,
+            olderConversationSummary: String = ""
+        ): String {
+            val modeInstruction = if (mode.equals("coach", ignoreCase = true) || mode.equals("advice", ignoreCase = true)) {
+                "Tone Mode: COACH — calm, decisive, high-signal personal finance advisor. Zero fluff, crisp actionable steps."
+            } else {
+                "Tone Mode: ROAST — razor-sharp, witty, confident AI CFO who delivers punchy 1-line roasts on overspending while staying genuinely useful and respectful."
+            }
+
+            val languageInstruction = when (language.trim().lowercase()) {
+                "hindi" -> "Language: Natural Hindi (Devanagari). Mirror the user's phrasing; if the user switches to English or Hinglish, adapt seamlessly."
+                "english" -> "Language: Crisp, direct conversational English. If the user writes in Hindi or Hinglish, mirror their language naturally."
+                else -> "Language: Natural Hinglish (conversational Hindi in Latin script mixed with crisp English). If the user writes in pure English or pure Hindi, match their language naturally."
+            }
+
+            return buildString {
+                appendLine("You are J.A.R.V.I.S., the sharp personal AI financial assistant inside KHARCHEE (expense tracker, daily/monthly budget guard, savings goals, Night Guard impulse blocker, and Lifetime Digital Khata).")
+                appendLine("User: $userDisplayName.")
+                appendLine(modeInstruction)
+                appendLine(languageInstruction)
+                appendLine()
+                appendLine("SHARP, CONCISE RESPONSE STYLE (MANDATORY):")
+                appendLine("1. ANSWER FIRST: Lead line 1 with the exact ₹ figure, verdict, or direct answer. Never open with filler ('Sure!', 'Great question!', 'Based on your data...', 'Let me check...').")
+                appendLine("2. HIGH-SIGNAL BREVITY: Keep replies tight — 2 to 4 crisp lines (or up to 3 short bullets for breakdowns/plans). No long paragraphs, no repeating the user's question, and never dump the raw telemetry block unless they explicitly ask for a full summary.")
+                appendLine("3. NATURAL CONVERSATION & MEMORY: Handle greetings ('Hello', 'Hi'), casual chats, general finance Qs, and follow-ups ('How can I reduce it?', 'Was that too much?', 'Aur kal ka?') naturally using the recent chat turns.")
+                appendLine("4. STRICT FINANCIAL GROUNDING: Cite ONLY verified live figures from KHARCHEE LIVE USER FINANCIAL TELEMETRY below or exact numbers the user stated in chat. Never invent, guess, or extrapolate transactions, balances, or Khata dues. If a figure is ₹0 or missing, state that plainly in one short line.")
+                appendLine("5. KHATA VS PERSONAL SPENDING INVARIANT: Never mix Khata lending/borrowing/settlements (MONEY MOVEMENT) into personal spending totals. Report personal spending and Khata Lena Hai / Dena Hai balances separately.")
+                appendLine("6. ACTION HONESTY: Never claim you logged, edited, or deleted a transaction unless the user explicitly ran a quick-add command or confirmed an action card.")
+                if (olderConversationSummary.isNotBlank()) {
+                    appendLine()
+                    appendLine("=== EARLIER CONVERSATION MEMORY SUMMARY ===")
+                    appendLine(olderConversationSummary)
+                }
+                appendLine()
+                appendLine(liveFinancialTelemetry)
+            }.trim()
+        }
+
+        /**
+         * Maps real network, timeout, rate-limit, App Check, or Gemini SDK exceptions into a transparent
+         * user-facing `JarvisErrorState` with Retry support — never pretending an error came from Gemini.
+         */
+        fun mapJarvisExceptionToErrorState(
+            throwable: Throwable,
+            failedPrompt: String
+        ): JarvisErrorState {
+            val chain = generateSequence(throwable) { it.cause }.toList()
+            val combinedMessage = chain.mapNotNull { it.message }.joinToString(" | ")
+            val lower = combinedMessage.lowercase()
+
+            val isOffline = chain.any {
+                it is UnknownHostException || it is ConnectException || it is SocketTimeoutException || it is IOException
+            } || lower.contains("unable to resolve host") ||
+                lower.contains("failed to connect") ||
+                lower.contains("network is unreachable") ||
+                lower.contains("no address associated") ||
+                lower.contains("offline")
+
+            val isRateLimit = lower.contains("429") ||
+                lower.contains("resource_exhausted") ||
+                lower.contains("quota") ||
+                lower.contains("rate limit") ||
+                lower.contains("too many requests")
+
+            val userMessage = when {
+                isOffline -> "No internet connection detected. J.A.R.V.I.S. needs an active network to reach Gemini AI. Reconnect and tap Retry."
+                isRateLimit -> "Gemini AI is temporarily rate-limited due to high demand. Wait a few seconds and tap Retry."
+                lower.contains("403") || lower.contains("app check") || lower.contains("permission_denied") ->
+                    "Gemini AI authorization check failed (HTTP 403 / App Check). Please reopen the app or try again shortly."
+                lower.contains("empty response") ->
+                    "Gemini AI returned an empty response. Tap Retry to ask again."
+                else -> "Could not reach Gemini AI (${throwable.localizedMessage ?: "service unavailable"}). Tap Retry to try again."
+            }
+
+            return JarvisErrorState(
+                message = userMessage,
+                isRateLimit = isRateLimit,
+                lastFailedPrompt = failedPrompt,
+                isOffline = isOffline,
+                isTimeout = false
+            )
+        }
+
         fun generateProactiveFinancialInsights(
             expenses: List<ExpenseRecord>,
             settings: UserSettings,
@@ -1382,7 +1903,7 @@ class KharcheeViewModel(
             val sevenDaysAgo = now - 7 * 86_400_000L
             val fourteenDaysAgo = now - 14 * 86_400_000L
 
-            val recentOutflows = expenses.filter { !isIncomeTransaction(it) }
+            val recentOutflows = expenses.filter { LifetimeFinancialMemorySystem.isPersonalSpending(it) }
             val todayExpenses = recentOutflows.filter { isSameDay(it.txEpochMillis, now) }
             val thisWeekExpenses = recentOutflows.filter { it.txEpochMillis in sevenDaysAgo..now }
             val lastWeekExpenses = recentOutflows.filter { it.txEpochMillis in fourteenDaysAgo until sevenDaysAgo }
@@ -1548,13 +2069,16 @@ class KharcheeViewModel(
             val dateFormat = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.US)
 
             val allIncomes = expenses.filter { isIncomeTransaction(it) }
-            val allExpenses = expenses.filter { !isIncomeTransaction(it) }
+            val allExpenses = expenses.filter { LifetimeFinancialMemorySystem.isPersonalSpending(it) }
+            val allMoneyMovements = expenses.filter { LifetimeFinancialMemorySystem.isMoneyMovement(it) }
             val todayExpenses = allExpenses.filter { isSameDay(it.txEpochMillis, now) }
             val monthExpenses = allExpenses.filter { isSameMonth(it.txEpochMillis, now) }
+            val monthMoneyMovements = allMoneyMovements.filter { isSameMonth(it.txEpochMillis, now) }
             val monthIncomes = allIncomes.filter { isSameMonth(it.txEpochMillis, now) }
 
             val todaySpent = todayExpenses.sumOf { it.amount }
             val monthSpent = monthExpenses.sumOf { it.amount }
+            val monthMoneyMovementTotal = monthMoneyMovements.sumOf { it.amount }
             val monthIncomeTotal = monthIncomes.sumOf { it.amount }
             val totalIncomeAll = allIncomes.sumOf { it.amount }
             val totalExpenseAll = allExpenses.sumOf { it.amount }
@@ -1572,7 +2096,7 @@ class KharcheeViewModel(
             val topCategoryEntry = sortedCategories.firstOrNull()
             val topCategorySummary = if (topCategoryEntry != null) {
                 val sharePct = if (monthSpent > 0L) ((topCategoryEntry.value * 100L) / monthSpent) else 0L
-                "${topCategoryEntry.key} (₹${topCategoryEntry.value} · $sharePct% of monthly outflow)"
+                "${topCategoryEntry.key} (₹${topCategoryEntry.value} · $sharePct% of monthly personal spend)"
             } else {
                 "None logged this month (₹0)"
             }
@@ -1599,14 +2123,20 @@ class KharcheeViewModel(
 
             val categoryBreakdown = sortedCategories
                 .joinToString("; ") { "${it.key}: ₹${it.value}" }
-                .ifEmpty { "No expenses logged this month" }
+                .ifEmpty { "No personal expenses logged this month" }
 
             val recentTxLines = expenses.take(12).joinToString("\n") { tx ->
-                val dir = if (isIncomeTransaction(tx)) "INCOME (+)" else "EXPENSE (-)"
+                val dir = when {
+                    isIncomeTransaction(tx) -> "INCOME (+)"
+                    LifetimeFinancialMemorySystem.isMoneyMovement(tx) -> "KHATA MONEY MOVEMENT (NOT PERSONAL SPEND)"
+                    else -> "PERSONAL SPEND (-)"
+                }
                 val dateStr = dateFormat.format(Date(tx.txEpochMillis))
                 "- [$dir] ₹${tx.amount} | ${tx.title} | Category: ${tx.category} | Mode: ${tx.paymentMode} | Note: ${tx.note.ifBlank { "None" }} | Date: $dateStr"
             }.ifEmpty { "- No transactions recorded yet." }
 
+            val totalKhataToReceive = khata.filter { it.balance > 0L }.sumOf { it.balance }
+            val totalKhataToPay = khata.filter { it.balance < 0L }.sumOf { -it.balance }
             val khataSummary = khata.joinToString("; ") { friend ->
                 when {
                     friend.balance > 0 -> "${friend.name} owes user ₹${friend.balance} (Lena Hai - ${friend.lastDescription})"
@@ -1630,9 +2160,10 @@ class KharcheeViewModel(
                 === KHARCHEE LIVE USER FINANCIAL TELEMETRY (AUTHORIZED REAL DATA) ===
                 User Name: $userDisplayName
                 Membership Tier: $proStatusStr
-                Current Total Balance: ₹$totalBalance
+                Current Total Balance (Income - Personal Spending): ₹$totalBalance
                 Monthly Inflow (Income): ₹$monthIncomeTotal
-                Monthly Outflow (Expenses): ₹$monthSpent
+                Monthly Personal Spending (Excludes Khata/Lending): ₹$monthSpent
+                Monthly Khata / Money Movement (Lending/Borrowing — NOT Personal Spending): ₹$monthMoneyMovementTotal
                 Net Monthly Cashflow: ₹${monthIncomeTotal - monthSpent}
                 Top Spending Category: $topCategorySummary
                 Monthly Budget Target (30x Daily): ₹$monthlyBudget
@@ -1641,7 +2172,8 @@ class KharcheeViewModel(
                 Today's Total Expense: ₹$todaySpent (Remaining today: ₹$dailyRemaining)
                 Lockdown Shield Active: ${settings.lockdownActive}
                 Discipline Score: $clampedScore / 900 (Streak: $streak days under daily limit)
-                Monthly Category Spend Breakdown: $categoryBreakdown
+                Monthly Category Spend Breakdown (Personal Only): $categoryBreakdown
+                Khata Net Totals (Separate from Personal Spending): To Receive (Lena Hai) ₹$totalKhataToReceive | To Pay (Dena Hai) ₹$totalKhataToPay
                 Khata Split Ledger Balances: $khataSummary
                 Savings Goals: $goalsSummary
                 Detected Autonomous Insights:
